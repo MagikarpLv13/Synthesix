@@ -6,7 +6,8 @@ browser = webbrowser.get()
 def search_term(mot_cle):
     # Ouvre le navigateur par défaut avec le mot clé de recherche
     #Google
-    browser.open(f"https://www.google.com/search?q={mot_cle}")
+    #&udm
+    browser.open(f"https://www.google.com/search?q={mot_cle}&udm=14")
     #Bing
     browser.open(f"https://www.bing.com/search?q={mot_cle}")
     #Brave
