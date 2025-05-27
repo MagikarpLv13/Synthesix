@@ -6,10 +6,9 @@ L'application tri les résultats en attribuant un score de pertinence en fonctio
 
 ## Fonctionnalités
 - Recherche simultanée sur :
-  - Google (Via une version modifiée de googlesearch-python)
-  - Bing (Via selenium)
+  - Google (Via Selenium)
+  - Bing (Via Selenium)
   - Brave
-
 
 ## Prérequis
 - Python 3.8 ou supérieur

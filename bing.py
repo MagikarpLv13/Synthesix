@@ -15,7 +15,7 @@ driver = webdriver.Chrome(options=options)
 
 def bing_search(query):
 
-    max_results = 15  # Nombre maximum de résultats souhaités
+    max_results = 25  # Nombre maximum de résultats souhaités
     results_count = 0
 
     # Construction de l'URL Bing initiale

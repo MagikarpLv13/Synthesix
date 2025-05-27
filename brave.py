@@ -2,7 +2,7 @@ import requests
 import re
 import json
 from html import unescape
-from user_agents import get_useragent
+import fake_useragent
 import pandas as pd
 
 
@@ -50,7 +50,7 @@ def search_brave(query):
     params = {"q": query, "spellcheck": 0}
 
     # Use fake user-agent to avoid bot detection
-    headers = {"User-Agent": get_useragent()}
+    headers = {"User-Agent": fake_useragent.UserAgent().random}
 
     response = requests.get(url, params=params, headers=headers)
     if response.status_code == 200:
@@ -59,7 +59,7 @@ def search_brave(query):
         data = extract_results(html)
 
         if data:
-            print(f"Nombre de résultats: {len(data)}")
+            #print(f"Nombre de résultats: {len(data)}")
             res = []
             for item in data:
                 title = item.get("title", "Titre non trouvé")
