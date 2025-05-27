@@ -1,14 +1,15 @@
 # MSA - Multi Search Agent
 
 ## Description
-MSA (Multi Search Agent) est un outil qui permet d'effectuer des recherches simultanées sur plusieurs moteurs de recherche. L'application ouvre automatiquement une fenêtre de navigateur pour chaque moteur de recherche sélectionné avec votre requête.
+MSA (Multi Search Agent) est un outil qui permet d'effectuer des recherches simultanées sur plusieurs moteurs de recherche.
+L'application tri les résultats en attribuant un score de pertinence en fonction du mot clé recherché, du titre, de la description et de l'URL.
 
 ## Fonctionnalités
 - Recherche simultanée sur :
-  - Google
-  - Bing
-  - Brave Search
-- Ouverture automatique des résultats dans votre navigateur par défaut
+  - Google (Via une version modifiée de googlesearch-python)
+  - Bing (Via selenium)
+  - Brave
+
 
 ## Prérequis
 - Python 3.8 ou supérieur
