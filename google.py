@@ -1,4 +1,5 @@
 from selenium import webdriver
+import undetected_chromedriver as uc
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -32,7 +33,7 @@ def google_search(query, num_results=25):
     options.add_argument("--headless")
 
     # Démarrage du navigateur
-    driver = webdriver.Chrome(options=options)
+    driver = uc.Chrome(options=options)
 
     # Accès à Google
     driver.get("https://www.google.com/search?q="+query+"&num="+str(num_results*1.5)+"&start=0&filter=0&nfpr=1&udm=14")
@@ -43,7 +44,7 @@ def google_search(query, num_results=25):
     try:
         results = wait.until(
             EC.presence_of_all_elements_located(
-                (By.CSS_SELECTOR, "[jscontroller][style='width:inherit']")
+                (By.CSS_SELECTOR, "[jscontroller][data-ved]")
             )
         )
     except:
@@ -52,24 +53,38 @@ def google_search(query, num_results=25):
         # Configuration des options Chrome
         options = Options()
         options.add_argument(f"--user-data-dir={profile_path}")
-        driver = webdriver.Chrome(options=options)
+        driver = uc.Chrome(options=options)
         driver.get("https://www.google.com/search?q="+query+"&num="+str(num_results*1.5)+"&start=0&filter=0&nfpr=1&udm=14")
         time.sleep(1)
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 600)
         results = wait.until(
             EC.presence_of_all_elements_located(
-                (By.CSS_SELECTOR, "[jscontroller][style='width:inherit']")
+                (By.CSS_SELECTOR, "[jscontroller][data-ved]")
             )
         )
 
     # Extraction des résultats
     for result in results:
         try:
-            title = result.find_element(By.CSS_SELECTOR, "h3").text
-            description = result.find_element(By.CSS_SELECTOR, ".VwiC3b").text
-            link = result.find_element(By.CSS_SELECTOR, "a").get_attribute("href")
+            # Cherche le lien qui contient un <h3> (le titre)
+            try:
+                h3_tag = result.find_element(By.CSS_SELECTOR, "h3")
+            except Exception as e:
+                continue
+
+            a_tag = h3_tag.find_element(By.XPATH, "./ancestor::a")
+            link = a_tag.get_attribute("href")
+            title = h3_tag.text
+
+            # Cherche la description : premier div descendant
+            description = ""
+            desc_divs = result.find_elements(By.CSS_SELECTOR, "[data-snf] span")
+            if desc_divs:
+                description = desc_divs[0].text
+
             res.append({"title": title, "link": link, "description": description, "source": "Google"})
-        except:
+        except Exception as e:
+            print("Erreur lors du parsing d'un résultat:", e)
             continue
 
     driver.quit()

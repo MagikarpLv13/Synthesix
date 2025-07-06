@@ -46,6 +46,25 @@ def extract_results(html):
 
 
 def search_brave(query):
+
+    # Split query by AND/OR operators
+    parts = re.split(r'\s+(AND|OR)\s+', query, flags=re.IGNORECASE)
+    
+    # Add quotes around terms that aren't operators
+    quoted_parts = []
+    for part in parts:
+        if part.upper() not in ['AND', 'OR']:
+            # Remove existing quotes if any and add new ones
+            clean_part = part.strip().strip('"')
+            quoted_parts.append(f'"{clean_part}"')
+        else:
+            quoted_parts.append(part)
+            
+    # Rejoin the parts
+    query = ' '.join(quoted_parts)
+
+    #print(f"query: {query}")
+
     url = "https://search.brave.com/search"
     params = {"q": query, "spellcheck": 0}
 
