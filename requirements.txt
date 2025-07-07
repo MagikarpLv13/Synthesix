@@ -8,3 +8,4 @@ setuptools
 nodriver
 lxml
 reliq
+pyquery

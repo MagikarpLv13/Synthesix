@@ -7,6 +7,7 @@ import bs4
 from reliq import reliq
 from lxml import html
 import json
+import pyquery
 
 async def google_search(query, num_results=25):
     """
@@ -21,6 +22,9 @@ async def google_search(query, num_results=25):
     """
 
     res = []
+    if query == "test":
+        test()
+        return
 
     custom_profile = os.path.join(os.getcwd(), "selenium-profile")
     os.makedirs(custom_profile, exist_ok=True)
@@ -42,7 +46,7 @@ async def google_search(query, num_results=25):
     raw_results = await tab.get_content()
     start_time = time.time()
     
-    res = parse_with_reliq(raw_results)
+    res = parse_with_lxml(raw_results)
     end_time = time.time()
     
     print(f"Temps d'exécution pour l'extraction des résultats: {end_time - start_time:.2f} secondes")
@@ -146,17 +150,38 @@ def parse_with_bs4(raw_results):
 
     return res
 
+# Je n'arrive pas à le faire fonctionner
 def parse_with_reliq(raw_results: str):
     res = []
     rq = reliq(raw_results)
-    rel_expr = reliq.expr(r"""
-        div .id=search; {
-            div[jscontroller][data-ved][data-hveid]; {
-            
-            }
+
+    for i in rq.filter(r'div jscontroller data-ved data-hveid'):
+        print(i.filter(r'h3').text)
+        print(i.filter(r'a href @ | "%(href)v"'))
+        print(i.filter(r'div data-snf data-sncf').text)
+
+    rqexpr = reliq.expr(r"""
+        div id=search; {
+            div jscontroller;{
+                div data-snf data-sncf;{
+            .short_description @ | "%t"
+            },
+            a href;{
+                .href @ | "%(href)v",
+                h3;{
+                    .h3 @ | "%i"
+                },
+            }             
         }
+    }
     """)
-    items = rq.search(rel_expr)
+    
+    items = rq.search(rqexpr)
+
+    print(items)
+
+    {"short_description":"This is a fake description for result 1.This is a fake description for result 2.This is a fake description for result 3.","href":"https://example.com/result1https://example.com/result2https://example.com/result3","h3":"Example Result Title 1Example Result Title 2Example Result Title 3"}
+
     print(len(items))
     for item in items:
         try:
@@ -168,9 +193,73 @@ def parse_with_reliq(raw_results: str):
                 "source": "Google"
             })
         except Exception as e:
-            print("Erreur lors du parsing reliq:", e)
             continue
     return res
+
+def parse_with_pyquery(raw_results):
+    res = []
+
+    doc = pyquery.PyQuery(raw_results)
+    search_div = doc("div#search")
+
+    if not search_div:
+        return res
+
+    results = search_div.find("div[jscontroller][data-ved][data-hveid]")
+
+    for result in results.items():
+        try:
+            a_tag = result.find("a[href]").eq(0)
+            if not a_tag:
+                continue
+            link = a_tag.attr("href")
+
+            h3_tag = a_tag.find("h3").eq(0)
+            if not h3_tag:
+                continue
+            title = h3_tag.text()
+
+            desc_div = result.find("[data-snf][data-sncf]").eq(0)
+            if not desc_div:
+                continue
+            description = desc_div.text()
+
+            res.append({
+                "title": title,
+                "link": link,
+                "description": description,
+                "source": "Google"
+            })
+
+        except Exception as e:
+            print("Erreur lors du parsing d'un résultat:", e)
+            continue
+
+    return res
+
+def test():
+    with open("index.html", "r") as file:
+        raw_results = file.read()
+    begin_time = time.time()
+    res = parse_with_lxml(raw_results)
+    end_time = time.time()
+    print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
+    begin_time = time.time()
+    res = parse_with_pyquery(raw_results)
+    end_time = time.time()
+    print(f"Temps d'exécution pour le parsing avec pyquery: {end_time - begin_time:.2f} secondes")
+    begin_time = time.time()
+    res = parse_with_bs4(raw_results)
+    end_time = time.time()
+    print(f"Temps d'exécution pour le parsing avec bs4: {end_time - begin_time:.2f} secondes")
+    begin_time = time.time()
+    res = parse_with_reliq(raw_results)
+    end_time = time.time()
+    print(f"Temps d'exécution pour le parsing avec reliq: {end_time - begin_time:.2f} secondes")
+    
+    df = pd.DataFrame(res)
+    print(df)
+    
 
 
 # TODO: faire un parse avec Reliq-Python
