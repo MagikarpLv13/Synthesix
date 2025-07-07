@@ -5,15 +5,27 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import pandas as pd
+import undetected_chromedriver as uc
+import os
 
-# Configuration du navigateur
-options = Options()
-options.add_argument("--headless")  # exécution sans ouvrir une fenêtre
-driver = webdriver.Chrome(options=options)
+
 
 # Configuration de la recherche
 
-def bing_search(query):
+def bing_search(query, browser=None):
+    
+    # Créer un chemin fixe pour le profil utilisateur Selenium
+    profile_path = os.path.join(os.getcwd(), "selenium-profile")
+    os.makedirs(profile_path, exist_ok=True)
+
+    options = Options()
+    options.add_argument(f"--user-data-dir={profile_path}")
+    options.add_argument("--headless")
+
+    if browser is None:
+        driver = uc.Chrome(options=options)
+    else:
+        driver = browser.driver
 
     max_results = 25  # Nombre maximum de résultats souhaités
     results_count = 0
@@ -26,7 +38,6 @@ def bing_search(query):
     while results_count < max_results:
         # Accès à la page
         driver.get(current_url)
-        time.sleep(2)
 
         # Attente explicite pour les résultats
         wait = WebDriverWait(driver, 10)
@@ -55,7 +66,6 @@ def bing_search(query):
             next_button = driver.find_element(By.CLASS_NAME, "sb_pagN")
             if next_button and next_button.get_attribute("href"):
                 current_url = next_button.get_attribute("href")
-                time.sleep(2)  # Pause entre les pages pour éviter d'être bloqué
             else:
                 break
         except:
