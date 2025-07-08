@@ -9,3 +9,4 @@ nodriver
 lxml
 reliq
 pyquery
+bs4

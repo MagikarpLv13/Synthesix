@@ -42,11 +42,19 @@ async def google_search(query, num_results=25):
 
     # Accès à la recherche
     tab = await driver.get(url)
-    await driver.wait(0.33)
+    await driver.wait(0.5)
     raw_results = await tab.get_content()
+    
+    # Write raw results to index.html for testing/debugging
+    #with open("index.html", "w", encoding="utf-8") as f:
+    #    f.write(raw_results)
+    
     start_time = time.time()
     
     res = parse_with_lxml(raw_results)
+    
+    print(res)
+    
     end_time = time.time()
     
     print(f"Temps d'exécution pour l'extraction des résultats: {end_time - start_time:.2f} secondes")
@@ -84,14 +92,10 @@ def parse_with_lxml(raw_results):
                 continue
             title = h3_tag.text_content().strip()
 
-            desc_div = (
-                result.xpath(".//*[@data-snf][@data-sncf]")[0]
-                if result.xpath(".//*[@data-snf][@data-sncf]")
-                else None
-            )
+            desc_div = next(iter(result.xpath(".//*[contains(@class, 'VwiC3b')]")), None)
             if desc_div is None:
                 continue
-            description = desc_div.text_content().strip()
+            description = desc_div.text_content().strip().replace('\xa0', ' ')
 
             res.append(
                 {
@@ -105,6 +109,9 @@ def parse_with_lxml(raw_results):
         except Exception as e:
             print("Erreur lors du parsing d'un résultat:", e)
             continue
+    print(f"Nombre de lignes: {len(res)}")
+
+    print(res)
     return res
 
 def parse_with_bs4(raw_results):
@@ -132,7 +139,7 @@ def parse_with_bs4(raw_results):
                 continue
             title = h3_tag.get_text(strip=True)
 
-            desc_div = result.find(attrs={"data-snf": True, "data-sncf": True})
+            desc_div = result.find(attrs={"class": "VwiC3b"})
             if not desc_div:
                 continue
             description = desc_div.get_text(strip=True)
@@ -148,53 +155,56 @@ def parse_with_bs4(raw_results):
             print("Erreur lors du parsing d'un résultat:", e)
             continue
 
+    print(f"Nombre de lignes: {len(res)}")
     return res
 
-# Je n'arrive pas à le faire fonctionner
+# @TODO à améliorer
 def parse_with_reliq(raw_results: str):
     res = []
     rq = reliq(raw_results)
 
-    for i in rq.filter(r'div jscontroller data-ved data-hveid'):
-        print(i.filter(r'h3').text)
-        print(i.filter(r'a href @ | "%(href)v"'))
-        print(i.filter(r'div data-snf data-sncf').text)
+    rqexpr = reliq.expr(
+        r"""
+        .searches * #search; div jscontroller ; {
+            .description [0] div .VwiC3b ; span | "%i",
+            [0] a href; {
+                .link @ | "%(href)v",
+                .title [0] h3 | "%i"
+            }
+        }  |
+    """
+    )
 
-    rqexpr = reliq.expr(r"""
-        div id=search; {
-            div jscontroller;{
-                div data-snf data-sncf;{
-            .short_description @ | "%t"
-            },
-            a href;{
-                .href @ | "%(href)v",
-                h3;{
-                    .h3 @ | "%i"
-                },
-            }             
-        }
-    }
-    """)
-    
-    items = rq.search(rqexpr)
+    try:
+        items = rq.search(rqexpr)
+        #print(items)
+        json_items = json.loads(items)
+        searches = json_items["searches"]
+    except Exception as e:
+        print("Erreur lors du parsing du JSON:", e)
+        return res
 
-    print(items)
-
-    {"short_description":"This is a fake description for result 1.This is a fake description for result 2.This is a fake description for result 3.","href":"https://example.com/result1https://example.com/result2https://example.com/result3","h3":"Example Result Title 1Example Result Title 2Example Result Title 3"}
-
-    print(len(items))
-    for item in items:
-        try:
-            data = json.loads(item)
-            res.append({
-                "title": data.get("title", ""),
-                "link": data.get("link", ""),
-                "description": data.get("desc", ""),
-                "source": "Google"
-            })
-        except Exception as e:
+    for search in searches:
+        title = search["title"]
+        if title == "":
             continue
+        link = search["link"]
+        if link == "":
+            continue
+        description = search["description"]
+        if description == "":
+            continue
+
+        res.append({
+            "title": search.get("title", ""),
+            "link": search.get("link", ""),
+            "description": search.get("description", ""),
+            "source": "Google"
+        })
+
+    print(f"Nombre de lignes: {len(res)}")
     return res
+
 
 def parse_with_pyquery(raw_results):
     res = []
@@ -235,33 +245,26 @@ def parse_with_pyquery(raw_results):
             print("Erreur lors du parsing d'un résultat:", e)
             continue
 
+    print(f"Nombre de lignes: {len(res)}")
     return res
+
 
 def test():
     with open("index.html", "r") as file:
         raw_results = file.read()
     begin_time = time.time()
-    res = parse_with_lxml(raw_results)
+    parse_with_lxml(raw_results)
     end_time = time.time()
     print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
     begin_time = time.time()
-    res = parse_with_pyquery(raw_results)
+    parse_with_pyquery(raw_results)
     end_time = time.time()
     print(f"Temps d'exécution pour le parsing avec pyquery: {end_time - begin_time:.2f} secondes")
     begin_time = time.time()
-    res = parse_with_bs4(raw_results)
+    parse_with_bs4(raw_results)
     end_time = time.time()
     print(f"Temps d'exécution pour le parsing avec bs4: {end_time - begin_time:.2f} secondes")
     begin_time = time.time()
-    res = parse_with_reliq(raw_results)
+    parse_with_reliq(raw_results)
     end_time = time.time()
     print(f"Temps d'exécution pour le parsing avec reliq: {end_time - begin_time:.2f} secondes")
-    
-    df = pd.DataFrame(res)
-    print(df)
-    
-
-
-# TODO: faire un parse avec Reliq-Python
-# TODO: faire un parse avec PyQuery
-# TODO: faire un parse avec nodriver
