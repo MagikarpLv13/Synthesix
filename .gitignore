@@ -7,9 +7,6 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Test
-test.py
-
 # Python
 venv/
 .venv/
@@ -19,8 +16,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Selenium
-selenium-profile/
+# nodriver
+nodriver-profile/
 
 # Build outputs
 dist/

@@ -1,80 +1,73 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
 import pandas as pd
-import undetected_chromedriver as uc
-import os
+from lxml import html
+import time
+from parsers import parse_search_results
 
-
+# Nombre maximum de résultats souhaités
+MAX_RESULTS = 25
+# Nombre de résultats trouvés
+nb_results = 0
 
 # Configuration de la recherche
 
-def bing_search(query, browser=None):
-    
-    # Créer un chemin fixe pour le profil utilisateur Selenium
-    profile_path = os.path.join(os.getcwd(), "selenium-profile")
-    os.makedirs(profile_path, exist_ok=True)
-
-    options = Options()
-    options.add_argument(f"--user-data-dir={profile_path}")
-    options.add_argument("--headless")
-
-    if browser is None:
-        driver = uc.Chrome(options=options)
-    else:
-        driver = browser.driver
-
-    max_results = 25  # Nombre maximum de résultats souhaités
-    results_count = 0
+async def bing_search(query, browser=None):
+    start_time = time.time()
+    global nb_results
+    print(f"Starting Bing search")
+    res = []
+    if query == "test" and browser is None:
+        test()
+        return
 
     # Construction de l'URL Bing initiale
-    base_url = f"https://www.bing.com/search?q={query}"
-    current_url = base_url
+    base_url = f"https://www.bing.com"
+    current_url = base_url + f"/search?q={query}"
     res = []
 
-    while results_count < max_results:
-        # Accès à la page
-        driver.get(current_url)
+    tab = await browser.get(current_url, new_tab=True)
+    await browser.wait(0.5)
+    raw_results = await tab.get_content()
 
-        # Attente explicite pour les résultats
-        wait = WebDriverWait(driver, 10)
-        try:
-            results = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.b_algo")))
-        except:
-            results = []
+    # Write raw results to index.html for testing/debugging
+    # with open("test_bing.html", "w", encoding="utf-8") as f:
+    #     f.write(raw_results)
 
-        # Traitement des résultats de la page courante
-        for result in results:
-            if results_count >= max_results:
-                break
+    res = parse_bing_results(raw_results)
 
-            try:
-                title_element = result.find_element(By.CSS_SELECTOR, "h2 a")
-                title = title_element.text
-                desc = result.find_element(By.CLASS_NAME, "b_caption").text
-                url = title_element.get_attribute("href")
-                res.append({"title":title, "link":url, "description":desc, "source":"Bing"})
-                results_count += 1
-            except:
-                continue
-            
-        # Recherche du lien "Page suivante"
-        try:
-            next_button = driver.find_element(By.CLASS_NAME, "sb_pagN")
-            if next_button and next_button.get_attribute("href"):
-                current_url = next_button.get_attribute("href")
-            else:
-                break
-        except:
+    while nb_results < MAX_RESULTS:
+        next_button = await tab.xpath(".//a[contains(@class, 'sb_pagN') and @href]")
+        if next_button:
+            current_url = base_url + next_button[0].get("href")
+        else:
             break
+        tab = await browser.get(current_url, new_tab=True)
+        await browser.wait(0.5)
+        raw_results = await tab.get_content()
+        res.extend(parse_bing_results(raw_results))
 
-    driver.quit()
+    if tab is not None:
+        await tab.close()
+    else:
+        print("Tab is None, impossible de fermer la tab.")
+
     df = pd.DataFrame(res)
+    print(f"Nombre de résultats Bing: {len(df)}")
+    print(f"Temps d'exécution Bing: {time.time() - start_time:.2f} secondes")
     return df
 
+def parse_bing_results(raw_results):
+    return parse_search_results(
+            raw_results,
+            "//li[contains(@class, 'b_algo')]",
+            ".//h2",
+            ".//a[@href]",
+            ".//div[contains(@class, 'b_caption')]",
+            "Bing",
+        )
 
-def search(query):
-    bing_search(query)
+def test():
+    with open("test_bing.html", "r") as file:
+        raw_results = file.read()
+
+    res = parse_bing_results(raw_results)
+    print(res)

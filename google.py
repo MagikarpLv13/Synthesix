@@ -1,118 +1,57 @@
-import nodriver as uc
-import os
 import pandas as pd
-from nodriver import Config
 import time
 import bs4
 from reliq import reliq
-from lxml import html
 import json
 import pyquery
+from parsers import parse_search_results
+from search_engine import SearchEngine
 
-async def google_search(query, num_results=25):
-    """
-    Perform a Google search and return the titles, descirptions and links of the results.
+class GoogleSearchEngine(SearchEngine):
+    def __init__(self):
+        super().__init__(name="Google")
 
-    Args:
-        query (str): The search query.
-        num_results (int): The number of results to return.
+    async def search(self, query, browser = None) -> pd.DataFrame:
+        if query == "test" and browser is None:
+            test()
+            return
+        
+        start_time = time.time()
+        url = self.construct_url(query)
+        tab = await browser.get(url, new_tab=True)
+        await browser.wait(0.5)
+        raw_results = await tab.get_content()
+        res = self.parse_results(raw_results)
+        if tab is not None:
+            await tab.close()
+        df = pd.DataFrame(res)
+        print(f"Nombre de résultats Google: {len(df)}")
+        print(f"Temps d'exécution Google: {time.time() - start_time:.2f} secondes")
+        return df
 
-    Returns:
-        dataframe: A pandas DataFrame containing the titles, descriptions, and links of the search results.
-    """
+    def construct_url(self, query) -> str:
+        return f"https://www.google.com/search?q={query}&num={self.num_results}&start=0&filter=0&nfpr=1&udm=14"
 
-    res = []
-    if query == "test":
-        test()
-        return
+    def parse_results(self, raw_results):
+        xpaths = self.get_xpaths()
+        return parse_search_results(
+            raw_results,
+            result_xpath=xpaths['result'],
+            title_xpath=xpaths['title'],
+            link_xpath=xpaths['link'],
+            desc_xpath=xpaths['desc'],
+            source=self.name
+        )
 
-    custom_profile = os.path.join(os.getcwd(), "selenium-profile")
-    os.makedirs(custom_profile, exist_ok=True)
-
-    config = Config()
-    config.headless = True
-    config.user_data_dir=custom_profile
-
-    # Démarrage du navigateur
-    driver = await uc.start(config=config)
-
-    url = "https://www.google.com/search?q="+query+"&num="+str(num_results)+"&start=0&filter=0&nfpr=1&udm=14"
-
-    print(f"url: {url}")
-
-    # Accès à la recherche
-    tab = await driver.get(url)
-    await driver.wait(0.5)
-    raw_results = await tab.get_content()
-    
-    # Write raw results to index.html for testing/debugging
-    #with open("index.html", "w", encoding="utf-8") as f:
-    #    f.write(raw_results)
-    
-    start_time = time.time()
-    
-    res = parse_with_lxml(raw_results)
-    
-    print(res)
-    
-    end_time = time.time()
-    
-    print(f"Temps d'exécution pour l'extraction des résultats: {end_time - start_time:.2f} secondes")
-
-    if driver is not None:
-        driver.stop()
-    else:
-        print("Driver is None, impossible d'arrêter le navigateur proprement.")
-
-    df = pd.DataFrame(res)
-    print(f"Nombre de lignes: {len(df)}")
-    return df
-
-
-def parse_with_lxml(raw_results):
-    res = []
-    tree = html.fromstring(raw_results)
-    search_div = tree.xpath("//div[@id='search']")
-    if not search_div:
-        results = []
-    else:
-        results = search_div[0].xpath(".//div[@jscontroller][@data-ved][@data-hveid]")
-
-    for result in results:
-        try:
-            a_tag = (
-                result.xpath(".//a[@href]")[0] if result.xpath(".//a[@href]") else None
-            )
-            if a_tag is None:
-                continue
-            link = a_tag.get("href")
-
-            h3_tag = a_tag.xpath(".//h3")[0] if a_tag.xpath(".//h3") else None
-            if h3_tag is None:
-                continue
-            title = h3_tag.text_content().strip()
-
-            desc_div = next(iter(result.xpath(".//*[contains(@class, 'VwiC3b')]")), None)
-            if desc_div is None:
-                continue
-            description = desc_div.text_content().strip().replace('\xa0', ' ')
-
-            res.append(
-                {
-                    "title": title,
-                    "link": link,
-                    "description": description,
-                    "source": "Google",
-                }
-            )
-
-        except Exception as e:
-            print("Erreur lors du parsing d'un résultat:", e)
-            continue
-    print(f"Nombre de lignes: {len(res)}")
-
-    print(res)
-    return res
+    def get_xpaths(self):
+        return {
+            'result': ".//div[@jscontroller][@data-ved][@data-hveid]",
+            'title': ".//a[@href]//h3",
+            'link': ".//a[@href]",
+            'desc': ".//*[contains(@class, 'VwiC3b')]"
+        }
+        
+        
 
 def parse_with_bs4(raw_results):
     res = []
@@ -201,10 +140,8 @@ def parse_with_reliq(raw_results: str):
             "description": search.get("description", ""),
             "source": "Google"
         })
-
-    print(f"Nombre de lignes: {len(res)}")
+        
     return res
-
 
 def parse_with_pyquery(raw_results):
     res = []
@@ -248,12 +185,12 @@ def parse_with_pyquery(raw_results):
     print(f"Nombre de lignes: {len(res)}")
     return res
 
-
 def test():
-    with open("index.html", "r") as file:
+    with open("test_google.html", "r") as file:
         raw_results = file.read()
     begin_time = time.time()
-    parse_with_lxml(raw_results)
+    res = GoogleSearchEngine().parse_results(raw_results)
+    print(res)
     end_time = time.time()
     print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
     begin_time = time.time()
