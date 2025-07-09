@@ -1,7 +1,7 @@
 import asyncio
-from brave import search_brave
+from brave import BraveSearchEngine
 from google import GoogleSearchEngine
-from bing import bing_search
+from bing import BingSearchEngine
 import pandas as pd
 import time
 from browser_manager import HeadlessBrowserManager
@@ -10,6 +10,7 @@ async def main():
     
     browser_manager = await HeadlessBrowserManager.create()
     browser = await browser_manager.get_driver()
+    await browser.main_tab.minimize()
     
     try:
         search_term = input("Entrez le terme à rechercher : ")
@@ -17,22 +18,25 @@ async def main():
         # Lancer les recherches en parallèle
         start_time = time.time()
         google_task = asyncio.create_task(GoogleSearchEngine().search(search_term, browser))
-        #brave_task = asyncio.create_task(search_brave(search_term))
-        #bing_task = asyncio.create_task(bing_search(search_term, browser))
+        brave_task = asyncio.create_task(BraveSearchEngine().search(search_term, browser))
+        bing_task = asyncio.create_task(BingSearchEngine().search(search_term, browser))
 
         google_res = await asyncio.gather(google_task)
-        #bing_res = await asyncio.gather(bing_task)
+        bing_res = await asyncio.gather(bing_task)
+        brave_res = await asyncio.gather(brave_task)
         total_time = time.time() - start_time
         
         google_df = google_res[0]
-        #bing_df = bing_res[0]
+        bing_df = bing_res[0]
+        brave_df = brave_res[0]
+
 
         # Afficher les temps d'exécution (ici, temps global)
         print("\n=== Temps d'exécution des recherches ===")
         print(f"Total: {total_time:.2f} secondes")
 
         # Fusionner les résultats   
-        combined_df = pd.concat([google_df])
+        combined_df = pd.concat([google_df, bing_df, brave_df])
         # Suppression des doublons de link
         combined_df = combined_df.drop_duplicates(subset='link', keep='first')
 
@@ -76,4 +80,4 @@ async def main():
         await browser_manager.quit()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())

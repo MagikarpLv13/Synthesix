@@ -1,73 +1,52 @@
-import pandas as pd
-from lxml import html
-import time
-from parsers import parse_search_results
+from parsers import parse_with_xpath
+from search_engine import SearchEngine
 
-# Nombre maximum de résultats souhaités
-MAX_RESULTS = 25
-# Nombre de résultats trouvés
-nb_results = 0
+class BingSearchEngine(SearchEngine):
+    def __init__(self):
+        super().__init__(name="Bing")
+        self.base_url = "https://www.bing.com"
+        
+        
+    async def post_execute_search(self):
+        while self.num_results < self.max_results:
+            try:
+                next_button = await self.tab.xpath(".//a[contains(@class, 'sb_pagN') and @href]")
+            except Exception as e:
+                print(e)
+                break
+            if next_button:
+                current_url = self.base_url + next_button[0].get("href")
+            self.tab = await self.tab.get(current_url)
+            await self.tab.wait(0.5)
+            raw_results = await self.tab.get_content()
+            self.results.extend(self.parse_results(raw_results))
+            self.num_results = len(self.results)
 
-# Configuration de la recherche
+    def construct_url(self) -> str:
+        return f"{self.base_url}/search?q={self.query}"
 
-async def bing_search(query, browser=None):
-    start_time = time.time()
-    global nb_results
-    print(f"Starting Bing search")
-    res = []
-    if query == "test" and browser is None:
-        test()
-        return
-
-    # Construction de l'URL Bing initiale
-    base_url = f"https://www.bing.com"
-    current_url = base_url + f"/search?q={query}"
-    res = []
-
-    tab = await browser.get(current_url, new_tab=True)
-    await browser.wait(0.5)
-    raw_results = await tab.get_content()
-
-    # Write raw results to index.html for testing/debugging
-    # with open("test_bing.html", "w", encoding="utf-8") as f:
-    #     f.write(raw_results)
-
-    res = parse_bing_results(raw_results)
-
-    while nb_results < MAX_RESULTS:
-        next_button = await tab.xpath(".//a[contains(@class, 'sb_pagN') and @href]")
-        if next_button:
-            current_url = base_url + next_button[0].get("href")
-        else:
-            break
-        tab = await browser.get(current_url, new_tab=True)
-        await browser.wait(0.5)
-        raw_results = await tab.get_content()
-        res.extend(parse_bing_results(raw_results))
-
-    if tab is not None:
-        await tab.close()
-    else:
-        print("Tab is None, impossible de fermer la tab.")
-
-    df = pd.DataFrame(res)
-    print(f"Nombre de résultats Bing: {len(df)}")
-    print(f"Temps d'exécution Bing: {time.time() - start_time:.2f} secondes")
-    return df
-
-def parse_bing_results(raw_results):
-    return parse_search_results(
+    def parse_results(self, raw_results):
+        xpaths = self.get_xpaths()
+        return parse_with_xpath(
             raw_results,
-            "//li[contains(@class, 'b_algo')]",
-            ".//h2",
-            ".//a[@href]",
-            ".//div[contains(@class, 'b_caption')]",
-            "Bing",
+            result_xpath=xpaths["result"],
+            title_xpath=xpaths["title"],
+            link_xpath=xpaths["link"],
+            desc_xpath=xpaths["desc"],
+            source=self.name,
         )
 
-def test():
-    with open("test_bing.html", "r") as file:
-        raw_results = file.read()
+    def get_xpaths(self):
+        return {
+            'result': "//li[contains(@class, 'b_algo')]",
+            'title': ".//h2",
+            'link': ".//a[@href]",
+            'desc': ".//div[contains(@class, 'b_caption')]"
+        }
+        
+    def test(self):
+        with open("test_bing.html", "r") as file:
+            raw_results = file.read()
 
-    res = parse_bing_results(raw_results)
-    print(res)
+        res = self.parse_results(raw_results)
+        print(res)

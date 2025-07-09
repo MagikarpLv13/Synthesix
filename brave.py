@@ -1,98 +1,43 @@
-import requests
 import re
-import json
-from html import unescape
-import fake_useragent
-import pandas as pd
+from search_engine import SearchEngine
+from utils import js_like_to_json
 
+class BraveSearchEngine(SearchEngine):
+    def __init__(self):
+        super().__init__(name="Brave")
+        self.base_url = "https://search.brave.com"
+        self.offset = 1
+        self.query = None
 
-def js_like_to_json(js_text):
+    def construct_url(self):
+        return f"https://search.brave.com/search?q={self.query}&spellcheck=0"
 
-    # Remplace void 0 par null
-    js_text = js_text.replace("void 0", "null")
+    def parse_results(self, raw_results):
+        pattern = r"results:\s*\[\{(.*?)\}\],bo"
+        match = re.search(pattern, raw_results, re.DOTALL)
 
-    js_text = re.sub(r"(^|\{|\[|,)\s*([a-zA-Z0-9_]+)\s*:", r'\1"\2":', js_text)
-
-    # Enlève les chaines u003c
-    js_text = js_text.replace("\\u003C", "<")
-    js_text = js_text.replace("&quot;", "")
-    js_text = unescape(js_text)
-
-    # Enlève les balises html
-    js_text = re.sub(r"<[^>]+>", "", js_text)
-
-    # Ajoute [{ au début et }] à la fin
-    js_text = "[{" + js_text + "}]"
-
-    # Parse en JSON
-    try:
-        data = json.loads(js_text)
-        return data
-    except Exception as e:
-        print("Erreur de parsing JSON:", e)
-        return None
-
-
-def extract_results(html):
-
-    pattern = r"results:\s*\[\{(.*?)\}\],bo"
-    match = re.search(pattern, html, re.DOTALL)
-
-    if match:
-        return js_like_to_json(match.group(1))
-    else:
-        print("Bloc 'results' non trouvé.")
-        return None
-
-
-def search_brave(query):
-
-    # Split query by AND/OR operators
-    parts = re.split(r'\s+(AND|OR)\s+', query, flags=re.IGNORECASE)
-    
-    # Add quotes around terms that aren't operators
-    quoted_parts = []
-    for part in parts:
-        if part.upper() not in ['AND', 'OR']:
-            # Remove existing quotes if any and add new ones
-            clean_part = part.strip().strip('"')
-            quoted_parts.append(f'"{clean_part}"')
+        if match:
+            res = js_like_to_json(match.group(1))
+            if res is not None:
+                for item in res:
+                    if self.num_results < self.max_results:
+                        self.results.append({
+                            "title": item.get("title", "Titre non trouvé"),
+                            "link": item.get("url", "Lien non trouvé"),
+                            "description": item.get("description", "Description non trouvée"),
+                            "source": self.name
+                        })
+                        self.num_results += 1
         else:
-            quoted_parts.append(part)
-            
-    # Rejoin the parts
-    query = ' '.join(quoted_parts)
+            print("Bloc 'results' non trouvé.")
 
-    #print(f"query: {query}")
-
-    url = "https://search.brave.com/search"
-    params = {"q": query, "spellcheck": 0}
-
-    # Use fake user-agent to avoid bot detection
-    headers = {"User-Agent": fake_useragent.UserAgent().random}
-
-    response = requests.get(url, params=params, headers=headers)
-    if response.status_code == 200:
-        # Extract the first result from the HTML response
-        html = response.text
-        data = extract_results(html)
-
-        if data:
-            #print(f"Nombre de résultats: {len(data)}")
-            res = []
-            for item in data:
-                title = item.get("title", "Titre non trouvé")
-                link = item.get("url", "Lien non trouvé")
-                description = item.get("description", "Description non trouvée")
-                res.append({"title": title, "link": link, "description": description, "source": "Brave"})
-
-            df = pd.DataFrame(res)
-            return df
-
-    else:
-        print(f"Erreur HTTP {response.status_code}")
-        return []
-
-
-def search(term):
-    search_brave(term)
+        return self.results
+    
+    async def post_execute_search(self):
+        while self.num_results < self.max_results:
+            next_url = self.construct_url() + f"&offset={self.offset}"
+            self.tab = await self.tab.get(next_url)
+            await self.tab.wait(0.5)
+            raw_results = await self.tab.get_content()
+            self.parse_results(raw_results)
+            self.offset += 1

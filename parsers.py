@@ -1,6 +1,6 @@
 from lxml import html
 
-def parse_search_results(raw_results, result_xpath, title_xpath, link_xpath, desc_xpath, source):
+def parse_with_xpath(raw_results, result_xpath, title_xpath, link_xpath, desc_xpath, source):
     """
     Parse generic search results from HTML using provided XPaths.
     Args:
@@ -45,4 +45,5 @@ def parse_search_results(raw_results, result_xpath, title_xpath, link_xpath, des
         except Exception as e:
             print(f"Error parsing {source}: {e}")
             continue  
-    return res 
+    return res
+

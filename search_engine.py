@@ -3,38 +3,41 @@ import pandas as pd
 import time
 
 class SearchEngine(ABC):
-    def __init__(self, name, num_results=25):
+    def __init__(self, name, max_results=25):
         self.name = name
         self.results = []
-        self.num_results = num_results
+        self.num_results = 0
+        self.max_results = max_results
+        self.tab = None
+        self.query = None
 
-    @abstractmethod
-    async def search(self, query, browser) -> pd.DataFrame:
+    async def search(self, query, browser=None) -> pd.DataFrame:
         """
         Launch a search and return a DataFrame of results.
         """
-        if query == "test" and browser is None:
+        self.query = query
+        if self.query == "test" and browser is None:
             self.test()
             return
         start_time = time.time()
-        self.results = await self.execute_search(query, browser)
+        await self.execute_search(browser)
         print(f"Temps d'exécution {self.name}: {time.time() - start_time:.2f} secondes")
         return pd.DataFrame(self.results)
 
-    async def execute_search(self, query, browser):
+    async def execute_search(self, browser):
         """Execute the search and return the results.
         """
-        self.pre_execute_search()
-        url = self.construct_url(query)
-        tab = await browser.get(url, new_tab=True)
-        await browser.wait(0.5)
-        raw_results = await tab.get_content()
-        res = self.parse_results(raw_results)
-        self.post_execute_search()
-        return res
+        await self.pre_execute_search()
+        url = self.construct_url()
+        self.tab = await browser.get(url, new_tab=True)
+        await browser.wait(1)
+        raw_results = await self.tab.get_content()
+        self.results = self.parse_results(raw_results)
+        self.num_results = len(self.results)
+        await self.post_execute_search()
 
     @abstractmethod
-    async def construct_url(self, query) -> str:
+    async def construct_url(self) -> str:
         """
         Construct the URL for the search.
         """
@@ -47,7 +50,6 @@ class SearchEngine(ABC):
         """
         pass
 
-    @abstractmethod
     def get_xpaths(self):
         """
         Return a dictionary with the XPaths necessary for parsing.
@@ -57,13 +59,13 @@ class SearchEngine(ABC):
     def test(self):
         pass
 
-    def post_execute_search(self):
+    async def post_execute_search(self):
         """Used to execute actions after the first search is executed. Mostly for search engine that need to
         click on a button to load more results.
         """
         pass
 
-    def pre_execute_search(self):
+    async def pre_execute_search(self):
         """Used to execute actions before the search is executed.
         """
         pass

@@ -4,37 +4,19 @@ import bs4
 from reliq import reliq
 import json
 import pyquery
-from parsers import parse_search_results
+from parsers import parse_with_xpath
 from search_engine import SearchEngine
 
 class GoogleSearchEngine(SearchEngine):
     def __init__(self):
         super().__init__(name="Google")
 
-    async def search(self, query, browser = None) -> pd.DataFrame:
-        if query == "test" and browser is None:
-            test()
-            return
-        
-        start_time = time.time()
-        url = self.construct_url(query)
-        tab = await browser.get(url, new_tab=True)
-        await browser.wait(0.5)
-        raw_results = await tab.get_content()
-        res = self.parse_results(raw_results)
-        if tab is not None:
-            await tab.close()
-        df = pd.DataFrame(res)
-        print(f"Nombre de résultats Google: {len(df)}")
-        print(f"Temps d'exécution Google: {time.time() - start_time:.2f} secondes")
-        return df
-
-    def construct_url(self, query) -> str:
-        return f"https://www.google.com/search?q={query}&num={self.num_results}&start=0&filter=0&nfpr=1&udm=14"
+    def construct_url(self) -> str:
+        return f"https://www.google.com/search?q={self.query}&num={self.max_results}&start=0&filter=0&nfpr=1&udm=14"
 
     def parse_results(self, raw_results):
         xpaths = self.get_xpaths()
-        return parse_search_results(
+        return parse_with_xpath(
             raw_results,
             result_xpath=xpaths['result'],
             title_xpath=xpaths['title'],
@@ -50,6 +32,27 @@ class GoogleSearchEngine(SearchEngine):
             'link': ".//a[@href]",
             'desc': ".//*[contains(@class, 'VwiC3b')]"
         }
+        
+    def test(self):
+        with open("test_google.html", "r") as file:
+            raw_results = file.read()
+        begin_time = time.time()
+        res = self.parse_results(raw_results)
+        print(res)
+        end_time = time.time()
+        print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
+        begin_time = time.time()
+        parse_with_pyquery(raw_results)
+        end_time = time.time()
+        print(f"Temps d'exécution pour le parsing avec pyquery: {end_time - begin_time:.2f} secondes")
+        begin_time = time.time()
+        parse_with_bs4(raw_results)
+        end_time = time.time()
+        print(f"Temps d'exécution pour le parsing avec bs4: {end_time - begin_time:.2f} secondes")
+        begin_time = time.time()
+        parse_with_reliq(raw_results)
+        end_time = time.time()
+        print(f"Temps d'exécution pour le parsing avec reliq: {end_time - begin_time:.2f} secondes")
         
         
 
@@ -184,24 +187,3 @@ def parse_with_pyquery(raw_results):
 
     print(f"Nombre de lignes: {len(res)}")
     return res
-
-def test():
-    with open("test_google.html", "r") as file:
-        raw_results = file.read()
-    begin_time = time.time()
-    res = GoogleSearchEngine().parse_results(raw_results)
-    print(res)
-    end_time = time.time()
-    print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
-    begin_time = time.time()
-    parse_with_pyquery(raw_results)
-    end_time = time.time()
-    print(f"Temps d'exécution pour le parsing avec pyquery: {end_time - begin_time:.2f} secondes")
-    begin_time = time.time()
-    parse_with_bs4(raw_results)
-    end_time = time.time()
-    print(f"Temps d'exécution pour le parsing avec bs4: {end_time - begin_time:.2f} secondes")
-    begin_time = time.time()
-    parse_with_reliq(raw_results)
-    end_time = time.time()
-    print(f"Temps d'exécution pour le parsing avec reliq: {end_time - begin_time:.2f} secondes")
