@@ -10,18 +10,20 @@ class BraveSearchEngine(SearchEngine):
         self.query = None
 
     def construct_url(self):
-        return f"https://search.brave.com/search?q={self.query}&spellcheck=0"
+        url = f"{self.base_url}/search?q={self.construct_query(self.query)}&spellcheck=0"
+        return url
 
     def parse_results(self, raw_results):
         pattern = r"results:\s*\[\{(.*?)\}\],bo"
         match = re.search(pattern, raw_results, re.DOTALL)
+        results = []
 
         if match:
             res = js_like_to_json(match.group(1))
             if res is not None:
                 for item in res:
                     if self.num_results < self.max_results:
-                        self.results.append({
+                        results.append({
                             "title": item.get("title", "Titre non trouvé"),
                             "link": item.get("url", "Lien non trouvé"),
                             "description": item.get("description", "Description non trouvée"),
@@ -31,13 +33,46 @@ class BraveSearchEngine(SearchEngine):
         else:
             print("Bloc 'results' non trouvé.")
 
-        return self.results
-    
+        return results
+
     async def post_execute_search(self):
+        try:
+            flagged_as_robot = await self.im_a_robot()
+        except Exception as e:
+            print(f"Error: {e}")
+
         while self.num_results < self.max_results:
+            print(f"Robot flagged: {flagged_as_robot}")
+
+            # Get the results
+            raw_results = await self.tab.get_content()
+            results = self.parse_results(raw_results)
+            self.results.extend(results)
+
+            # By default, Brave returns 20 results per page
+            # If the number of results is less than 10, we can assume that there are no more results
+            if len(results) < 10:
+                break
+
+            # Get the next page
             next_url = self.construct_url() + f"&offset={self.offset}"
             self.tab = await self.tab.get(next_url)
-            await self.tab.wait(0.5)
-            raw_results = await self.tab.get_content()
-            self.parse_results(raw_results)
             self.offset += 1
+            await self.tab.wait(0.5)
+
+    def construct_query(self, query: str) -> str:
+        """Construct the query for the search.
+        """
+        return f'"{query}"'
+
+    async def im_a_robot(self):
+        pre_button = await self.tab.find("Letting you in", best_match=True, timeout=0.1)
+        if pre_button:
+            button = await self.tab.find("I'm not a robot", best_match=True, timeout=1.5)
+            if button:
+                await button.click()
+                await self.tab.wait(5)
+                return True
+            else:
+                return False
+        return False

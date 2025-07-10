@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import pandas as pd
 import time
+import nodriver as uc
 
 class SearchEngine(ABC):
     def __init__(self, name, max_results=25):
@@ -8,7 +9,7 @@ class SearchEngine(ABC):
         self.results = []
         self.num_results = 0
         self.max_results = max_results
-        self.tab = None
+        self.tab : uc.Tab = None
         self.query = None
 
     async def search(self, query, browser=None) -> pd.DataFrame:
@@ -22,6 +23,7 @@ class SearchEngine(ABC):
         start_time = time.time()
         await self.execute_search(browser)
         print(f"Temps d'exécution {self.name}: {time.time() - start_time:.2f} secondes")
+        await self.tab.close()
         return pd.DataFrame(self.results)
 
     async def execute_search(self, browser):
@@ -30,7 +32,7 @@ class SearchEngine(ABC):
         await self.pre_execute_search()
         url = self.construct_url()
         self.tab = await browser.get(url, new_tab=True)
-        await browser.wait(1)
+        await browser.wait(0.5)
         raw_results = await self.tab.get_content()
         self.results = self.parse_results(raw_results)
         self.num_results = len(self.results)

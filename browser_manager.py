@@ -4,7 +4,7 @@ from nodriver.core.config import Config
 
 class HeadlessBrowserManager:
     def __init__(self):
-        self.browser = None
+        self.browser : uc.Browser = None
 
     @classmethod
     async def create(cls):
@@ -20,14 +20,10 @@ class HeadlessBrowserManager:
         # config.headless = True
 
         self.browser = await uc.start(config=config)
-        await self.set_driver(self.browser)
         return self
 
-    async def quit(self):
+    def quit(self):
         self.browser.stop()
 
     async def get_driver(self):
         return self.browser
-
-    async def set_driver(self, browser):
-        self.browser = browser
