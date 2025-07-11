@@ -24,9 +24,9 @@ class BraveSearchEngine(SearchEngine):
                 for item in res:
                     if self.num_results < self.max_results:
                         results.append({
-                            "title": item.get("title", "Titre non trouvé"),
-                            "link": item.get("url", "Lien non trouvé"),
-                            "description": item.get("description", "Description non trouvée"),
+                            "title": item.get("title", "Title not found"),
+                            "link": item.get("url", "Link not found"),
+                            "description": item.get("description", "Description not found"),
                             "source": self.name
                         })
                         self.num_results += 1
@@ -63,7 +63,7 @@ class BraveSearchEngine(SearchEngine):
     def construct_query(self, query: str) -> str:
         """Construct the query for the search.
         """
-        return f'"{query}"'
+        return query
 
     async def im_a_robot(self):
         pre_button = await self.tab.find("Letting you in", best_match=True, timeout=0.1)
@@ -71,6 +71,7 @@ class BraveSearchEngine(SearchEngine):
             button = await self.tab.find("I'm not a robot", best_match=True, timeout=1.5)
             if button:
                 await button.click()
+                # Wait 5 seconds to process the "I'm not a robot" request
                 await self.tab.wait(5)
                 return True
             else:
