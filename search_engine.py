@@ -11,32 +11,55 @@ class SearchEngine(ABC):
         self.max_results = max_results
         self.tab : uc.Tab = None
         self.query = None
+        self.browser = None
+        self.selector = None
+        self.current_url = None
 
     async def search(self, query, browser=None) -> pd.DataFrame:
         """
         Launch a search and return a DataFrame of results.
         """
         self.query = query
-        if self.query == "test" and browser is None:
+        self.browser = browser
+        self.set_selector()
+        if self.query == "test" and self.browser is None:
             self.test()
             return
         start_time = time.time()
-        await self.execute_search(browser)
+        await self.execute_search()
         print(f"Temps d'exécution {self.name}: {time.time() - start_time:.2f} secondes")
         await self.tab.close()
         return pd.DataFrame(self.results)
 
-    async def execute_search(self, browser):
+    async def execute_search(self):
         """Execute the search and return the results.
         """
         await self.pre_execute_search()
-        url = self.construct_url()
-        self.tab = await browser.get(url, new_tab=True)
-        await browser.wait(0.5)
+        await self.navigate()
         raw_results = await self.tab.get_content()
         self.results = self.parse_results(raw_results)
+
         self.num_results = len(self.results)
         await self.post_execute_search()
+
+    async def navigate(self):
+        """Navigate to the page
+        """
+        url = self.construct_url()
+        self.current_url = url
+        self.tab = await self.browser.get(url, new_tab=True)
+        await self.wait_for_page_load()
+
+    @abstractmethod
+    def set_selector(self):
+        """Set the selector for the search engine.
+        Selector used as a reference point to know when the page is loaded and to locate the results container
+        Example:
+        - Brave: "#results"
+        - Google: "#search"
+        - Bing: "#b_results"
+        """
+        pass
 
     @abstractmethod
     async def construct_url(self) -> str:
@@ -69,5 +92,28 @@ class SearchEngine(ABC):
 
     async def pre_execute_search(self):
         """Used to execute actions before the search is executed.
+        """
+        pass
+
+    async def wait_for_page_load(self, timeout=2.5, interval=0.1):
+        """Custom function to wait for the page to load.
+        Until wait_for is fixed in nodriver
+        """
+        elapsed = time.time()
+        
+        def get_elapsed():
+            return time.time() - elapsed
+
+        while get_elapsed() < timeout:
+            results = await self.tab.find(self.selector)
+            if results:
+                break
+            await self.tab.wait(interval)
+            
+        await self.robot_check()
+            
+    async def robot_check(self):
+        """
+        Check if we are flagged as a robot.
         """
         pass

@@ -32,7 +32,21 @@ class GoogleSearchEngine(SearchEngine):
             'link': ".//a[@href]",
             'desc': ".//*[contains(@class, 'VwiC3b')]"
         }
-        
+
+    def set_selector(self):
+        self.selector = "#search"
+
+    async def robot_check(self):
+        button = await self.tab.find("#captcha-form", timeout=0.1)
+        if button:
+            print("Robot detected, need to solve captcha")
+            await self.tab.activate()
+            await self.wait_for_page_load(timeout=100)
+            return True
+
+        # If the button is not found, we can assume that we are not a robot 🤖
+        return False
+
     def test(self):
         with open("test_google.html", "r") as file:
             raw_results = file.read()
@@ -53,8 +67,7 @@ class GoogleSearchEngine(SearchEngine):
         parse_with_reliq(raw_results)
         end_time = time.time()
         print(f"Temps d'exécution pour le parsing avec reliq: {end_time - begin_time:.2f} secondes")
-        
-        
+
 
 def parse_with_bs4(raw_results):
     res = []

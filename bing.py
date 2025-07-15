@@ -15,9 +15,15 @@ class BingSearchEngine(SearchEngine):
                 print(e)
                 break
             if next_button:
-                current_url = self.base_url + next_button[0].get("href")
-            self.tab = await self.tab.get(current_url)
-            await self.tab.wait(0.5)
+                next_url = self.base_url + next_button[0].get("href")
+                
+            if next_url == self.current_url:
+                break
+            else:
+                self.current_url = next_url
+                
+            self.tab = await self.tab.get(next_url)
+            await self.wait_for_page_load()
             raw_results = await self.tab.get_content()
             self.results.extend(self.parse_results(raw_results))
             self.num_results = len(self.results)
@@ -35,6 +41,9 @@ class BingSearchEngine(SearchEngine):
             desc_xpath=xpaths["desc"],
             source=self.name,
         )
+        
+    def set_selector(self):
+        self.selector = "#b_results"
 
     def get_xpaths(self):
         return {

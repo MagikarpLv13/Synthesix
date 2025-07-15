@@ -20,7 +20,7 @@ def calculate_relevance(row: dict, search_term: str) -> int:
             if clean_term:
                 terms.append(clean_term)
                 
-    print(terms)
+    #print(terms)
     for term in terms:
         clean_term = term.replace('"', '')
         if clean_term.lower() in str(row['title']).lower():

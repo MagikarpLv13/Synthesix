@@ -59,8 +59,8 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
     start_time = time.time()
     
     google_task = asyncio.create_task(GoogleSearchEngine().search(search_term, browser))
-    brave_task = asyncio.create_task(BraveSearchEngine().search(search_term, browser))
     bing_task = asyncio.create_task(BingSearchEngine().search(search_term, browser))
+    brave_task = asyncio.create_task(BraveSearchEngine().search(search_term, browser))
     
     google_res = await asyncio.gather(google_task)
     bing_res = await asyncio.gather(bing_task)
@@ -80,9 +80,6 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
     
     # Merge results
     combined_df = pd.concat([google_df, bing_df, brave_df])
-    
-    # Remove duplicates of link
-    combined_df = combined_df.drop_duplicates(subset='link', keep='first')
 
     # Calculate relevance scores
     combined_df['relevance_score'] = combined_df.apply(lambda x: calculate_relevance(x, search_term), axis=1)
@@ -95,7 +92,7 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
         relevant_results = combined_df[combined_df['relevance_score'] > 0].head(5)
     if len(relevant_results) > 0:
         print(f"\nRelevant results ({len(relevant_results)}):")
-        for index, row in relevant_results.iterrows():
+        for _, row in relevant_results.iterrows():
             print(f"Title: {row['title']}")
             print(f"Description: {row['description']}")
             print(f"Link: {row['link']}")

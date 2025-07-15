@@ -67,5 +67,5 @@ def smart_parse(query: str)-> str:
 def is_advanced_query(query: str) -> bool:
     return any(
         op in query.lower()
-        for op in ["site:", "inurl:", "intitle:", "AND", "OR", "NOT"]
+        for op in ["site:", "inurl:", "intitle:", "AND", "OR", "NOT", "\"", "("]
     )
