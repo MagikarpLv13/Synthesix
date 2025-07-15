@@ -29,7 +29,8 @@ class BingSearchEngine(SearchEngine):
             self.num_results = len(self.results)
 
     def construct_url(self) -> str:
-        return f"{self.base_url}/search?q={self.query}"
+        count = min(50, int(self.max_results * 1.5 + 0.5))
+        return f"{self.base_url}/search?q={self.query}&count={count}&adlt=off"
 
     def parse_results(self, raw_results):
         xpaths = self.get_xpaths()

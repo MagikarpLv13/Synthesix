@@ -98,7 +98,7 @@ class BraveSearchEngine(SearchEngine):
         if button:
             await button.click()
             print("Button clicked")
-            await self.wait_for_page_load()
+            await self.wait_for_page_load(timeout=10)
             return True
         
         # If the button is not found, we can assume that we are not a robot 🤖

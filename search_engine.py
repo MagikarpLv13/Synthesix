@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 import pandas as pd
 import time
 import nodriver as uc
+import asyncio
 
 class SearchEngine(ABC):
-    def __init__(self, name, max_results=25):
+    def __init__(self, name, max_results=15):
         self.name = name
         self.results = []
         self.num_results = 0
@@ -99,17 +100,15 @@ class SearchEngine(ABC):
         """Custom function to wait for the page to load.
         Until wait_for is fixed in nodriver
         """
-        elapsed = time.time()
-        
-        def get_elapsed():
-            return time.time() - elapsed
-
-        while get_elapsed() < timeout:
-            results = await self.tab.find(self.selector)
-            if results:
-                break
-            await self.tab.wait(interval)
-            
+        start = time.time()
+        while (time.time() - start) < timeout:
+            try :
+                results = await self.tab.query_selector(self.selector)
+                if results:
+                    return
+                await asyncio.sleep(interval)
+            except :
+                await asyncio.sleep(interval)
         await self.robot_check()
             
     async def robot_check(self):

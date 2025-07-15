@@ -53,7 +53,7 @@ async def main(perfect_only=False):
         browser_manager.quit()
         
 async def perform_search(search_term: str, browser: uc.Browser, perfect_only=False):
-    print(f"\nSearch in progress for: '{search_term}'")
+    print(f"\nSearch in progress for: {search_term}")
     
     # Launch searches in parallel
     start_time = time.time()
