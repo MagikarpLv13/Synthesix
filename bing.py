@@ -5,9 +5,15 @@ class BingSearchEngine(SearchEngine):
     def __init__(self):
         super().__init__(name="Bing")
         self.base_url = "https://www.bing.com"
-        
-        
+
     async def post_execute_search(self):
+        if self.num_results >= self.max_results:
+            return
+
+        # If the number of results from the actual page is less than 10, we can assume that there are no more results
+        if self.num_results < 10:
+            return
+
         while self.num_results < self.max_results:
             try:
                 next_button = await self.tab.xpath(".//a[contains(@class, 'sb_pagN') and @href]")
@@ -16,17 +22,23 @@ class BingSearchEngine(SearchEngine):
                 break
             if next_button:
                 next_url = self.base_url + next_button[0].get("href")
-                
+
             if next_url == self.current_url:
                 break
             else:
                 self.current_url = next_url
-                
+
             self.tab = await self.tab.get(next_url)
             await self.wait_for_page_load()
             raw_results = await self.tab.get_content()
-            self.results.extend(self.parse_results(raw_results))
+            results = self.parse_results(raw_results)
+            self.results.extend(results)
             self.num_results = len(self.results)
+            
+            #@TODO: Not very efficient, we should find a better way to do this
+            # If the number of results from the actual page is less than 5, we can assume that there are no more results
+            if len(results) < 5:
+                break
 
     def construct_url(self) -> str:
         count = min(50, int(self.max_results * 1.5 + 0.5))
@@ -42,7 +54,7 @@ class BingSearchEngine(SearchEngine):
             desc_xpath=xpaths["desc"],
             source=self.name,
         )
-        
+
     def set_selector(self):
         self.selector = "#b_results"
 
@@ -53,7 +65,7 @@ class BingSearchEngine(SearchEngine):
             'link': ".//a[@href]",
             'desc': ".//div[contains(@class, 'b_caption')]"
         }
-        
+
     def test(self):
         with open("test_bing.html", "r") as file:
             raw_results = file.read()

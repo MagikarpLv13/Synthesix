@@ -51,39 +51,53 @@ async def main(perfect_only=False):
                 
     finally:
         browser_manager.quit()
-        
+
 async def perform_search(search_term: str, browser: uc.Browser, perfect_only=False):
     print(f"\nSearch in progress for: {search_term}")
-    
+
     # Launch searches in parallel
     start_time = time.time()
-    
+
     google_task = asyncio.create_task(GoogleSearchEngine().search(search_term, browser))
     bing_task = asyncio.create_task(BingSearchEngine().search(search_term, browser))
     brave_task = asyncio.create_task(BraveSearchEngine().search(search_term, browser))
-    
+
     google_res = await asyncio.gather(google_task)
     bing_res = await asyncio.gather(bing_task)
     brave_res = await asyncio.gather(brave_task)
     total_time = time.time() - start_time
-    
+
     # Minimize the browser
     await browser.main_tab.minimize()
-    
+
     google_df = google_res[0]
     bing_df = bing_res[0]
     brave_df = brave_res[0]
-    
+
     # Global execution time
     print("\n=== Global execution time ===")
     print(f"Total: {total_time:.2f} seconds")
-    
+
     # Merge results
     combined_df = pd.concat([google_df, bing_df, brave_df])
 
     # Calculate relevance scores
     combined_df['relevance_score'] = combined_df.apply(lambda x: calculate_relevance(x, search_term), axis=1)
     combined_df = combined_df.sort_values('relevance_score', ascending=False)
+
+    # Group by link and aggregate sources and other fields
+    combined_df = (
+        combined_df.groupby("link")
+        .agg(
+            {
+                "title": lambda x: x[combined_df.loc[x.index, 'relevance_score'].idxmax()],  # Keep title with highest relevance
+                "description": lambda x: x[combined_df.loc[x.index, 'relevance_score'].idxmax()],  # Keep description with highest relevance 
+                "source": lambda x: ", ".join(sorted(x.unique())),  # Combine sources
+                "relevance_score": "max"  # Keep highest relevance score
+            }
+        )
+        .reset_index()
+    )
 
     # Display top 5 results with a relevance score > 0
     if perfect_only:
