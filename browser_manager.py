@@ -22,10 +22,5 @@ class HeadlessBrowserManager:
         self.browser = await uc.start(config=config)
         return self
 
-    async def quit(self):
-        for tab in self.browser.tabs:
-            await tab.close()
-        await self.browser.stop()
-
     async def get_driver(self):
         return self.browser

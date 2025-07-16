@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSA</title>
+    <meta name="description" content="Synthesix is a multi-engine search tool that allows you to perform precise and advanced queries across several search engines (Google, Bing, Brave).">
+    <meta name="keywords" content="search, multi-engine, google, bing, brave, synthesix">
+    <title>Synthesix</title>
     <style>
         body {
             display: flex;
@@ -34,20 +36,12 @@
         button:hover {
             background-color: #45a049;
         }
-        #quit-button {
-            background-color: #f44336;
-            color: white;
-        }
-        #quit-button:hover {
-            background-color: #d32f2f;
-        }
     </style>
 </head>
 <body>
     <div class="search-container">
-        <input type="text" id="search-field" placeholder="Enter your research topic...">
-        <button id="search-button">Search</button>
-        <button id="quit-button">Quit</button>
+        <input type="text" id="search-field" required placeholder="What should I search for?">
+        <button id="search-button" type="submit">Search</button>
     </div>
 </body>
 </html>

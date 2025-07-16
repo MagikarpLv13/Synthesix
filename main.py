@@ -26,37 +26,52 @@ async def main():
                 """
                 new Promise(resolve => {
                     const searchBtn = document.querySelector("#search-button");
-                    const quitBtn = document.querySelector("#quit-button");
+                    const searchField = document.querySelector("#search-field");
+                    
                     const searchHandler = () => {
-                        const value = document.querySelector("#search-field").value;
+                        const value = searchField.value.trim();
+                        if (!value) {
+                            alert("Please enter a search term.");
+                            return;
+                        }
                         resolve({ action: "search", value });
                         cleanup();
                     };
+                    
                     const quitHandler = () => {
                         resolve({ action: "quit" });
                         cleanup();
                     };
+                    
+                    const enterHandler = (e) => {
+                        if (e.key === "Enter") {
+                            searchHandler();
+                        }
+                    };
+
                     function cleanup() {
-                        document.querySelector("#search-field").value = "";
+                        searchField.value = "";
                         searchBtn.removeEventListener("click", searchHandler);
-                        quitBtn.removeEventListener("click", quitHandler);
+                        searchField.removeEventListener("keypress", enterHandler);
+                        window.removeEventListener("beforeunload", quitHandler);
                     }
+                    
                     searchBtn.addEventListener("click", searchHandler, { once: true });
-                    quitBtn.addEventListener("click", quitHandler, { once: true });
+                    searchField.addEventListener("keypress", enterHandler);
+                    window.addEventListener("beforeunload", quitHandler);
                 });
                 """,
                 await_promise=True,
             )
 
+            # Quit the browser if the user wants to
             if result["action"] == "quit":
-                print("Goodbye!")
-                await browser_manager.quit()
-                break
+                return
+            # Get the search value
             search_value = result["value"].strip()
+            # If the search value is empty, quit the browser
             if not search_value:
-                print("Goodbye!")
-                break
-
+                return
             # If the query is not advanced, parse it to a smart query
             if not is_advanced_query(search_value):
                 query = search_value
@@ -71,7 +86,8 @@ async def main():
             await perform_search(search_term, browser)
 
     finally:
-        await browser_manager.quit()
+        await browser.stop()
+        print("Goodbye!")
 
 async def perform_search(search_term: str, browser: uc.Browser):
     print(f"\nSearch in progress for: {search_term}")
@@ -119,7 +135,7 @@ async def perform_search(search_term: str, browser: uc.Browser):
 
     # Display top 5 results with a relevance score > 0
     relevant_results = combined_df[combined_df['relevance_score'] > 0].head(10)
-    if len(relevant_results) > 0:
+    #if len(relevant_results) > 0:
         #print(f"\nRelevant results ({len(relevant_results)}):")
         #for _, row in relevant_results.iterrows():
         #    print(f"Title: {row['title']}")
@@ -128,15 +144,15 @@ async def perform_search(search_term: str, browser: uc.Browser):
         #    print(f"Source: {row['source']}")
         #    print(f"Relevance score: {row['relevance_score']:.2f}")
         #    print("-" * 50)
-        output_path = generate_html_report(relevant_results, search_term, total_time)
-        if output_path:
-            print(f"✅ Rapport généré : {output_path}")
-            result_tab = await browser.main_tab.get(f"file://{output_path}", new_tab=True)
-            await result_tab.bring_to_front()
-        else:
-            print("❌ Aucun résultat pertinent trouvé.")
+    output_path = generate_html_report(relevant_results, search_term, total_time)
+    if output_path:
+        print(f"✅ Generated report: {output_path}")
+        result_tab = await browser.main_tab.get(f"file://{output_path}", new_tab=True)
+        await result_tab.bring_to_front()
     else:
-        print("No relevant results found.")
+        print("Can't generate report.")
+    #else:
+    #    print("No relevant results found.")
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
