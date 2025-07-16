@@ -74,16 +74,18 @@ def is_advanced_query(query: str) -> bool:
     )
 
 
-def generate_html_report(df: pd.DataFrame) -> str | None:
+def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) -> str | None:
     if len(df) == 0:
         return None
+    
+    output_path = "search_results_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".html"
     
     html_head = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Search Results</title>
+    <title>Search Results for: """ + search_term + """</title>
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -102,7 +104,9 @@ def generate_html_report(df: pd.DataFrame) -> str | None:
     </style>
 </head>
 <body>
-    <h1>Search Results</h1>
+    <h1>Search Results for: """ + search_term + """</h1>
+    <p>Total time: """ + f"{total_time:.3f}" + """ seconds</p>
+    <p>HTML report created: """ + output_path + """</p>
     <table id="results" class="display">
         <thead>
             <tr>
@@ -140,7 +144,8 @@ def generate_html_report(df: pd.DataFrame) -> str | None:
     <script>
         $(document).ready(function() {
             $('#results').DataTable({
-                pageLength: 25
+                pageLength: 25,
+                order: [[4, 'desc']]
             });
         });
     </script>
@@ -149,8 +154,6 @@ def generate_html_report(df: pd.DataFrame) -> str | None:
 """
 
     full_html = html_head + rows_html + html_footer
-    
-    output_path = "search_results_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".html"
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(full_html)

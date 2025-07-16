@@ -16,8 +16,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# nodriver
-nodriver-profile/
+# zendriver
+zendriver-profile/
+search_results_*.html
 
 # Build outputs
 dist/

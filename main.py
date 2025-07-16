@@ -6,53 +6,74 @@ import pandas as pd
 import time
 from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
-import nodriver as uc
-import argparse
+import zendriver as uc
+import os       
 from utils import is_advanced_query, smart_parse, generate_html_report
 
 query = ""
 
-async def main(perfect_only=False):
-    global query
+async def main():
     browser_manager = await HeadlessBrowserManager.create()
     browser = await browser_manager.get_driver()
-    await browser.main_tab.minimize()
-    
+    index_path = os.path.abspath("index.html")
+    await browser.main_tab.get(index_path)
+    await browser.main_tab.bring_to_front()
+
     try:
         while True:
-            # Ask for the search term
-            search_term = input("\nEnter the search term (or 'quit' to quit): ")
-            
-            if search_term.lower() in ['quit', 'exit', 'q']:
+            # Wait for either the search or quit button to be clicked
+            result = await browser.main_tab.evaluate(
+                """
+                new Promise(resolve => {
+                    const searchBtn = document.querySelector("#search-button");
+                    const quitBtn = document.querySelector("#quit-button");
+                    const searchHandler = () => {
+                        const value = document.querySelector("#search-field").value;
+                        resolve({ action: "search", value });
+                        cleanup();
+                    };
+                    const quitHandler = () => {
+                        resolve({ action: "quit" });
+                        cleanup();
+                    };
+                    function cleanup() {
+                        document.querySelector("#search-field").value = "";
+                        searchBtn.removeEventListener("click", searchHandler);
+                        quitBtn.removeEventListener("click", quitHandler);
+                    }
+                    searchBtn.addEventListener("click", searchHandler, { once: true });
+                    quitBtn.addEventListener("click", quitHandler, { once: true });
+                });
+                """,
+                await_promise=True,
+            )
+
+            if result["action"] == "quit":
+                print("Goodbye!")
+                await browser_manager.quit()
+                break
+            search_value = result["value"].strip()
+            if not search_value:
                 print("Goodbye!")
                 break
-            
-            if not search_term.strip():
-                print("Please enter a valid search term.")
-                continue
-            
+
             # If the query is not advanced, parse it to a smart query
-            if not is_advanced_query(search_term):
-                query = search_term
-                print(f"Parsing query to a smart query: {search_term}")
-                search_term = smart_parse(search_term)
+            if not is_advanced_query(search_value):
+                query = search_value
+                print(f"Parsing query to a smart query: {search_value}")
+                search_term = smart_parse(search_value)
                 print(f"Smart query: {search_term}")
             else:
-                query = search_term
-            
-            # Perform the search
-            await perform_search(search_term, browser, perfect_only)
-            
-            # Ask if the user wants to continue
-            continue_search = input("\nDo you want to make another search? (y/n): ")
-            if continue_search.lower() not in ['y', 'yes']:
-                print("Goodbye!")
-                break
-                
-    finally:
-        browser_manager.quit()
+                query = search_value
+                search_term = search_value
 
-async def perform_search(search_term: str, browser: uc.Browser, perfect_only=False):
+            # Perform the search
+            await perform_search(search_term, browser)
+
+    finally:
+        await browser_manager.quit()
+
+async def perform_search(search_term: str, browser: uc.Browser):
     print(f"\nSearch in progress for: {search_term}")
 
     # Launch searches in parallel
@@ -66,9 +87,6 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
     bing_res = await asyncio.gather(bing_task)
     brave_res = await asyncio.gather(brave_task)
     total_time = time.time() - start_time
-
-    # Minimize the browser
-    await browser.main_tab.minimize()
 
     google_df = google_res[0]
     bing_df = bing_res[0]
@@ -100,31 +118,25 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
     )
 
     # Display top 5 results with a relevance score > 0
-    if perfect_only:
-        relevant_results = combined_df[combined_df['relevance_score'] >= 9].head(5)
-    else:
-        relevant_results = combined_df[combined_df['relevance_score'] > 0].head(5)
+    relevant_results = combined_df[combined_df['relevance_score'] > 0].head(10)
     if len(relevant_results) > 0:
-        print(f"\nRelevant results ({len(relevant_results)}):")
-        for _, row in relevant_results.iterrows():
-            print(f"Title: {row['title']}")
-            print(f"Description: {row['description']}")
-            print(f"Link: {row['link']}")
-            print(f"Source: {row['source']}")
-            print(f"Relevance score: {row['relevance_score']:.2f}")
-            print("-" * 50)
-        #output_path = generate_html_report(relevant_results)
-        #if output_path:
-        #    print(f"✅ Rapport généré : {output_path}")
-        #    await browser.main_tab.get(f"file://{output_path}")
-        #    await browser.main_tab.bring_to_front()
-        #else:
-        #    print("❌ Aucun résultat pertinent trouvé.")
+        #print(f"\nRelevant results ({len(relevant_results)}):")
+        #for _, row in relevant_results.iterrows():
+        #    print(f"Title: {row['title']}")
+        #    print(f"Description: {row['description']}")
+        #    print(f"Link: {row['link']}")
+        #    print(f"Source: {row['source']}")
+        #    print(f"Relevance score: {row['relevance_score']:.2f}")
+        #    print("-" * 50)
+        output_path = generate_html_report(relevant_results, search_term, total_time)
+        if output_path:
+            print(f"✅ Rapport généré : {output_path}")
+            result_tab = await browser.main_tab.get(f"file://{output_path}", new_tab=True)
+            await result_tab.bring_to_front()
+        else:
+            print("❌ Aucun résultat pertinent trouvé.")
     else:
         print("No relevant results found.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Recherche multi-moteur avec filtrage de pertinence.")
-    parser.add_argument('--perfect', '-p', action='store_true', help='Afficher uniquement les résultats parfaitement pertinents (relevance_score == 1.0)')
-    args = parser.parse_args()
-    asyncio.get_event_loop().run_until_complete(main(perfect_only=args.perfect))
+    asyncio.get_event_loop().run_until_complete(main())

@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 import pandas as pd
 import time
-import nodriver as uc
+import zendriver as uc
 import asyncio
 
 class SearchEngine(ABC):
-    def __init__(self, name, max_results=15):
+    def __init__(self, name, max_results=20):
         self.name = name
         self.results = []
         self.num_results = 0
@@ -49,6 +49,9 @@ class SearchEngine(ABC):
         url = self.construct_url()
         self.current_url = url
         self.tab = await self.browser.get(url, new_tab=True)
+        
+        # Stay focused on the main tab
+        await self.browser.main_tab.bring_to_front()
         await self.wait_for_page_load()
 
     @abstractmethod

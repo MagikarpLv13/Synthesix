@@ -1,6 +1,6 @@
-import nodriver as uc
+import zendriver as uc
 import os
-from nodriver.core.config import Config
+from zendriver.core.config import Config
 
 class HeadlessBrowserManager:
     def __init__(self):
@@ -9,7 +9,7 @@ class HeadlessBrowserManager:
     @classmethod
     async def create(cls):
         self = cls()
-        custom_profile = os.path.join(os.getcwd(), "nodriver-profile")
+        custom_profile = os.path.join(os.getcwd(), "zendriver-profile")
         os.makedirs(custom_profile, exist_ok=True)
 
         config = Config()
@@ -22,8 +22,10 @@ class HeadlessBrowserManager:
         self.browser = await uc.start(config=config)
         return self
 
-    def quit(self):
-        self.browser.stop()
+    async def quit(self):
+        for tab in self.browser.tabs:
+            await tab.close()
+        await self.browser.stop()
 
     async def get_driver(self):
         return self.browser

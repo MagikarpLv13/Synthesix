@@ -3,9 +3,8 @@ pandas
 selenium
 beautifulsoup4
 fake-useragent
-undetected-chromedriver
 setuptools
-nodriver
+zendriver
 lxml
 reliq
 pyquery
