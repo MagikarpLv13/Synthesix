@@ -8,7 +8,7 @@ from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
 import nodriver as uc
 import argparse
-from utils import is_advanced_query, smart_parse
+from utils import is_advanced_query, smart_parse, generate_html_report
 
 query = ""
 
@@ -113,6 +113,13 @@ async def perform_search(search_term: str, browser: uc.Browser, perfect_only=Fal
             print(f"Source: {row['source']}")
             print(f"Relevance score: {row['relevance_score']:.2f}")
             print("-" * 50)
+        #output_path = generate_html_report(relevant_results)
+        #if output_path:
+        #    print(f"✅ Rapport généré : {output_path}")
+        #    await browser.main_tab.get(f"file://{output_path}")
+        #    await browser.main_tab.bring_to_front()
+        #else:
+        #    print("❌ Aucun résultat pertinent trouvé.")
     else:
         print("No relevant results found.")
 

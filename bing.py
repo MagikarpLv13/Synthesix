@@ -52,7 +52,7 @@ class BingSearchEngine(SearchEngine):
             title_xpath=xpaths["title"],
             link_xpath=xpaths["link"],
             desc_xpath=xpaths["desc"],
-            source=self.name,
+            source=self.name
         )
 
     def set_selector(self):

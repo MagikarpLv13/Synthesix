@@ -1,6 +1,9 @@
 import re
 import json
 from html import unescape
+import pandas as pd
+from datetime import datetime
+import os
 
 def js_like_to_json(js_text):
     """Convert a JS like text to a JSON object
@@ -69,3 +72,89 @@ def is_advanced_query(query: str) -> bool:
         op in query.lower()
         for op in ["site:", "inurl:", "intitle:", "AND", "OR", "NOT", "\"", "("]
     )
+
+
+def generate_html_report(df: pd.DataFrame) -> str | None:
+    if len(df) == 0:
+        return None
+    
+    html_head = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Results</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        h1 {
+            text-align: center;
+        }
+        td.description {
+            max-width: 500px;
+            white-space: normal;
+        }
+    </style>
+</head>
+<body>
+    <h1>Search Results</h1>
+    <table id="results" class="display">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Link</th>
+                <th>Source</th>
+                <th>Score</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
+
+    rows_html = ""
+    for _, row in df.iterrows():
+        title = row["title"]
+        desc = row["description"]
+        link = row["link"]
+        source = row["source"]
+        score = f"{row['relevance_score']:.2f}"
+        link_html = f'<a href="{link}" target="_blank">{link}</a>'
+        rows_html += f"""
+        <tr>
+            <td>{title}</td>
+            <td class="description">{desc}</td>
+            <td>{link_html}</td>
+            <td>{source}</td>
+            <td>{score}</td>
+        </tr>
+        """
+
+    html_footer = """
+        </tbody>
+    </table>
+    <script>
+        $(document).ready(function() {
+            $('#results').DataTable({
+                pageLength: 25
+            });
+        });
+    </script>
+</body>
+</html>
+"""
+
+    full_html = html_head + rows_html + html_footer
+    
+    output_path = "search_results_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".html"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(full_html)
+        
+    output_path = os.path.abspath(output_path)
+        
+    return output_path
