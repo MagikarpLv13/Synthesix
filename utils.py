@@ -63,8 +63,8 @@ def smart_parse(query: str)-> str:
         return f'"{terms[0]}"'
 
     all_and = " AND ".join(f'"{t}"' for t in terms)
-    all_or = " OR ".join(f'"{t}"' for t in terms)
-    return f"({all_and}) OR {all_or}"
+    #all_or = " OR ".join(f'"{t}"' for t in terms) # Searches are more relevant without OR
+    return f"({all_and})"
 
 
 def is_advanced_query(query: str) -> bool:

@@ -94,11 +94,14 @@ class BraveSearchEngine(SearchEngine):
         return query
 
     async def robot_check(self):
+        # We need to focus the tab to be able to click on the button
+        await self.tab.bring_to_front()
+    
         button = await self.tab.find("I'm not a robot", best_match=True, timeout=0.1)
         if button:
             await button.click()
             print("Button clicked")
-            await self.wait_for_page_load(timeout=10)
+            await self.wait_for_page_load(timeout=30)
             return True
         
         # If the button is not found, we can assume that we are not a robot 🤖

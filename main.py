@@ -134,7 +134,7 @@ async def perform_search(search_term: str, browser: uc.Browser):
     )
 
     # Display top 5 results with a relevance score > 0
-    relevant_results = combined_df[combined_df['relevance_score'] > 0].head(10)
+    relevant_results = combined_df[combined_df['relevance_score'] > 0]
     #if len(relevant_results) > 0:
         #print(f"\nRelevant results ({len(relevant_results)}):")
         #for _, row in relevant_results.iterrows():

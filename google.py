@@ -40,7 +40,7 @@ class GoogleSearchEngine(SearchEngine):
     async def robot_check(self):
         button = await self.tab.find("#captcha-form", timeout=0.1)
         if button:
-            print("Robot detected, need to solve captcha")
+            print("Robot detected by Google, need to solve captcha")
             await self.tab.activate()
             await self.wait_for_page_load(timeout=100)
             return True
