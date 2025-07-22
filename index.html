@@ -10,6 +10,7 @@
         body {
             display: flex;
             justify-content: center;
+            flex-direction: column;
             align-items: center;
             height: 100vh;
             margin: 0;
@@ -25,23 +26,37 @@
             border: 1px solid #ccc;
             border-radius: 4px;
         }
-        button {
+        .button {
             padding: 10px 20px;
-            background-color: #4CAF50;
+            font-size: 16px;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
+            text-decoration: none;
+
+            &.search {
+                background-color: #4CAF50;
+            }
+            &.history {
+                background-color: #007bff;
+            }
+            &.search:hover {
+                background-color: #45a049;
+            }
+            &.history:hover {
+                background-color: #0056b3;
+            }
         }
     </style>
 </head>
 <body>
     <div class="search-container">
-        <input type="text" id="search-field" required placeholder="What should I search for?">
-        <button id="search-button" type="submit">Search</button>
+        <input type="text" id="search-field" required placeholder="What are you investigating ?">
+        <button id="search-button" class="button search">Search</button>
+    </div>
+    <div style="margin-top: 20px;">
+        <a href="history.html" target="_blank" class="button history">History</a>
     </div>
 </body>
 </html>

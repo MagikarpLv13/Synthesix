@@ -5,6 +5,124 @@ import pandas as pd
 from datetime import datetime
 import os
 
+def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
+    """Add a search to the history
+    
+    Args:
+        query (str): The query
+        nb_results (int): The number of results
+        link (str): The link to the search results
+    """
+    
+    path = "history/history.json"
+    date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    data = {
+        "date": date_str,
+        "query": query,
+        "smart_query": smart_query,
+        "nb_results": nb_results,
+        "link": link
+    }
+
+    # Load the history
+    if not os.path.exists(path):
+        # Create the history directory if it doesn't exist
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Create an empty history file
+        history = []
+    else:
+        # Load the existing history
+        with open(path, "r") as f:
+            history = json.load(f)
+    
+    history.append(data)
+    with open(path, "w") as f:
+        json.dump(history, f, indent=4)
+        
+        
+def generate_history_html():
+    """Generate an HTML report of the history
+    
+    Returns:
+        str: The path to the generated HTML report
+    """
+    path = "history/history.json"
+    output_path = "history.html"
+    
+    # Charger l'historique
+    if not os.path.exists(path):
+        history = []
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+
+    # Début du HTML
+    html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>History</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #fafafa; color: #333; }
+        h1 { text-align: center; margin-bottom: 30px; font-weight: normal; }
+        table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); background-color: #fff; border-radius: 8px; overflow: hidden; }
+        thead { background-color: #f0f0f0; }
+        th, td { text-align: left; padding: 12px 16px; }
+        th { font-weight: 600; font-size: 14px; color: #444; border-bottom: 1px solid #ddd; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>History</h1>
+    <table id="historyTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Original Query</th>
+                <th>Smart Query</th>
+                <th>Number of results</th>
+                <th>Link to results</th>
+            </tr>
+        </thead>
+        <tbody>
+'''
+    # Ajouter les lignes du tableau
+    for entry in reversed(history):
+        html += f"""
+            <tr>
+                <td>{entry.get('date', '')}</td>
+                <td>{entry.get('query', '')}</td>
+                <td>{entry.get('smart_query', '')}</td>
+                <td>{entry.get('nb_results', '')}</td>
+                <td><a href=\"{entry.get('link', '#')}\" target=\"_blank\">View results</a></td>
+            </tr>
+        """
+    html += '''
+        </tbody>
+    </table>
+    <script>
+        $(document).ready(function() {
+            $('#historyTable').DataTable({
+                order: [[0, 'desc']],
+                pageLength: 50,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]]
+            });
+        });
+    </script>
+</body>
+</html>
+'''
+    # Écrire le fichier HTML
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    return output_path
+
 def js_like_to_json(js_text):
     """Convert a JS like text to a JSON object
 
@@ -74,9 +192,21 @@ def is_advanced_query(query: str) -> bool:
     )
 
 
-def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) -> str | None:
+def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, nb_results: int) -> str | None:
+    """Generate an HTML report of the search results
+    
+    Args:
+        df (pd.DataFrame): The DataFrame containing the search results
+        search_term (str): The search term
+        total_time (float): The total time taken to perform the search
+        nb_results (int): The number of results
+
+    Returns:
+        str: The path to the generated HTML report
+    """
+
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = "search_results_" + date_str + ".html"
+    output_path = "history/search_results_" + date_str + ".html"
 
     html_head = (
         """
@@ -165,6 +295,9 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) 
     <p>Search date: """
         + date_str
         + """</p>
+    <p>Number of results: """
+        + str(nb_results)
+        + """</p>
     <table id="results" class="display">
         <thead>
             <tr>
@@ -179,7 +312,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) 
 """
     )
 
-    if len(df) == 0:
+    if nb_results == 0:
         rows_html = """
         <tr>
             <td colspan="5" style="text-align: center; font-size: 1.5em; padding: 20px;">
@@ -190,14 +323,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) 
         html_footer = """
         </tbody>
     </table>
-    <script>
-        $(document).ready(function() {
-            $('#results').DataTable({
-                pageLength: 25,
-                order: [[4, 'desc']]
-            });
-        });
-    </script>
 </body>
 </html>
 """
@@ -234,7 +359,8 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float) 
     <script>
         $(document).ready(function() {
             $('#results').DataTable({
-                pageLength: 25,
+                pageLength: 50,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
                 order: [[4, 'desc']]
             });
         });

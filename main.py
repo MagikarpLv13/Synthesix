@@ -8,7 +8,7 @@ from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
 import zendriver as uc
 import os       
-from utils import is_advanced_query, smart_parse, generate_html_report
+from utils import is_advanced_query, smart_parse, generate_html_report, add_to_history, generate_history_html
 
 query = ""
 
@@ -68,36 +68,34 @@ async def main():
             if result["action"] == "quit":
                 return
             # Get the search value
-            search_value = result["value"].strip()
+            original_query = result["value"].strip()
             # If the search value is empty, quit the browser
-            if not search_value:
+            if not original_query:
                 return
             # If the query is not advanced, parse it to a smart query
-            if not is_advanced_query(search_value):
-                query = search_value
-                print(f"Parsing query to a smart query: {search_value}")
-                search_term = smart_parse(search_value)
-                print(f"Smart query: {search_term}")
+            if not is_advanced_query(original_query):
+                print(f"Parsing query to a smart query: {original_query}")
+                parsed_query = smart_parse(original_query)
+                print(f"Smart query: {parsed_query}")
             else:
-                query = search_value
-                search_term = search_value
-
+                parsed_query = original_query
+                
             # Perform the search
-            await perform_search(search_term, browser)
+            await perform_search(original_query, parsed_query, browser)
 
     finally:
         await browser.stop()
         print("Goodbye!")
 
-async def perform_search(search_term: str, browser: uc.Browser):
-    print(f"\nSearch in progress for: {search_term}")
+async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser):
+    print(f"\nSearch in progress for: {parsed_query}")
 
     # Launch searches in parallel
     start_time = time.time()
 
-    google_task = asyncio.create_task(GoogleSearchEngine().search(search_term, browser))
-    bing_task = asyncio.create_task(BingSearchEngine().search(search_term, browser))
-    brave_task = asyncio.create_task(BraveSearchEngine().search(search_term, browser))
+    google_task = asyncio.create_task(GoogleSearchEngine().search(parsed_query, browser))
+    bing_task = asyncio.create_task(BingSearchEngine().search(parsed_query, browser))
+    brave_task = asyncio.create_task(BraveSearchEngine().search(parsed_query, browser))
 
     google_res = await asyncio.gather(google_task)
     bing_res = await asyncio.gather(bing_task)
@@ -116,7 +114,7 @@ async def perform_search(search_term: str, browser: uc.Browser):
     combined_df = pd.concat([google_df, bing_df, brave_df])
 
     # Calculate relevance scores
-    combined_df['relevance_score'] = combined_df.apply(lambda x: calculate_relevance(x, search_term), axis=1)
+    combined_df['relevance_score'] = combined_df.apply(lambda x: calculate_relevance(x, parsed_query), axis=1)
     combined_df = combined_df.sort_values('relevance_score', ascending=False)
 
     # Group by link and aggregate sources and other fields
@@ -133,26 +131,18 @@ async def perform_search(search_term: str, browser: uc.Browser):
         .reset_index()
     )
 
-    # Display top 5 results with a relevance score > 0
+    # Generate report with relevant results
     relevant_results = combined_df[combined_df['relevance_score'] > 0]
-    #if len(relevant_results) > 0:
-        #print(f"\nRelevant results ({len(relevant_results)}):")
-        #for _, row in relevant_results.iterrows():
-        #    print(f"Title: {row['title']}")
-        #    print(f"Description: {row['description']}")
-        #    print(f"Link: {row['link']}")
-        #    print(f"Source: {row['source']}")
-        #    print(f"Relevance score: {row['relevance_score']:.2f}")
-        #    print("-" * 50)
-    output_path = generate_html_report(relevant_results, search_term, total_time)
+    nb_results = len(relevant_results)
+    output_path = generate_html_report(relevant_results, parsed_query, total_time, nb_results)
     if output_path:
         print(f"✅ Generated report: {output_path}")
         result_tab = await browser.main_tab.get(f"file://{output_path}", new_tab=True)
+        add_to_history(original_query, parsed_query, nb_results, output_path)
+        generate_history_html()
         await result_tab.bring_to_front()
     else:
         print("Can't generate report.")
-    #else:
-    #    print("No relevant results found.")
 
 if __name__ == "__main__":
     asyncio.run(main())
