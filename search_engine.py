@@ -5,23 +5,24 @@ import zendriver as uc
 import asyncio
 
 class SearchEngine(ABC):
-    def __init__(self, name, max_results=20):
+    def __init__(self, name):
         self.name = name
         self.results = []
         self.num_results = 0
-        self.max_results = max_results
+        self.max_results = None
         self.tab : uc.Tab = None
         self.query = None
         self.browser = None
         self.selector = None
         self.current_url = None
 
-    async def search(self, query, browser=None) -> pd.DataFrame:
+    async def search(self, query, browser=None, max_results=20) -> pd.DataFrame:
         """
         Launch a search and return a DataFrame of results.
         """
         self.query = query
         self.browser = browser
+        self.max_results = max_results
         self.set_selector()
         if self.query == "test" and self.browser is None:
             self.test()

@@ -52,6 +52,15 @@
 </head>
 <body>
     <div class="search-container">
+        <div style="margin-bottom: 10px;">
+            <label><input type="checkbox" id="engine-google" checked> Google</label>
+            <label><input type="checkbox" id="engine-bing" checked> Bing</label>
+            <label><input type="checkbox" id="engine-brave" checked> Brave</label>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <label for="num-results">Number of results:</label>
+            <input type="number" id="num-results" min="1" max="100" value="20" style="width: 60px;">
+        </div>
         <input type="text" id="search-field" required placeholder="What are you investigating ?">
         <button id="search-button" class="button search">Search</button>
     </div>

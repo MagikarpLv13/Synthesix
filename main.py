@@ -34,7 +34,11 @@ async def main():
                             alert("Please enter a search term.");
                             return;
                         }
-                        resolve({ action: "search", value });
+                        const google = document.getElementById("engine-google").checked;
+                        const bing = document.getElementById("engine-bing").checked;
+                        const brave = document.getElementById("engine-brave").checked;
+                        const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
+                        resolve({ action: "search", value, engines: { google, bing, brave }, numResults });
                         cleanup();
                     };
                     
@@ -81,30 +85,36 @@ async def main():
                 parsed_query = original_query
                 
             # Perform the search
-            await perform_search(original_query, parsed_query, browser)
+            engines = result.get("engines", {"google": True, "bing": True, "brave": True})
+            num_results = result.get("numResults", 20)
+            await perform_search(original_query, parsed_query, browser, engines, num_results)
 
     finally:
         await browser.stop()
         print("Goodbye!")
 
-async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser):
+async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser, engines: dict, num_results: int):
     print(f"\nSearch in progress for: {parsed_query}")
 
     # Launch searches in parallel
     start_time = time.time()
 
-    google_task = asyncio.create_task(GoogleSearchEngine().search(parsed_query, browser))
-    bing_task = asyncio.create_task(BingSearchEngine().search(parsed_query, browser))
-    brave_task = asyncio.create_task(BraveSearchEngine().search(parsed_query, browser))
+    tasks = []
+    if engines.get("google"):
+        tasks.append(("google", asyncio.create_task(GoogleSearchEngine().search(parsed_query, browser, num_results))))
+    if engines.get("bing"):
+        tasks.append(("bing", asyncio.create_task(BingSearchEngine().search(parsed_query, browser, num_results))))
+    if engines.get("brave"):
+        tasks.append(("brave", asyncio.create_task(BraveSearchEngine().search(parsed_query, browser, num_results))))
 
-    google_res = await asyncio.gather(google_task)
-    bing_res = await asyncio.gather(bing_task)
-    brave_res = await asyncio.gather(brave_task)
+    results = await asyncio.gather(*(t[1] for t in tasks))
+    engine_results = {engine: result for (engine, _), result in zip(tasks, results)}
+
+    google_df = engine_results.get("google", pd.DataFrame())
+    bing_df = engine_results.get("bing", pd.DataFrame())
+    brave_df = engine_results.get("brave", pd.DataFrame())
+
     total_time = time.time() - start_time
-
-    google_df = google_res[0]
-    bing_df = bing_res[0]
-    brave_df = brave_res[0]
 
     # Global execution time
     print("\n=== Global execution time ===")
