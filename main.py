@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from brave import BraveSearchEngine
 from google import GoogleSearchEngine
 from bing import BingSearchEngine
@@ -15,8 +16,9 @@ query = ""
 async def main():
     browser_manager = await HeadlessBrowserManager.create()
     browser = await browser_manager.get_driver()
-    index_path = os.path.abspath("index.html")
-    await browser.main_tab.get(index_path)
+    # Use a file:// URL so navigation works across platforms
+    index_url = Path("index.html").resolve().as_uri()
+    await browser.main_tab.get(index_url)
     await browser.main_tab.bring_to_front()
 
     try:
@@ -64,6 +66,7 @@ async def main():
                     searchField.addEventListener("keypress", enterHandler);
                     window.addEventListener("beforeunload", quitHandler);
                 });
+
                 """,
                 await_promise=True,
             )

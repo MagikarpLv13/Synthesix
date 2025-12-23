@@ -102,7 +102,6 @@ class SearchEngine(ABC):
 
     async def wait_for_page_load(self, timeout=2.5, interval=0.1):
         """Custom function to wait for the page to load.
-        Until wait_for is fixed in nodriver
         """
         start = time.time()
         while (time.time() - start) < timeout:

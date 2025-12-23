@@ -272,6 +272,13 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             white-space: normal;
         }
 
+        td.link {
+            max-width: 350px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         a {
             color: #0066cc;
             text-decoration: none;
@@ -347,7 +354,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         <tr>
             <td>{title}</td>
             <td class="description">{desc}</td>
-            <td>{link_html}</td>
+            <td class="link">{link_html}</td>
             <td>{source}</td>
             <td>{score}</td>
         </tr>
