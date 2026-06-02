@@ -4,6 +4,7 @@ import bs4
 from reliq import reliq
 import json
 import pyquery
+from urllib.parse import quote_plus
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
 
@@ -13,7 +14,7 @@ class GoogleSearchEngine(SearchEngine):
         self.base_url = "https://www.google.com"
 
     def construct_url(self) -> str:
-        return f"{self.base_url}/search?q={self.query}&num={self.max_results}&start=0&filter=0&nfpr=1&udm=14&safe=off"
+        return f"{self.base_url}/search?q={quote_plus(self.query)}&num={self.max_results}&start=0&filter=0&nfpr=1&udm=14&safe=off"
 
     def parse_results(self, raw_results):
         xpaths = self.get_xpaths()
@@ -49,7 +50,7 @@ class GoogleSearchEngine(SearchEngine):
         return False
 
     def test(self):
-        with open("test_google.html", "r") as file:
+        with open("test_google.html", "r", encoding="utf-8", errors="replace") as file:
             raw_results = file.read()
         begin_time = time.time()
         res = self.parse_results(raw_results)

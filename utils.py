@@ -1,9 +1,14 @@
 import re
 import json
-from html import unescape
+from html import escape, unescape
 import pandas as pd
 from datetime import datetime
 import os
+from typing import Optional
+
+
+def _html_escape(value) -> str:
+    return escape(str(value), quote=True)
 
 def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
     """Add a search to the history
@@ -32,11 +37,11 @@ def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
         history = []
     else:
         # Load the existing history
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             history = json.load(f)
     
     history.append(data)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=4)
         
         
@@ -94,13 +99,18 @@ def generate_history_html():
 '''
     # Ajouter les lignes du tableau
     for entry in reversed(history):
+        date = _html_escape(entry.get('date', ''))
+        query = _html_escape(entry.get('query', ''))
+        smart_query = _html_escape(entry.get('smart_query', ''))
+        nb_results = _html_escape(entry.get('nb_results', ''))
+        link = _html_escape(entry.get('link', '#'))
         html += f"""
             <tr>
-                <td>{entry.get('date', '')}</td>
-                <td>{entry.get('query', '')}</td>
-                <td>{entry.get('smart_query', '')}</td>
-                <td>{entry.get('nb_results', '')}</td>
-                <td><a href=\"{entry.get('link', '#')}\" target=\"_blank\">View results</a></td>
+                <td>{date}</td>
+                <td>{query}</td>
+                <td>{smart_query}</td>
+                <td>{nb_results}</td>
+                <td><a href="{link}" target="_blank" rel="noopener noreferrer">View results</a></td>
             </tr>
         """
     html += '''
@@ -186,13 +196,13 @@ def smart_parse(query: str)-> str:
 
 
 def is_advanced_query(query: str) -> bool:
-    return any(
-        op in query.lower()
-        for op in ["site:", "inurl:", "intitle:", "AND", "OR", "NOT", "\"", "("]
-    )
+    lowered = query.lower()
+    if any(op in lowered for op in ["site:", "inurl:", "intitle:", "\"", "("]):
+        return True
+    return re.search(r"\b(AND|OR|NOT)\b", query) is not None
 
 
-def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, nb_results: int) -> str | None:
+def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, nb_results: int) -> Optional[str]:
     """Generate an HTML report of the search results
     
     Args:
@@ -207,6 +217,9 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = "history/search_results_" + date_str + ".html"
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    safe_search_term = _html_escape(search_term)
+    safe_output_path = _html_escape(output_path)
 
     html_head = (
         """
@@ -215,7 +228,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 <head>
     <meta charset="UTF-8">
     <title>Search Results for: """
-        + search_term
+        + safe_search_term
         + """</title>
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
@@ -291,13 +304,13 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 </head>
 <body>
     <h1>Search Results for: """
-        + search_term
+        + safe_search_term
         + """</h1>
     <p>Total time: """
         + f"{total_time:.3f}"
         + """ seconds</p>
     <p>HTML report created: """
-        + output_path
+        + safe_output_path
         + """</p>
     <p>Search date: """
         + date_str
@@ -344,12 +357,12 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         
     rows_html = ""
     for _, row in df.iterrows():
-        title = row["title"]
-        desc = row["description"]
-        link = row["link"]
-        source = row["source"]
+        title = _html_escape(row["title"])
+        desc = _html_escape(row["description"])
+        link = _html_escape(row["link"])
+        source = _html_escape(row["source"])
         score = f"{row['relevance_score']:.2f}"
-        link_html = f'<a href="{link}" target="_blank">{link}</a>'
+        link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
         rows_html += f"""
         <tr>
             <td>{title}</td>

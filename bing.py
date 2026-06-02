@@ -1,5 +1,6 @@
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
+from urllib.parse import quote_plus, urljoin
 
 class BingSearchEngine(SearchEngine):
     def __init__(self):
@@ -20,8 +21,14 @@ class BingSearchEngine(SearchEngine):
             except Exception as e:
                 print(e)
                 break
-            if next_button:
-                next_url = self.base_url + next_button[0].get("href")
+            if not next_button:
+                break
+
+            href = next_button[0].get("href")
+            if not href:
+                break
+
+            next_url = urljoin(self.base_url, href)
 
             if next_url == self.current_url:
                 break
@@ -42,7 +49,7 @@ class BingSearchEngine(SearchEngine):
 
     def construct_url(self) -> str:
         count = min(50, int(self.max_results * 1.5 + 0.5))
-        return f"{self.base_url}/search?q={self.query}&count={count}&adlt=off"
+        return f"{self.base_url}/search?q={quote_plus(self.query)}&count={count}&adlt=off"
 
     def parse_results(self, raw_results):
         xpaths = self.get_xpaths()
@@ -67,7 +74,7 @@ class BingSearchEngine(SearchEngine):
         }
 
     def test(self):
-        with open("test_bing.html", "r") as file:
+        with open("test_bing.html", "r", encoding="utf-8", errors="replace") as file:
             raw_results = file.read()
 
         res = self.parse_results(raw_results)

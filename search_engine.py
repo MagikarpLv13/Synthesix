@@ -23,15 +23,32 @@ class SearchEngine(ABC):
         self.query = query
         self.browser = browser
         self.max_results = max_results
+        self.results = []
+        self.num_results = 0
         self.set_selector()
         if self.query == "test" and self.browser is None:
             self.test()
+            return pd.DataFrame(self.results)
+        if self.browser is None:
+            raise ValueError("A zendriver browser instance is required for live searches.")
+
+        start_time = time.monotonic()
+        try:
+            await self.execute_search()
+            return pd.DataFrame(self.results)
+        finally:
+            print(f"Temps d'exécution {self.name}: {time.monotonic() - start_time:.2f} secondes")
+            await self.close_tab()
+
+    async def close_tab(self):
+        if self.tab is None:
             return
-        start_time = time.time()
-        await self.execute_search()
-        print(f"Temps d'exécution {self.name}: {time.time() - start_time:.2f} secondes")
-        await self.tab.close()
-        return pd.DataFrame(self.results)
+        try:
+            await self.tab.close()
+        except Exception as exc:
+            print(f"Unable to close {self.name} tab: {exc}")
+        finally:
+            self.tab = None
 
     async def execute_search(self):
         """Execute the search and return the results.
@@ -67,7 +84,7 @@ class SearchEngine(ABC):
         pass
 
     @abstractmethod
-    async def construct_url(self) -> str:
+    def construct_url(self) -> str:
         """
         Construct the URL for the search.
         """
@@ -100,22 +117,22 @@ class SearchEngine(ABC):
         """
         pass
 
-    async def wait_for_page_load(self, timeout=2.5, interval=0.1):
+    async def wait_for_page_load(self, timeout=2.5, interval=0.1) -> bool:
         """Custom function to wait for the page to load.
         """
-        start = time.time()
-        while (time.time() - start) < timeout:
-            try :
+        start = time.monotonic()
+        while (time.monotonic() - start) < timeout:
+            try:
                 results = await self.tab.query_selector(self.selector)
                 if results:
-                    return
-                await asyncio.sleep(interval)
-            except :
-                await asyncio.sleep(interval)
-        await self.robot_check()
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(interval)
+        return bool(await self.robot_check())
             
     async def robot_check(self):
         """
         Check if we are flagged as a robot.
         """
-        pass
+        return False

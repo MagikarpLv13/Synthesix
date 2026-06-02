@@ -1,4 +1,21 @@
 import re
+from typing import List
+
+
+def extract_scoring_terms(search_term: str) -> List[str]:
+    quoted_terms = re.findall(r'"([^"]+)"', search_term)
+    if quoted_terms:
+        return [term.strip() for term in quoted_terms if term.strip()]
+
+    terms = []
+    parts = re.split(r'\s+(AND|OR)\s+', search_term)
+    for part in parts:
+        if part not in ['AND', 'OR']:
+            clean_term = part.strip().strip('"').strip("()")
+            if clean_term:
+                terms.append(clean_term)
+    return terms
+
 
 def calculate_relevance(row: dict, search_term: str) -> int:
     """Calcul relevance score
@@ -10,15 +27,8 @@ def calculate_relevance(row: dict, search_term: str) -> int:
     Returns:
         int: relevance score
     """
-    terms = []
+    terms = extract_scoring_terms(search_term)
     score = 0
-
-    parts = re.split(r'\s+(AND|OR)\s+', search_term, flags=re.IGNORECASE)
-    for part in parts:
-        if part.upper() not in ['AND', 'OR']:
-            clean_term = part.strip().strip('"').strip("()")
-            if clean_term:
-                terms.append(clean_term)
                 
     #print(terms)
     for term in terms:

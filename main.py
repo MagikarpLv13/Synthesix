@@ -1,17 +1,18 @@
 import asyncio
 from pathlib import Path
+import logging
 from brave import BraveSearchEngine
 from google import GoogleSearchEngine
 from bing import BingSearchEngine
+from duckduckgo import DuckDuckGoSearchEngine
 import pandas as pd
 import time
 from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
 import zendriver as uc
-import os       
 from utils import is_advanced_query, smart_parse, generate_html_report, add_to_history, generate_history_html
 
-query = ""
+logger = logging.getLogger(__name__)
 
 async def main():
     browser_manager = await HeadlessBrowserManager.create()
@@ -39,8 +40,9 @@ async def main():
                         const google = document.getElementById("engine-google").checked;
                         const bing = document.getElementById("engine-bing").checked;
                         const brave = document.getElementById("engine-brave").checked;
+                        const duckduckgo = document.getElementById("engine-duckduckgo").checked;
                         const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
-                        resolve({ action: "search", value, engines: { google, bing, brave }, numResults });
+                        resolve({ action: "search", value, engines: { google, bing, brave, duckduckgo }, numResults });
                         cleanup();
                     };
                     
@@ -81,26 +83,26 @@ async def main():
                 return
             # If the query is not advanced, parse it to a smart query
             if not is_advanced_query(original_query):
-                print(f"Parsing query to a smart query: {original_query}")
+                logger.info("Parsing query to a smart query: %s", original_query)
                 parsed_query = smart_parse(original_query)
-                print(f"Smart query: {parsed_query}")
+                logger.info("Smart query: %s", parsed_query)
             else:
                 parsed_query = original_query
                 
             # Perform the search
-            engines = result.get("engines", {"google": True, "bing": True, "brave": True})
+            engines = result.get("engines", {"google": True, "bing": True, "brave": True, "duckduckgo": True})
             num_results = result.get("numResults", 20)
             await perform_search(original_query, parsed_query, browser, engines, num_results)
 
     finally:
         await browser.stop()
-        print("Goodbye!")
+        logger.info("Goodbye!")
 
 async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser, engines: dict, num_results: int):
-    print(f"\nSearch in progress for: {parsed_query}")
+    logger.info("Search in progress for: %s", parsed_query)
 
     # Launch searches in parallel
-    start_time = time.time()
+    start_time = time.monotonic()
 
     tasks = []
     if engines.get("google"):
@@ -109,53 +111,79 @@ async def perform_search(original_query: str, parsed_query: str, browser: uc.Bro
         tasks.append(("bing", asyncio.create_task(BingSearchEngine().search(parsed_query, browser, num_results))))
     if engines.get("brave"):
         tasks.append(("brave", asyncio.create_task(BraveSearchEngine().search(parsed_query, browser, num_results))))
+    if engines.get("duckduckgo"):
+        tasks.append(("duckduckgo", asyncio.create_task(DuckDuckGoSearchEngine().search(parsed_query, browser, num_results))))
 
-    results = await asyncio.gather(*(t[1] for t in tasks))
-    engine_results = {engine: result for (engine, _), result in zip(tasks, results)}
+    if not tasks:
+        logger.warning("No search engine selected.")
 
-    google_df = engine_results.get("google", pd.DataFrame())
-    bing_df = engine_results.get("bing", pd.DataFrame())
-    brave_df = engine_results.get("brave", pd.DataFrame())
+    results = await asyncio.gather(*(t[1] for t in tasks), return_exceptions=True)
+    engine_results = {}
+    for (engine, _), result in zip(tasks, results):
+        if isinstance(result, Exception):
+            logger.error(
+                "%s search failed",
+                engine,
+                exc_info=(type(result), result, result.__traceback__),
+            )
+            engine_results[engine] = pd.DataFrame()
+        else:
+            engine_results[engine] = result
 
-    total_time = time.time() - start_time
+    total_time = time.monotonic() - start_time
 
     # Global execution time
-    print("\n=== Global execution time ===")
-    print(f"Total: {total_time:.2f} seconds")
+    logger.info("Global execution time: %.2f seconds", total_time)
 
     # Merge results
-    combined_df = pd.concat([google_df, bing_df, brave_df])
+    required_columns = ["title", "link", "description", "source"]
+    required_column_set = set(required_columns)
+    frames = []
+    for engine, df in engine_results.items():
+        if not isinstance(df, pd.DataFrame):
+            logger.warning("%s results ignored; expected DataFrame, got %s", engine, type(df).__name__)
+            continue
+        if df.empty:
+            continue
+        missing_columns = required_column_set - set(df.columns)
+        if missing_columns:
+            logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
+            continue
+        frames.append(df)
+
+    if frames:
+        combined_df = pd.concat(frames, ignore_index=True)
+    else:
+        combined_df = pd.DataFrame(columns=[*required_columns, "relevance_score"])
 
     # Calculate relevance scores
-    combined_df['relevance_score'] = combined_df.apply(lambda x: calculate_relevance(x, parsed_query), axis=1)
-    combined_df = combined_df.sort_values('relevance_score', ascending=False)
+    if not combined_df.empty:
+        combined_df["relevance_score"] = combined_df.apply(lambda x: calculate_relevance(x, parsed_query), axis=1)
+        combined_df = combined_df.sort_values("relevance_score", ascending=False)
 
     # Group by link and aggregate sources and other fields
-    combined_df = (
-        combined_df.groupby("link")
-        .agg(
-            {
-                "title": lambda x: x[combined_df.loc[x.index, 'relevance_score'].idxmax()],  # Keep title with highest relevance
-                "description": lambda x: x[combined_df.loc[x.index, 'relevance_score'].idxmax()],  # Keep description with highest relevance 
-                "source": lambda x: ", ".join(sorted(x.unique())),  # Combine sources
-                "relevance_score": "max"  # Keep highest relevance score
-            }
+        best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
+        best_rows = combined_df.loc[best_idx, ["link", "title", "description", "relevance_score"]]
+        sources = combined_df.groupby("link")["source"].apply(lambda x: ", ".join(sorted(x.astype(str).unique())))
+        combined_df = (
+            best_rows
+            .merge(sources.rename("source"), on="link", how="left")
+            .sort_values("relevance_score", ascending=False)
         )
-        .reset_index()
-    )
 
     # Generate report with relevant results
     relevant_results = combined_df[combined_df['relevance_score'] > 0]
     nb_results = len(relevant_results)
     output_path = generate_html_report(relevant_results, parsed_query, total_time, nb_results)
     if output_path:
-        print(f"✅ Generated report: {output_path}")
-        result_tab = await browser.main_tab.get(f"file://{output_path}", new_tab=True)
+        logger.info("Generated report: %s", output_path)
+        result_tab = await browser.main_tab.get(Path(output_path).resolve().as_uri(), new_tab=True)
         add_to_history(original_query, parsed_query, nb_results, output_path)
         generate_history_html()
         await result_tab.bring_to_front()
     else:
-        print("Can't generate report.")
+        logger.error("Can't generate report.")
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     asyncio.run(main())
