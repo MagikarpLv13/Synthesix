@@ -4,11 +4,50 @@ from html import escape, unescape
 import pandas as pd
 from datetime import datetime
 import os
-from typing import Optional
+from typing import List, Optional
 
 
 def _html_escape(value) -> str:
     return escape(str(value), quote=True)
+
+
+def _theme_assets(asset_prefix: str = "") -> str:
+    return f"""
+    <link rel="stylesheet" href="{asset_prefix}theme.css">
+    <script src="{asset_prefix}theme.js"></script>
+"""
+
+
+def load_search_history(limit: int = 25) -> List[dict]:
+    path = "history/history.json"
+    if not os.path.exists(path):
+        return []
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    searches = []
+    seen_queries = set()
+    for entry in reversed(history):
+        query = str(entry.get("query", "")).strip()
+        if not query or query in seen_queries:
+            continue
+        seen_queries.add(query)
+        searches.append(
+            {
+                "query": query,
+                "smart_query": str(entry.get("smart_query", "")).strip(),
+                "date": str(entry.get("date", "")).strip(),
+                "nb_results": entry.get("nb_results", ""),
+            }
+        )
+        if len(searches) >= limit:
+            break
+
+    return searches
 
 def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
     """Add a search to the history
@@ -62,40 +101,50 @@ def generate_history_html():
             history = json.load(f)
 
     # Début du HTML
-    html = '''
+    html = f'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>History</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synthesix History</title>
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background-color: #fafafa; color: #333; }
-        h1 { text-align: center; margin-bottom: 30px; font-weight: normal; }
-        table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); background-color: #fff; border-radius: 8px; overflow: hidden; }
-        thead { background-color: #f0f0f0; }
-        th, td { text-align: left; padding: 12px 16px; }
-        th { font-weight: 600; font-size: 14px; color: #444; border-bottom: 1px solid #ddd; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
+    {_theme_assets()}
 </head>
 <body>
-    <h1>History</h1>
-    <table id="historyTable">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Original Query</th>
-                <th>Smart Query</th>
-                <th>Number of results</th>
-                <th>Link to results</th>
-            </tr>
-        </thead>
-        <tbody>
+    <main class="app app--wide">
+        <header class="topbar">
+            <div class="brand">
+                <h1 class="brand-name">Synthesix</h1>
+                <span class="brand-subtitle">Search history</span>
+            </div>
+            <div class="top-actions">
+                <a href="index.html" class="nav-link">Search</a>
+                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
+            </div>
+        </header>
+
+        <section aria-label="Search history">
+            <div class="page-header">
+                <h2 class="page-title">Search history</h2>
+                <div class="page-meta">
+                    <span class="meta-pill">{len(history)} saved searches</span>
+                </div>
+            </div>
+            <div class="table-shell">
+                <table id="historyTable" class="data-table display">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Original Query</th>
+                            <th>Smart Query</th>
+                            <th>Number of results</th>
+                            <th>Link to results</th>
+                        </tr>
+                    </thead>
+                    <tbody>
 '''
     # Ajouter les lignes du tableau
     for entry in reversed(history):
@@ -114,8 +163,11 @@ def generate_history_html():
             </tr>
         """
     html += '''
-        </tbody>
-    </table>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
     <script>
         $(document).ready(function() {
             $('#historyTable').DataTable({
@@ -221,128 +273,70 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     safe_search_term = _html_escape(search_term)
     safe_output_path = _html_escape(output_path)
 
-    html_head = (
-        """
+    html_head = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Search Results for: """
-        + safe_search_term
-        + """</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Results for: {safe_search_term}</title>
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background-color: #fafafa;
-            color: #333;
-        }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            font-weight: normal;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            background-color: #fff;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        thead {
-            background-color: #f0f0f0;
-        }
-
-        th, td {
-            text-align: left;
-            padding: 12px 16px;
-        }
-
-        th {
-            font-weight: 600;
-            font-size: 14px;
-            color: #444;
-            border-bottom: 1px solid #ddd;
-        }
-
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        tr:hover {
-            background-color: #f1f1f1;
-        }
-
-        td.description {
-            max-width: 500px;
-            white-space: normal;
-        }
-
-        td.link {
-            max-width: 350px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        a {
-            color: #0066cc;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-    </style>
+    {_theme_assets("../")}
 </head>
 <body>
-    <h1>Search Results for: """
-        + safe_search_term
-        + """</h1>
-    <p>Total time: """
-        + f"{total_time:.3f}"
-        + """ seconds</p>
-    <p>HTML report created: """
-        + safe_output_path
-        + """</p>
-    <p>Search date: """
-        + date_str
-        + """</p>
-    <p>Number of results: """
-        + str(nb_results)
-        + """</p>
-    <table id="results" class="display">
-        <thead>
-            <tr>
-                <th>Title</th>
-                <th>Description</th>
-                <th>Link</th>
-                <th>Source</th>
-                <th>Score</th>
-            </tr>
-        </thead>
-        <tbody>
+    <main class="app app--wide">
+        <header class="topbar">
+            <div class="brand">
+                <h1 class="brand-name">Synthesix</h1>
+                <span class="brand-subtitle">Search results</span>
+            </div>
+            <div class="top-actions">
+                <a href="../index.html" class="nav-link">Search</a>
+                <a href="../history.html" class="nav-link">History</a>
+                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
+            </div>
+        </header>
+
+        <section aria-label="Search results">
+            <div class="page-header">
+                <h2 class="page-title">Search Results for: {safe_search_term}</h2>
+                <div class="page-meta">
+                    <span class="meta-pill">Total time: {total_time:.3f} seconds</span>
+                    <span class="meta-pill">Created: {date_str}</span>
+                    <span class="meta-pill">Relevant results: {nb_results}</span>
+                    <span class="meta-pill">Report: {safe_output_path}</span>
+                </div>
+            </div>
+            <div class="table-shell">
+                <table id="results" class="data-table display">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Link</th>
+                            <th>Source</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
 """
-    )
 
     if nb_results == 0:
         rows_html = """
         <tr>
-            <td colspan="5" style="text-align: center; font-size: 1.5em; padding: 20px;">
+            <td colspan="5" class="empty-row">
                 No relevant results found
             </td>
         </tr>
         """
         html_footer = """
-        </tbody>
-    </table>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
 </body>
 </html>
 """
@@ -374,8 +368,11 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         """
 
     html_footer = """
-        </tbody>
-    </table>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
     <script>
         $(document).ready(function() {
             $('#results').DataTable({

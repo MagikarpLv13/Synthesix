@@ -5,7 +5,14 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-from utils import add_to_history, generate_history_html, generate_html_report, is_advanced_query, smart_parse
+from utils import (
+    add_to_history,
+    generate_history_html,
+    generate_html_report,
+    is_advanced_query,
+    load_search_history,
+    smart_parse,
+)
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -44,6 +51,10 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
                 self.assertIn("&lt;query &quot;&amp;&gt;", content)
                 self.assertIn("rel=\"noopener noreferrer\"", content)
+                self.assertIn("../theme.css", content)
+                self.assertIn("../theme.js", content)
+                self.assertIn("data-theme-toggle", content)
+                self.assertIn('class="data-table display"', content)
                 self.assertNotIn("<script>alert(1)</script>", content)
             finally:
                 os.chdir(current_dir)
@@ -60,6 +71,41 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("&lt;query&gt;", content)
                 self.assertIn("site:&quot;example&quot;", content)
                 self.assertIn("file://C:/tmp/&quot;result&quot;.html", content)
+                self.assertIn("theme.css", content)
+                self.assertIn("theme.js", content)
+                self.assertIn("data-theme-toggle", content)
+                self.assertIn('class="data-table display"', content)
+            finally:
+                os.chdir(current_dir)
+
+    def test_load_search_history_returns_recent_unique_queries(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history("first query", '"first query"', 3, "first.html")
+                add_to_history("second query", '"second query"', 4, "second.html")
+                add_to_history("first query", '"first query"', 5, "first-latest.html")
+
+                history = load_search_history(limit=10)
+
+                self.assertEqual([entry["query"] for entry in history], ["first query", "second query"])
+                self.assertEqual(history[0]["nb_results"], 5)
+            finally:
+                os.chdir(current_dir)
+
+    def test_load_search_history_honors_limit(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history("one", '"one"', 1, "one.html")
+                add_to_history("two", '"two"', 2, "two.html")
+
+                history = load_search_history(limit=1)
+
+                self.assertEqual(len(history), 1)
+                self.assertEqual(history[0]["query"], "two")
             finally:
                 os.chdir(current_dir)
 

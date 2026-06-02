@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 import logging
+import json
 from brave import BraveSearchEngine
 from google import GoogleSearchEngine
 from bing import BingSearchEngine
@@ -10,7 +11,14 @@ import time
 from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
 import zendriver as uc
-from utils import is_advanced_query, smart_parse, generate_html_report, add_to_history, generate_history_html
+from utils import (
+    add_to_history,
+    generate_history_html,
+    generate_html_report,
+    is_advanced_query,
+    load_search_history,
+    smart_parse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,51 +32,18 @@ async def main():
 
     try:
         while True:
+            history_entries = load_search_history()
+            history_json = json.dumps(history_entries)
             # Wait for either the search or quit button to be clicked
             result = await browser.main_tab.evaluate(
-                """
-                new Promise(resolve => {
-                    const searchBtn = document.querySelector("#search-button");
-                    const searchField = document.querySelector("#search-field");
-                    
-                    const searchHandler = () => {
-                        const value = searchField.value.trim();
-                        if (!value) {
-                            alert("Please enter a search term.");
-                            return;
-                        }
-                        const google = document.getElementById("engine-google").checked;
-                        const bing = document.getElementById("engine-bing").checked;
-                        const brave = document.getElementById("engine-brave").checked;
-                        const duckduckgo = document.getElementById("engine-duckduckgo").checked;
-                        const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
-                        resolve({ action: "search", value, engines: { google, bing, brave, duckduckgo }, numResults });
-                        cleanup();
-                    };
-                    
-                    const quitHandler = () => {
-                        resolve({ action: "quit" });
-                        cleanup();
-                    };
-                    
-                    const enterHandler = (e) => {
-                        if (e.key === "Enter") {
-                            searchHandler();
-                        }
-                    };
-
-                    function cleanup() {
-                        searchField.value = "";
-                        searchBtn.removeEventListener("click", searchHandler);
-                        searchField.removeEventListener("keypress", enterHandler);
-                        window.removeEventListener("beforeunload", quitHandler);
-                    }
-                    
-                    searchBtn.addEventListener("click", searchHandler, { once: true });
-                    searchField.addEventListener("keypress", enterHandler);
-                    window.addEventListener("beforeunload", quitHandler);
-                });
-
+                f"""
+                (() => {{
+                    if (!window.synthesixHome) {{
+                        throw new Error("Synthesix home UI is not ready.");
+                    }}
+                    window.synthesixHome.setHistory({history_json});
+                    return window.synthesixHome.waitForAction();
+                }})()
                 """,
                 await_promise=True,
             )

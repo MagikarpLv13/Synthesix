@@ -6,67 +6,274 @@
     <meta name="description" content="Synthesix is a multi-engine search tool that allows you to perform precise and advanced queries across several search engines (Google, Bing, Brave, DuckDuckGo).">
     <meta name="keywords" content="search, multi-engine, google, bing, brave, duckduckgo, synthesix">
     <title>Synthesix</title>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            font-family: Arial, sans-serif;
-        }
-        .search-container {
-            text-align: center;
-        }
-        input[type="text"] {
-            padding: 10px;
-            width: 300px;
-            margin-right: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        .button {
-            padding: 10px 20px;
-            font-size: 16px;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            text-decoration: none;
-
-            &.search {
-                background-color: #4CAF50;
-            }
-            &.history {
-                background-color: #007bff;
-            }
-            &.search:hover {
-                background-color: #45a049;
-            }
-            &.history:hover {
-                background-color: #0056b3;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="theme.css">
+    <script src="theme.js"></script>
 </head>
 <body>
-    <div class="search-container">
-        <div style="margin-bottom: 10px;">
-            <label><input type="checkbox" id="engine-google" checked> Google</label>
-            <label><input type="checkbox" id="engine-bing" checked> Bing</label>
-            <label><input type="checkbox" id="engine-brave" checked> Brave</label>
-            <label><input type="checkbox" id="engine-duckduckgo" checked> DuckDuckGo</label>
-        </div>
-        <div style="margin-bottom: 10px;">
-            <label for="num-results">Number of results:</label>
-            <input type="number" id="num-results" min="1" max="100" value="20" style="width: 60px;">
-        </div>
-        <input type="text" id="search-field" required placeholder="What are you investigating ?">
-        <button id="search-button" class="button search">Search</button>
-    </div>
-    <div style="margin-top: 20px;">
-        <a href="history.html" target="_blank" class="button history">History</a>
-    </div>
+    <main class="app">
+        <header class="topbar">
+            <div class="brand">
+                <h1 class="brand-name">Synthesix</h1>
+                <span class="brand-subtitle">Multi-engine search</span>
+            </div>
+            <div class="top-actions">
+                <a href="history.html" target="_blank" rel="noopener noreferrer" class="nav-link">History</a>
+                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
+            </div>
+        </header>
+
+        <section class="workspace" aria-label="Search workspace">
+            <h2 class="search-title">Search, compare, synthesize.</h2>
+            <div class="search-form">
+                <div class="search-row">
+                    <label for="search-field" class="sr-only">Search query</label>
+                    <input
+                        type="text"
+                        id="search-field"
+                        class="search-input"
+                        required
+                        autocomplete="off"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="history-panel"
+                        placeholder="What are you investigating?"
+                    >
+                    <button id="search-button" class="search-button" type="button">Search</button>
+                </div>
+                <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
+            </div>
+
+            <div class="controls">
+                <div class="engine-group" aria-label="Search engines">
+                    <label class="engine-option"><input type="checkbox" id="engine-google" checked> Google</label>
+                    <label class="engine-option"><input type="checkbox" id="engine-bing" checked> Bing</label>
+                    <label class="engine-option"><input type="checkbox" id="engine-brave" checked> Brave</label>
+                    <label class="engine-option"><input type="checkbox" id="engine-duckduckgo" checked> DuckDuckGo</label>
+                </div>
+                <label for="num-results" class="result-control">
+                    Results
+                    <input type="number" id="num-results" min="1" max="100" value="20">
+                </label>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (() => {
+            const searchButton = document.getElementById("search-button");
+            const searchField = document.getElementById("search-field");
+            const historyPanel = document.getElementById("history-panel");
+            const engineIds = ["google", "bing", "brave", "duckduckgo"];
+            const state = {
+                history: [],
+                visibleItems: [],
+                activeIndex: -1,
+                cleanup: null
+            };
+
+            const normalize = (value) => String(value || "").toLowerCase().trim();
+
+            const setCaretToEnd = () => {
+                const end = searchField.value.length;
+                searchField.setSelectionRange(end, end);
+            };
+
+            const closeHistory = () => {
+                state.activeIndex = -1;
+                historyPanel.classList.remove("is-open");
+                searchField.setAttribute("aria-expanded", "false");
+            };
+
+            const openHistory = () => {
+                renderHistory(searchField.value);
+                if (state.visibleItems.length || state.history.length) {
+                    historyPanel.classList.add("is-open");
+                    searchField.setAttribute("aria-expanded", "true");
+                }
+            };
+
+            const selectHistoryItem = (item) => {
+                searchField.value = item.query;
+                closeHistory();
+                searchField.focus();
+                setCaretToEnd();
+            };
+
+            const setActiveItem = (index) => {
+                state.activeIndex = index;
+                Array.from(historyPanel.querySelectorAll(".history-item")).forEach((item, itemIndex) => {
+                    item.classList.toggle("is-active", itemIndex === index);
+                });
+            };
+
+            const renderHistory = (filterValue = "") => {
+                const filter = normalize(filterValue);
+                state.visibleItems = state.history
+                    .filter((item) => !filter || normalize(item.query).includes(filter))
+                    .slice(0, 8);
+                state.activeIndex = -1;
+                historyPanel.innerHTML = "";
+
+                if (!state.visibleItems.length) {
+                    if (!state.history.length) {
+                        historyPanel.innerHTML = '<div class="empty-history">No previous searches yet.</div>';
+                    } else {
+                        historyPanel.innerHTML = '<div class="empty-history">No matching searches.</div>';
+                    }
+                    return;
+                }
+
+                state.visibleItems.forEach((item, index) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "history-item";
+                    button.setAttribute("role", "option");
+                    button.dataset.index = String(index);
+
+                    const content = document.createElement("span");
+                    const query = document.createElement("span");
+                    query.className = "history-query";
+                    query.textContent = item.query;
+
+                    const meta = document.createElement("span");
+                    meta.className = "history-meta";
+                    meta.textContent = item.smart_query && item.smart_query !== item.query
+                        ? item.smart_query
+                        : item.date || "Previous search";
+
+                    const count = document.createElement("span");
+                    count.className = "history-count";
+                    count.textContent = item.nb_results === "" ? "" : `${item.nb_results} results`;
+
+                    content.append(query, meta);
+                    button.append(content, count);
+                    button.addEventListener("mousedown", (event) => {
+                        event.preventDefault();
+                        selectHistoryItem(item);
+                    });
+                    historyPanel.appendChild(button);
+                });
+            };
+
+            const getSearchPayload = () => {
+                const value = searchField.value.trim();
+                if (!value) {
+                    alert("Please enter a search term.");
+                    searchField.focus();
+                    return null;
+                }
+
+                const engines = {};
+                engineIds.forEach((engine) => {
+                    engines[engine] = document.getElementById(`engine-${engine}`).checked;
+                });
+
+                const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
+                return { action: "search", value, engines, numResults };
+            };
+
+            const setHistory = (history) => {
+                const seen = new Set();
+                state.history = Array.isArray(history)
+                    ? history.filter((item) => {
+                        const query = String(item && item.query || "").trim();
+                        if (!query || seen.has(query)) {
+                            return false;
+                        }
+                        seen.add(query);
+                        item.query = query;
+                        return true;
+                    })
+                    : [];
+                renderHistory(searchField.value);
+            };
+
+            const waitForAction = () => {
+                if (state.cleanup) {
+                    state.cleanup();
+                }
+
+                return new Promise((resolve) => {
+                    const searchHandler = () => {
+                        const payload = getSearchPayload();
+                        if (!payload) {
+                            return;
+                        }
+                        cleanup();
+                        resolve(payload);
+                    };
+
+                    const quitHandler = () => {
+                        cleanup();
+                        resolve({ action: "quit" });
+                    };
+
+                    const inputHandler = () => {
+                        openHistory();
+                    };
+
+                    const focusHandler = () => {
+                        openHistory();
+                    };
+
+                    const keyHandler = (event) => {
+                        if (event.key === "ArrowDown" && state.visibleItems.length) {
+                            event.preventDefault();
+                            openHistory();
+                            setActiveItem((state.activeIndex + 1) % state.visibleItems.length);
+                            return;
+                        }
+                        if (event.key === "ArrowUp" && state.visibleItems.length) {
+                            event.preventDefault();
+                            openHistory();
+                            setActiveItem((state.activeIndex - 1 + state.visibleItems.length) % state.visibleItems.length);
+                            return;
+                        }
+                        if (event.key === "Enter") {
+                            if (state.activeIndex >= 0 && state.visibleItems[state.activeIndex]) {
+                                event.preventDefault();
+                                selectHistoryItem(state.visibleItems[state.activeIndex]);
+                                return;
+                            }
+                            searchHandler();
+                            return;
+                        }
+                        if (event.key === "Escape") {
+                            closeHistory();
+                        }
+                    };
+
+                    const documentClickHandler = (event) => {
+                        if (!historyPanel.contains(event.target) && event.target !== searchField) {
+                            closeHistory();
+                        }
+                    };
+
+                    function cleanup() {
+                        searchButton.removeEventListener("click", searchHandler);
+                        searchField.removeEventListener("input", inputHandler);
+                        searchField.removeEventListener("focus", focusHandler);
+                        searchField.removeEventListener("keydown", keyHandler);
+                        document.removeEventListener("mousedown", documentClickHandler);
+                        window.removeEventListener("beforeunload", quitHandler);
+                        state.cleanup = null;
+                    }
+
+                    state.cleanup = cleanup;
+                    searchButton.addEventListener("click", searchHandler);
+                    searchField.addEventListener("input", inputHandler);
+                    searchField.addEventListener("focus", focusHandler);
+                    searchField.addEventListener("keydown", keyHandler);
+                    document.addEventListener("mousedown", documentClickHandler);
+                    window.addEventListener("beforeunload", quitHandler);
+                });
+            };
+
+            window.synthesixHome = {
+                setHistory,
+                waitForAction
+            };
+        })();
+    </script>
 </body>
 </html>
