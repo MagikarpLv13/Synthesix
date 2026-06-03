@@ -3,6 +3,9 @@ import pandas as pd
 import time
 import zendriver as uc
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SearchEngine(ABC):
     def __init__(self, name):
@@ -69,7 +72,12 @@ class SearchEngine(ABC):
         self.tab = await self.browser.get(url, new_tab=True)
         
         # Stay focused on the main tab
-        await self.browser.main_tab.bring_to_front()
+        main_tab = self.browser.main_tab
+        if main_tab and not getattr(main_tab, "closed", False):
+            try:
+                await main_tab.bring_to_front()
+            except Exception:
+                logger.debug("Unable to bring main tab to front", exc_info=True)
         await self.wait_for_page_load()
 
     @abstractmethod

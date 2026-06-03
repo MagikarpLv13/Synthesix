@@ -18,6 +18,31 @@ def _theme_assets(asset_prefix: str = "") -> str:
 """
 
 
+def _home_navigation_script() -> str:
+    return """
+    <script>
+        (() => {
+            const state = { pendingAction: null };
+
+            window.synthesixPage = {
+                consumeAction() {
+                    const action = state.pendingAction;
+                    state.pendingAction = null;
+                    return action;
+                }
+            };
+
+            document.querySelectorAll("[data-home-link]").forEach((link) => {
+                link.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    state.pendingAction = { action: "focus_home" };
+                });
+            });
+        })();
+    </script>
+"""
+
+
 def load_search_history(limit: int = 25) -> List[dict]:
     path = "history/history.json"
     if not os.path.exists(path):
@@ -121,7 +146,7 @@ def generate_history_html():
                 <span class="brand-subtitle">Search history</span>
             </div>
             <div class="top-actions">
-                <a href="index.html" class="nav-link">Search</a>
+                <a href="index.html" data-home-link class="nav-link">Search</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
@@ -177,6 +202,7 @@ def generate_history_html():
             });
         });
     </script>
+''' + _home_navigation_script() + '''
 </body>
 </html>
 '''
@@ -293,7 +319,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 <span class="brand-subtitle">Search results</span>
             </div>
             <div class="top-actions">
-                <a href="../index.html" class="nav-link">Search</a>
+                <a href="../index.html" data-home-link class="nav-link">Search</a>
                 <a href="../history.html" class="nav-link">History</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
@@ -337,6 +363,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             </div>
         </section>
     </main>
+""" + _home_navigation_script() + """
 </body>
 </html>
 """
@@ -382,6 +409,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             });
         });
     </script>
+""" + _home_navigation_script() + """
 </body>
 </html>
 """

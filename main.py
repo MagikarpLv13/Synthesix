@@ -2,12 +2,12 @@ import asyncio
 from pathlib import Path
 import logging
 import json
+import time
 from brave import BraveSearchEngine
 from google import GoogleSearchEngine
 from bing import BingSearchEngine
 from duckduckgo import DuckDuckGoSearchEngine
 import pandas as pd
-import time
 from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
 import zendriver as uc
@@ -21,32 +21,154 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
+HOME_POLL_INTERVAL = 0.25
+EMPTY_TABS_GRACE_SECONDS = 2.0
+DEFAULT_ENGINES = {"google": True, "bing": True, "brave": True, "duckduckgo": True}
+
+
+def _normalize_tab_url(url: str | None) -> str:
+    return (url or "").split("#", 1)[0]
+
+
+def _is_open_tab(tab) -> bool:
+    return not getattr(tab, "closed", False)
+
+
+async def _open_tabs(browser: uc.Browser):
+    try:
+        targets = await browser._get_targets()
+        live_page_ids = {target.target_id for target in targets if target.type_ == "page"}
+        await browser.update_targets()
+    except Exception:
+        logger.debug("Unable to update browser targets", exc_info=True)
+        return None
+
+    return [
+        tab
+        for tab in browser.tabs
+        if _is_open_tab(tab) and getattr(tab, "target_id", None) in live_page_ids
+    ]
+
+
+def _is_home_tab(tab, index_url: str) -> bool:
+    return _normalize_tab_url(getattr(tab, "url", None)) == index_url
+
+
+async def _consume_home_tab_action(tab, history_json: str):
+    try:
+        return await tab.evaluate(
+            f"""
+            (() => {{
+                if (
+                    !window.synthesixHome ||
+                    typeof window.synthesixHome.consumeAction !== "function"
+                ) {{
+                    return {{ ready: false, action: null }};
+                }}
+                window.name = "synthesix-home";
+                window.synthesixHome.setHistory({history_json});
+                return {{
+                    ready: true,
+                    action: window.synthesixHome.consumeAction()
+                }};
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to read home tab action", exc_info=True)
+        return None
+
+
+async def _consume_page_tab_action(tab):
+    try:
+        return await tab.evaluate(
+            """
+            (() => {
+                if (
+                    !window.synthesixPage ||
+                    typeof window.synthesixPage.consumeAction !== "function"
+                ) {
+                    return null;
+                }
+                return window.synthesixPage.consumeAction();
+            })()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to read page tab action", exc_info=True)
+        return None
+
+
+async def _focus_or_open_home_tab(browser: uc.Browser, index_url: str, home_tabs=None):
+    if home_tabs is None:
+        tabs = await _open_tabs(browser) or []
+        home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
+
+    for home_tab in home_tabs:
+        try:
+            await home_tab.bring_to_front()
+            return home_tab
+        except Exception:
+            logger.debug("Unable to focus existing home tab", exc_info=True)
+
+    home_tab = await browser.get(index_url, new_tab=True)
+    await home_tab.bring_to_front()
+    return home_tab
+
+
+async def wait_for_home_action(browser: uc.Browser, index_url: str):
+    empty_since = None
+
+    while True:
+        if getattr(browser, "stopped", False):
+            return {"action": "quit"}
+
+        tabs = await _open_tabs(browser)
+        if tabs is None:
+            await asyncio.sleep(HOME_POLL_INTERVAL)
+            continue
+
+        if not tabs:
+            if empty_since is None:
+                empty_since = time.monotonic()
+            elif time.monotonic() - empty_since >= EMPTY_TABS_GRACE_SECONDS:
+                return {"action": "quit"}
+            await asyncio.sleep(HOME_POLL_INTERVAL)
+            continue
+
+        empty_since = None
+
+        home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
+        if home_tabs:
+            history_json = json.dumps(load_search_history())
+            for tab in home_tabs:
+                state = await _consume_home_tab_action(tab, history_json)
+                if state and state.get("action"):
+                    return state["action"]
+
+        for tab in tabs:
+            if tab in home_tabs:
+                continue
+            action = await _consume_page_tab_action(tab)
+            if not action:
+                continue
+            if action.get("action") == "focus_home":
+                await _focus_or_open_home_tab(browser, index_url, home_tabs)
+                break
+
+        await asyncio.sleep(HOME_POLL_INTERVAL)
 
 async def main():
-    browser_manager = await HeadlessBrowserManager.create()
-    browser = await browser_manager.get_driver()
     # Use a file:// URL so navigation works across platforms
     index_url = Path("index.html").resolve().as_uri()
-    await browser.main_tab.get(index_url)
-    await browser.main_tab.bring_to_front()
+    browser_manager = await HeadlessBrowserManager.create(home_url=index_url)
+    browser = await browser_manager.get_driver()
+    home_tab = await _focus_or_open_home_tab(browser, index_url)
+    await home_tab.bring_to_front()
 
     try:
         while True:
-            history_entries = load_search_history()
-            history_json = json.dumps(history_entries)
-            # Wait for either the search or quit button to be clicked
-            result = await browser.main_tab.evaluate(
-                f"""
-                (() => {{
-                    if (!window.synthesixHome) {{
-                        throw new Error("Synthesix home UI is not ready.");
-                    }}
-                    window.synthesixHome.setHistory({history_json});
-                    return window.synthesixHome.waitForAction();
-                }})()
-                """,
-                await_promise=True,
-            )
+            result = await wait_for_home_action(browser, index_url)
 
             # Quit the browser if the user wants to
             if result["action"] == "quit":
@@ -65,12 +187,12 @@ async def main():
                 parsed_query = original_query
                 
             # Perform the search
-            engines = result.get("engines", {"google": True, "bing": True, "brave": True, "duckduckgo": True})
+            engines = result.get("engines", DEFAULT_ENGINES)
             num_results = result.get("numResults", 20)
             await perform_search(original_query, parsed_query, browser, engines, num_results)
 
     finally:
-        await browser.stop()
+        await browser_manager.stop()
         logger.info("Goodbye!")
 
 async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser, engines: dict, num_results: int):
@@ -152,7 +274,7 @@ async def perform_search(original_query: str, parsed_query: str, browser: uc.Bro
     output_path = generate_html_report(relevant_results, parsed_query, total_time, nb_results)
     if output_path:
         logger.info("Generated report: %s", output_path)
-        result_tab = await browser.main_tab.get(Path(output_path).resolve().as_uri(), new_tab=True)
+        result_tab = await browser.get(Path(output_path).resolve().as_uri(), new_tab=True)
         add_to_history(original_query, parsed_query, nb_results, output_path)
         generate_history_html()
         await result_tab.bring_to_front()

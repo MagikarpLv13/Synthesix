@@ -1,36 +1,153 @@
 # Plan d'optimisation
 
-## 1. Stabilisation Zendriver/CDP
+Etat au 2026-06-03.
 
-- Maintenir `zendriver` a jour et verifier les changements d'API apres chaque mise a jour.
-- Version actuelle testee localement: `zendriver==0.15.3`.
-- Ajouter un smoke test navigateur court pour verifier `uc.start()`, `browser.get()`, `tab.get_content()` et `browser.stop()`.
-- Surveiller les changements de gestion des profils, cookies, timeouts et fermeture d'onglets.
+## 1. Etat actuel
 
-## 2. Configuration
+### Termine recemment
 
-- Centraliser les chemins runtime (`history/`, `zendriver-profile/`), les moteurs actifs et les timeouts.
-- Prevoir une configuration par variables d'environnement sans secrets hardcodes.
+- `zendriver` est verrouille sur `zendriver==0.15.3`.
+- Les moteurs Google, Bing, Brave et DuckDuckGo sont disponibles.
+- DuckDuckGo utilise des parametres orientes recherche pure, sans blocs IA/suggestions quand le moteur les accepte.
+- Les requetes simples restent protegees par des guillemets via `smart_parse()`.
+- Le scoring respecte les expressions exactes entre guillemets.
+- La detection anti-robot Brave capture les pages de challenge dans `history/robot_challenges/`.
+- La home, l'historique et les resultats utilisent un theme commun avec mode clair/sombre.
+- Les captures HTML de test racine ont ete supprimees du depot.
 
-## 3. Orchestration
+### A conserver comme contraintes
 
-- Extraire l'orchestration de recherche hors de `main.py`.
-- Garder les moteurs responsables seulement de la navigation, du parsing et de la pagination.
+- API async-first : ne pas introduire de code bloquant dans les flux navigateur.
+- Pas de `time.sleep()` dans du code async ; utiliser `await asyncio.sleep()`.
+- Fermeture propre du navigateur avec `await browser.stop()` ou equivalent.
+- Pas de secrets hardcodes.
+- Captures HTML uniquement en diagnostic ponctuel, pas comme fixtures permanentes a la racine.
 
-## 4. Robustesse
+## 2. Priorites
 
-- Remplacer les `print` restants par `logging`.
-- Normaliser les exceptions moteur/CDP.
-- Ajouter des retries limites sur les erreurs reseau temporaires.
+### P0 - Stabiliser la configuration runtime
 
-## 5. Tests
+Objectif : eviter que les chemins, timeouts et options moteur soient disperses.
 
-- Etendre les tests unitaires sur les parsers avec snapshots HTML.
-- Ajouter des doubles Zendriver pour tester les flux async sans navigateur.
-- Ajouter un smoke test live optionnel pour Chrome/Chromium.
+- Creer un module de configuration leger, par exemple `config.py` ou `settings.py`.
+- Centraliser :
+  - `history/`
+  - `history/robot_challenges/`
+  - `zendriver-profile/`
+  - timeouts navigateur
+  - delais/retries moteur
+  - moteurs actives par defaut
+- Lire les overrides depuis les variables d'environnement quand c'est utile.
+- Garder des valeurs par defaut locales simples.
 
-## 6. Documentation
+Tests :
+
+- Tests unitaires sur les valeurs par defaut.
+- Tests unitaires sur les overrides d'environnement.
+
+### P1 - Extraire l'orchestration de recherche
+
+Objectif : reduire la taille et la responsabilite de `main.py`.
+
+- Extraire la boucle de recherche dans un service dedie, par exemple `search_orchestrator.py`.
+- Garder `main.py` responsable de :
+  - demarrer le navigateur
+  - ouvrir la home
+  - relier l'UI au service
+  - fermer proprement les ressources
+- Garder les moteurs responsables de :
+  - construire l'URL
+  - naviguer
+  - parser les resultats
+  - remonter les erreurs moteur
+
+Tests :
+
+- Tests unitaires de l'agregation multi-moteur avec moteurs factices async.
+- Test sur la conservation de la requete exacte.
+
+### P1 - Normaliser les erreurs moteur/CDP
+
+Objectif : avoir des logs et des comportements coherents quand un moteur echoue.
+
+- Introduire quelques exceptions applicatives simples :
+  - `SearchEngineError`
+  - `BrowserSessionError`
+  - `RobotChallengeError`
+- Transformer les exceptions Zendriver/CDP utiles en erreurs explicites.
+- Ne pas faire echouer toute la recherche si un seul moteur tombe, sauf si aucun moteur ne repond.
+
+Tests :
+
+- Simuler un moteur en erreur et verifier que les autres resultats restent exploites.
+- Verifier que les erreurs sont loggees avec le nom du moteur.
+
+### P2 - Renforcer les timeouts et retries
+
+Objectif : limiter les blocages navigateur/reseau.
+
+- Encadrer les actions navigateur critiques avec des timeouts explicites.
+- Ajouter des retries limites uniquement sur erreurs temporaires.
+- Eviter les retries sur anti-robot, parsing invalide ou erreur logique.
+- Rendre les timeouts configurables.
+
+Tests :
+
+- Tests unitaires sur la politique de retry.
+- Smoke test optionnel avec Chrome/Chromium local.
+
+### P2 - Structurer les rapports et l'historique
+
+Objectif : eviter que les artefacts runtime polluent la racine du projet.
+
+- Garder `index.html`, `theme.css` et `theme.js` a la racine.
+- Generer `history.html` a la racine uniquement au runtime.
+- Generer les resultats dans `history/`.
+- Garder les captures anti-robot dans `history/robot_challenges/`.
+- Ne pas committer les rapports HTML generes.
+
+Tests :
+
+- Tests unitaires sur les chemins generes.
+- Tests unitaires sur l'echappement HTML des rapports.
+
+### P3 - Documentation minimale
+
+Objectif : rendre le projet plus facile a lancer et maintenir.
 
 - Documenter les prerequis Chrome/Chromium.
-- Documenter le profil navigateur, l'historique et les rapports generes.
-- Documenter la procedure de mise a jour Zendriver.
+- Documenter l'installation de `zendriver`.
+- Documenter les moteurs disponibles et leurs limites.
+- Documenter les artefacts runtime ignores par git.
+- Documenter la procedure de mise a jour Zendriver :
+  - bump version
+  - smoke test navigateur
+  - test moteurs
+  - verification fermeture propre
+
+## 3. Ordre d'execution recommande
+
+1. Ajouter `config.py` avec chemins/timeouts/moteurs par defaut.
+2. Adapter `utils.py`, `main.py` et les moteurs pour utiliser cette configuration.
+3. Extraire l'orchestration multi-moteur hors de `main.py`.
+4. Ajouter les exceptions applicatives.
+5. Ajouter les timeouts/retries configurables.
+6. Ajouter les tests unitaires des nouveaux services.
+7. Mettre a jour le README avec prerequis, lancement, artefacts et mise a jour Zendriver.
+
+## 4. Regles de refactoring
+
+- Faire des petits commits testables.
+- Ne pas changer l'API utilisateur sans raison.
+- Ne pas modifier la logique de scoring sans test explicite.
+- Ne pas supprimer la recherche exacte entre guillemets.
+- Ne pas ajouter de dependance lourde pour un besoin simple.
+- Garder l'approche async partout ou Zendriver intervient.
+
+## 5. Commandes de verification
+
+```powershell
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py
+venv\Scripts\python.exe -m unittest discover
+git diff --check
+```

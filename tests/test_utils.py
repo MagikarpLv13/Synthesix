@@ -55,6 +55,8 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../theme.js", content)
                 self.assertIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
+                self.assertIn("data-home-link", content)
+                self.assertIn("window.synthesixPage", content)
                 self.assertNotIn("<script>alert(1)</script>", content)
             finally:
                 os.chdir(current_dir)
@@ -75,6 +77,8 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("theme.js", content)
                 self.assertIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
+                self.assertIn("data-home-link", content)
+                self.assertIn("window.synthesixPage", content)
             finally:
                 os.chdir(current_dir)
 

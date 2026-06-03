@@ -55,11 +55,14 @@
                     <input type="number" id="num-results" min="1" max="100" value="20">
                 </label>
             </div>
+            <p class="session-note">Closing all Synthesix tabs stops the program.</p>
         </section>
     </main>
 
     <script>
         (() => {
+            window.name = "synthesix-home";
+
             const searchButton = document.getElementById("search-button");
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
@@ -68,7 +71,7 @@
                 history: [],
                 visibleItems: [],
                 activeIndex: -1,
-                cleanup: null
+                pendingAction: null
             };
 
             const normalize = (value) => String(value || "").toLowerCase().trim();
@@ -172,6 +175,15 @@
                 return { action: "search", value, engines, numResults };
             };
 
+            const submitSearch = () => {
+                const payload = getSearchPayload();
+                if (!payload) {
+                    return;
+                }
+                state.pendingAction = payload;
+                closeHistory();
+            };
+
             const setHistory = (history) => {
                 const seen = new Set();
                 state.history = Array.isArray(history)
@@ -188,90 +200,50 @@
                 renderHistory(searchField.value);
             };
 
-            const waitForAction = () => {
-                if (state.cleanup) {
-                    state.cleanup();
-                }
-
-                return new Promise((resolve) => {
-                    const searchHandler = () => {
-                        const payload = getSearchPayload();
-                        if (!payload) {
-                            return;
-                        }
-                        cleanup();
-                        resolve(payload);
-                    };
-
-                    const quitHandler = () => {
-                        cleanup();
-                        resolve({ action: "quit" });
-                    };
-
-                    const inputHandler = () => {
-                        openHistory();
-                    };
-
-                    const focusHandler = () => {
-                        openHistory();
-                    };
-
-                    const keyHandler = (event) => {
-                        if (event.key === "ArrowDown" && state.visibleItems.length) {
-                            event.preventDefault();
-                            openHistory();
-                            setActiveItem((state.activeIndex + 1) % state.visibleItems.length);
-                            return;
-                        }
-                        if (event.key === "ArrowUp" && state.visibleItems.length) {
-                            event.preventDefault();
-                            openHistory();
-                            setActiveItem((state.activeIndex - 1 + state.visibleItems.length) % state.visibleItems.length);
-                            return;
-                        }
-                        if (event.key === "Enter") {
-                            if (state.activeIndex >= 0 && state.visibleItems[state.activeIndex]) {
-                                event.preventDefault();
-                                selectHistoryItem(state.visibleItems[state.activeIndex]);
-                                return;
-                            }
-                            searchHandler();
-                            return;
-                        }
-                        if (event.key === "Escape") {
-                            closeHistory();
-                        }
-                    };
-
-                    const documentClickHandler = (event) => {
-                        if (!historyPanel.contains(event.target) && event.target !== searchField) {
-                            closeHistory();
-                        }
-                    };
-
-                    function cleanup() {
-                        searchButton.removeEventListener("click", searchHandler);
-                        searchField.removeEventListener("input", inputHandler);
-                        searchField.removeEventListener("focus", focusHandler);
-                        searchField.removeEventListener("keydown", keyHandler);
-                        document.removeEventListener("mousedown", documentClickHandler);
-                        window.removeEventListener("beforeunload", quitHandler);
-                        state.cleanup = null;
-                    }
-
-                    state.cleanup = cleanup;
-                    searchButton.addEventListener("click", searchHandler);
-                    searchField.addEventListener("input", inputHandler);
-                    searchField.addEventListener("focus", focusHandler);
-                    searchField.addEventListener("keydown", keyHandler);
-                    document.addEventListener("mousedown", documentClickHandler);
-                    window.addEventListener("beforeunload", quitHandler);
-                });
+            const consumeAction = () => {
+                const action = state.pendingAction;
+                state.pendingAction = null;
+                return action;
             };
+
+            searchButton.addEventListener("click", submitSearch);
+            searchField.addEventListener("input", openHistory);
+            searchField.addEventListener("focus", openHistory);
+            searchField.addEventListener("keydown", (event) => {
+                if (event.key === "ArrowDown" && state.visibleItems.length) {
+                    event.preventDefault();
+                    openHistory();
+                    setActiveItem((state.activeIndex + 1) % state.visibleItems.length);
+                    return;
+                }
+                if (event.key === "ArrowUp" && state.visibleItems.length) {
+                    event.preventDefault();
+                    openHistory();
+                    setActiveItem((state.activeIndex - 1 + state.visibleItems.length) % state.visibleItems.length);
+                    return;
+                }
+                if (event.key === "Enter") {
+                    if (state.activeIndex >= 0 && state.visibleItems[state.activeIndex]) {
+                        event.preventDefault();
+                        selectHistoryItem(state.visibleItems[state.activeIndex]);
+                        return;
+                    }
+                    submitSearch();
+                    return;
+                }
+                if (event.key === "Escape") {
+                    closeHistory();
+                }
+            });
+            document.addEventListener("mousedown", (event) => {
+                if (!historyPanel.contains(event.target) && event.target !== searchField) {
+                    closeHistory();
+                }
+            });
 
             window.synthesixHome = {
                 setHistory,
-                waitForAction
+                consumeAction
             };
         })();
     </script>
