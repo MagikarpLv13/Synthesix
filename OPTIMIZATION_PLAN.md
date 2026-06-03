@@ -17,6 +17,11 @@ Etat au 2026-06-03.
 - La detection anti-robot Brave capture les pages de challenge dans `history/robot_challenges/`.
 - La home, l'historique et les resultats utilisent un theme commun avec mode clair/sombre.
 - Les captures HTML de test racine ont ete supprimees du depot.
+- L'orchestration multi-moteur est extraite dans `search_orchestrator.py`.
+- `main.py` reste concentre sur le navigateur, l'UI, la home et l'ouverture du rapport.
+- L'agregation multi-moteur est couverte par des tests unitaires avec moteurs factices async.
+- Les erreurs applicatives sont normalisees dans `exceptions.py`.
+- Les echecs moteur, session navigateur et challenge anti-robot Brave remontent avec des types explicites.
 
 ### A conserver comme contraintes
 
@@ -65,7 +70,27 @@ Tests :
 
 Objectif : reduire la taille et la responsabilite de `main.py`.
 
-- Extraire la boucle de recherche dans un service dedie, par exemple `search_orchestrator.py`.
+- Statut : termine.
+- Module ajoute : `search_orchestrator.py`.
+- Extrait :
+  - lancement parallele des moteurs actifs
+  - isolation des erreurs moteur individuelles
+  - validation des colonnes de resultats
+  - fusion des resultats
+  - scoring
+  - deduplication par lien avec fusion des sources
+  - generation du rapport et de l'historique
+- `main.py` conserve :
+  - demarrage du navigateur
+  - ouverture de la home
+  - lecture des actions UI
+  - parsing smart/avance de la requete
+  - ouverture de l'onglet rapport
+  - fermeture propre des ressources
+- Les factories de moteurs sont injectables pour permettre des tests sans navigateur.
+
+Contraintes respectees :
+
 - Garder `main.py` responsable de :
   - demarrer le navigateur
   - ouvrir la home
@@ -79,24 +104,37 @@ Objectif : reduire la taille et la responsabilite de `main.py`.
 
 Tests :
 
-- Tests unitaires de l'agregation multi-moteur avec moteurs factices async.
-- Test sur la conservation de la requete exacte.
+- Tests unitaires de l'agregation multi-moteur avec moteurs factices async : fait.
+- Test sur la conservation de la requete exacte : fait.
+- Test moteur en erreur sans abandonner les resultats des autres moteurs : fait.
 
 ### P1 - Normaliser les erreurs moteur/CDP
 
 Objectif : avoir des logs et des comportements coherents quand un moteur echoue.
 
-- Introduire quelques exceptions applicatives simples :
+- Statut : termine.
+- Module ajoute : `exceptions.py`.
+- Exceptions applicatives introduites :
+  - `SynthesixError`
   - `SearchEngineError`
   - `BrowserSessionError`
   - `RobotChallengeError`
-- Transformer les exceptions Zendriver/CDP utiles en erreurs explicites.
-- Ne pas faire echouer toute la recherche si un seul moteur tombe, sauf si aucun moteur ne repond.
+- Transformations ajoutees :
+  - navigateur absent ou navigation CDP echouee -> `BrowserSessionError`
+  - contenu page illisible -> `BrowserSessionError`
+  - parsing moteur echoue -> `SearchEngineError`
+  - exception brute moteur -> `SearchEngineError` dans l'orchestrateur
+  - challenge anti-robot Brave non resolu -> `RobotChallengeError`
+- Un moteur en erreur ne bloque pas les resultats des autres moteurs.
+- Si tous les moteurs lances echouent, l'orchestrateur remonte une erreur applicative au lieu de generer un rapport trompeur.
 
 Tests :
 
-- Simuler un moteur en erreur et verifier que les autres resultats restent exploites.
-- Verifier que les erreurs sont loggees avec le nom du moteur.
+- Simuler un moteur en erreur et verifier que les autres resultats restent exploites : fait.
+- Verifier que les erreurs sont loggees avec le nom du moteur : fait.
+- Verifier que les exceptions brutes moteur sont normalisees : fait.
+- Verifier que l'echec de navigation devient `BrowserSessionError` : fait.
+- Verifier que l'anti-robot Brave non resolu devient `RobotChallengeError` : fait.
 
 ### P2 - Renforcer les timeouts et retries
 
@@ -145,10 +183,10 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 
 1. Ajouter `settings.py` avec chemins/timeouts/moteurs par defaut. Fait.
 2. Adapter `utils.py`, `main.py` et les moteurs pour utiliser cette configuration. Fait.
-3. Extraire l'orchestration multi-moteur hors de `main.py`.
-4. Ajouter les exceptions applicatives.
+3. Extraire l'orchestration multi-moteur hors de `main.py`. Fait.
+4. Ajouter les exceptions applicatives. Fait.
 5. Ajouter les timeouts/retries configurables.
-6. Ajouter les tests unitaires des nouveaux services.
+6. Ajouter les tests unitaires des nouveaux services. Partiellement fait pour l'orchestration et les erreurs.
 7. Mettre a jour le README avec prerequis, lancement, artefacts et mise a jour Zendriver.
 
 ## 4. Regles de refactoring
@@ -163,7 +201,7 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 ## 5. Commandes de verification
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py
 venv\Scripts\python.exe -m unittest discover
 git diff --check
 ```

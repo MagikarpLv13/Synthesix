@@ -1,0 +1,197 @@
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Callable, Mapping
+
+import pandas as pd
+
+from bing import BingSearchEngine
+from brave import BraveSearchEngine
+from duckduckgo import DuckDuckGoSearchEngine
+from exceptions import SearchEngineError, SynthesixError
+from google import GoogleSearchEngine
+from scoring import calculate_relevance
+from utils import add_to_history, generate_history_html, generate_html_report
+
+
+logger = logging.getLogger(__name__)
+
+REQUIRED_RESULT_COLUMNS = ("title", "link", "description", "source")
+
+
+@dataclass(frozen=True)
+class SearchRunResult:
+    output_path: str | None
+    nb_results: int
+    total_time: float
+    engine_errors: dict[str, Exception] = field(default_factory=dict)
+
+
+DEFAULT_ENGINE_FACTORIES: dict[str, Callable[[], object]] = {
+    "google": GoogleSearchEngine,
+    "bing": BingSearchEngine,
+    "brave": BraveSearchEngine,
+    "duckduckgo": DuckDuckGoSearchEngine,
+}
+
+
+def aggregate_search_results(
+    engine_results: Mapping[str, pd.DataFrame],
+    parsed_query: str,
+    scorer: Callable[[dict, str], float] = calculate_relevance,
+) -> pd.DataFrame:
+    frames = []
+    required_column_set = set(REQUIRED_RESULT_COLUMNS)
+
+    for engine, df in engine_results.items():
+        if not isinstance(df, pd.DataFrame):
+            logger.warning("%s results ignored; expected DataFrame, got %s", engine, type(df).__name__)
+            continue
+        if df.empty:
+            continue
+        missing_columns = required_column_set - set(df.columns)
+        if missing_columns:
+            logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
+            continue
+        frames.append(df)
+
+    if not frames:
+        return pd.DataFrame(columns=[*REQUIRED_RESULT_COLUMNS, "relevance_score"])
+
+    combined_df = pd.concat(frames, ignore_index=True)
+    combined_df["relevance_score"] = combined_df.apply(lambda row: scorer(row, parsed_query), axis=1)
+    combined_df = combined_df.sort_values("relevance_score", ascending=False)
+
+    best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
+    best_rows = combined_df.loc[best_idx, ["link", "title", "description", "relevance_score"]]
+    sources = combined_df.groupby("link")["source"].apply(
+        lambda values: ", ".join(sorted(values.astype(str).unique()))
+    )
+
+    return (
+        best_rows
+        .merge(sources.rename("source"), on="link", how="left")
+        .sort_values("relevance_score", ascending=False)
+    )
+
+
+class SearchOrchestrator:
+    def __init__(
+        self,
+        engine_factories: Mapping[str, Callable[[], object]] | None = None,
+        report_generator: Callable[[pd.DataFrame, str, float, int], str | None] = generate_html_report,
+        history_adder: Callable[[str, str, int, str], None] = add_to_history,
+        history_report_generator: Callable[[], str] = generate_history_html,
+        scorer: Callable[[dict, str], float] = calculate_relevance,
+    ):
+        self.engine_factories = dict(engine_factories or DEFAULT_ENGINE_FACTORIES)
+        self.report_generator = report_generator
+        self.history_adder = history_adder
+        self.history_report_generator = history_report_generator
+        self.scorer = scorer
+
+    async def search(
+        self,
+        original_query: str,
+        parsed_query: str,
+        browser,
+        engines: Mapping[str, bool],
+        num_results: int,
+    ) -> SearchRunResult:
+        logger.info("Search in progress for: %s", parsed_query)
+        start_time = time.monotonic()
+
+        engine_results, engine_errors, attempted_count = await self._run_engines(
+            parsed_query,
+            browser,
+            engines,
+            num_results,
+        )
+        total_time = time.monotonic() - start_time
+        logger.info("Global execution time: %.2f seconds", total_time)
+
+        if attempted_count and len(engine_errors) == attempted_count:
+            if attempted_count == 1:
+                raise next(iter(engine_errors.values()))
+            raise SearchEngineError(
+                "all",
+                "All selected search engines failed.",
+                query=parsed_query,
+                engine_errors=engine_errors,
+            )
+
+        combined_df = aggregate_search_results(engine_results, parsed_query, scorer=self.scorer)
+        relevant_results = combined_df[combined_df["relevance_score"] > 0]
+        nb_results = len(relevant_results)
+
+        output_path = self.report_generator(relevant_results, parsed_query, total_time, nb_results)
+        if output_path:
+            logger.info("Generated report: %s", output_path)
+            self.history_adder(original_query, parsed_query, nb_results, output_path)
+            self.history_report_generator()
+        else:
+            logger.error("Can't generate report.")
+
+        return SearchRunResult(
+            output_path=output_path,
+            nb_results=nb_results,
+            total_time=total_time,
+            engine_errors=engine_errors,
+        )
+
+    async def _run_engines(
+        self,
+        parsed_query: str,
+        browser,
+        selected_engines: Mapping[str, bool],
+        num_results: int,
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int]:
+        tasks = []
+        for engine_name, enabled in selected_engines.items():
+            if not enabled:
+                continue
+
+            factory = self.engine_factories.get(engine_name)
+            if factory is None:
+                logger.warning("Unknown search engine selected: %s", engine_name)
+                continue
+
+            engine = factory()
+            tasks.append((
+                engine_name,
+                asyncio.create_task(engine.search(parsed_query, browser, num_results)),
+            ))
+
+        if not tasks:
+            logger.warning("No search engine selected.")
+            return {}, {}, 0
+
+        results = await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        engine_results = {}
+        engine_errors = {}
+
+        for (engine_name, _), result in zip(tasks, results):
+            if isinstance(result, Exception):
+                error = self._normalize_engine_error(engine_name, result)
+                logger.error(
+                    "%s search failed: %s",
+                    engine_name,
+                    error,
+                    exc_info=(type(result), result, result.__traceback__),
+                )
+                engine_errors[engine_name] = error
+                engine_results[engine_name] = pd.DataFrame()
+            else:
+                engine_results[engine_name] = result
+
+        return engine_results, engine_errors, len(tasks)
+
+    def _normalize_engine_error(self, engine_name: str, error: Exception) -> Exception:
+        if isinstance(error, SynthesixError):
+            return error
+        return SearchEngineError(
+            engine_name,
+            f"{engine_name} search failed.",
+            original_error=error,
+        )

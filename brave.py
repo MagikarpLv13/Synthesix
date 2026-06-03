@@ -8,6 +8,7 @@ from datetime import datetime
 from html import unescape
 from urllib.parse import quote_plus
 
+from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
 from settings import get_settings
@@ -355,17 +356,31 @@ class BraveSearchEngine(SearchEngine):
 
         challenge_detected = looks_like_brave_robot_challenge(raw_content)
         clicked = await self._click_robot_button() if challenge_detected else None
+        captured = {}
         if challenge_detected or clicked:
             captured = await self.capture_robot_challenge(raw_content)
-            print(f"Brave anti-robot challenge captured: {captured}")
+            logger.warning("Brave anti-robot challenge captured: %s", captured)
 
         if clicked:
-            print(f"Brave anti-robot control clicked: {clicked}")
-            return await self._wait_for_results_container()
+            logger.info("Brave anti-robot control clicked: %s", clicked)
+            if await self._wait_for_results_container():
+                return True
+            raise RobotChallengeError(
+                self.name,
+                "Brave anti-robot challenge was clicked but results did not load.",
+                query=self.query,
+                url=self.current_url,
+                captured_artifacts=captured,
+            )
         
         if challenge_detected:
-            print("Brave anti-robot challenge detected, but no known control was clickable.")
-            return False
+            raise RobotChallengeError(
+                self.name,
+                "Brave anti-robot challenge detected, but no known control was clickable.",
+                query=self.query,
+                url=self.current_url,
+                captured_artifacts=captured,
+            )
 
         # If the button is not found, we can assume that we are not a robot
         return False

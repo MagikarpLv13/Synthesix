@@ -4,6 +4,7 @@ import time
 import zendriver as uc
 import asyncio
 import logging
+from exceptions import BrowserSessionError, SearchEngineError, SynthesixError
 from settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -34,14 +35,24 @@ class SearchEngine(ABC):
             self.test()
             return pd.DataFrame(self.results)
         if self.browser is None:
-            raise ValueError("A zendriver browser instance is required for live searches.")
+            raise BrowserSessionError("A zendriver browser instance is required for live searches.")
 
         start_time = time.monotonic()
         try:
             await self.execute_search()
             return pd.DataFrame(self.results)
+        except SynthesixError:
+            raise
+        except Exception as exc:
+            raise SearchEngineError(
+                self.name,
+                f"{self.name} search failed.",
+                query=self.query,
+                url=self.current_url,
+                original_error=exc,
+            ) from exc
         finally:
-            print(f"Temps d'exécution {self.name}: {time.monotonic() - start_time:.2f} secondes")
+            logger.info("Execution time %s: %.2f seconds", self.name, time.monotonic() - start_time)
             await self.close_tab()
 
     async def close_tab(self):
@@ -50,7 +61,7 @@ class SearchEngine(ABC):
         try:
             await self.tab.close()
         except Exception as exc:
-            print(f"Unable to close {self.name} tab: {exc}")
+            logger.warning("Unable to close %s tab: %s", self.name, exc)
         finally:
             self.tab = None
 
@@ -59,8 +70,25 @@ class SearchEngine(ABC):
         """
         await self.pre_execute_search()
         await self.navigate()
-        raw_results = await self.tab.get_content()
-        self.results = self.parse_results(raw_results)
+        try:
+            raw_results = await self.tab.get_content()
+        except Exception as exc:
+            raise BrowserSessionError(
+                f"Unable to read {self.name} page content.",
+                url=self.current_url,
+                original_error=exc,
+            ) from exc
+
+        try:
+            self.results = self.parse_results(raw_results)
+        except Exception as exc:
+            raise SearchEngineError(
+                self.name,
+                f"Unable to parse {self.name} results.",
+                query=self.query,
+                url=self.current_url,
+                original_error=exc,
+            ) from exc
 
         self.num_results = len(self.results)
         await self.post_execute_search()
@@ -70,16 +98,29 @@ class SearchEngine(ABC):
         """
         url = self.construct_url()
         self.current_url = url
-        self.tab = await self.browser.get(url, new_tab=True)
+        try:
+            self.tab = await self.browser.get(url, new_tab=True)
+        except Exception as exc:
+            raise BrowserSessionError(
+                f"Unable to open {self.name} search page.",
+                url=url,
+                original_error=exc,
+            ) from exc
         
         # Stay focused on the main tab
-        main_tab = self.browser.main_tab
+        main_tab = getattr(self.browser, "main_tab", None)
         if main_tab and not getattr(main_tab, "closed", False):
             try:
                 await main_tab.bring_to_front()
             except Exception:
                 logger.debug("Unable to bring main tab to front", exc_info=True)
-        await self.wait_for_page_load()
+        if not await self.wait_for_page_load():
+            raise SearchEngineError(
+                self.name,
+                f"{self.name} results did not load before timeout.",
+                query=self.query,
+                url=self.current_url,
+            )
 
     @abstractmethod
     def set_selector(self):

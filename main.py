@@ -3,19 +3,12 @@ from pathlib import Path
 import logging
 import json
 import time
-from brave import BraveSearchEngine
-from google import GoogleSearchEngine
-from bing import BingSearchEngine
-from duckduckgo import DuckDuckGoSearchEngine
-import pandas as pd
 from browser_manager import HeadlessBrowserManager
-from scoring import calculate_relevance
+from exceptions import SynthesixError
+from search_orchestrator import SearchOrchestrator
 from settings import AppSettings, get_settings
 import zendriver as uc
 from utils import (
-    add_to_history,
-    generate_history_html,
-    generate_html_report,
     is_advanced_query,
     load_search_history,
     smart_parse,
@@ -201,90 +194,21 @@ async def main():
         logger.info("Goodbye!")
 
 async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser, engines: dict, num_results: int):
-    logger.info("Search in progress for: %s", parsed_query)
-
-    # Launch searches in parallel
-    start_time = time.monotonic()
-
-    tasks = []
-    if engines.get("google"):
-        tasks.append(("google", asyncio.create_task(GoogleSearchEngine().search(parsed_query, browser, num_results))))
-    if engines.get("bing"):
-        tasks.append(("bing", asyncio.create_task(BingSearchEngine().search(parsed_query, browser, num_results))))
-    if engines.get("brave"):
-        tasks.append(("brave", asyncio.create_task(BraveSearchEngine().search(parsed_query, browser, num_results))))
-    if engines.get("duckduckgo"):
-        tasks.append(("duckduckgo", asyncio.create_task(DuckDuckGoSearchEngine().search(parsed_query, browser, num_results))))
-
-    if not tasks:
-        logger.warning("No search engine selected.")
-
-    results = await asyncio.gather(*(t[1] for t in tasks), return_exceptions=True)
-    engine_results = {}
-    for (engine, _), result in zip(tasks, results):
-        if isinstance(result, Exception):
-            logger.error(
-                "%s search failed",
-                engine,
-                exc_info=(type(result), result, result.__traceback__),
-            )
-            engine_results[engine] = pd.DataFrame()
-        else:
-            engine_results[engine] = result
-
-    total_time = time.monotonic() - start_time
-
-    # Global execution time
-    logger.info("Global execution time: %.2f seconds", total_time)
-
-    # Merge results
-    required_columns = ["title", "link", "description", "source"]
-    required_column_set = set(required_columns)
-    frames = []
-    for engine, df in engine_results.items():
-        if not isinstance(df, pd.DataFrame):
-            logger.warning("%s results ignored; expected DataFrame, got %s", engine, type(df).__name__)
-            continue
-        if df.empty:
-            continue
-        missing_columns = required_column_set - set(df.columns)
-        if missing_columns:
-            logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
-            continue
-        frames.append(df)
-
-    if frames:
-        combined_df = pd.concat(frames, ignore_index=True)
-    else:
-        combined_df = pd.DataFrame(columns=[*required_columns, "relevance_score"])
-
-    # Calculate relevance scores
-    if not combined_df.empty:
-        combined_df["relevance_score"] = combined_df.apply(lambda x: calculate_relevance(x, parsed_query), axis=1)
-        combined_df = combined_df.sort_values("relevance_score", ascending=False)
-
-    # Group by link and aggregate sources and other fields
-        best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
-        best_rows = combined_df.loc[best_idx, ["link", "title", "description", "relevance_score"]]
-        sources = combined_df.groupby("link")["source"].apply(lambda x: ", ".join(sorted(x.astype(str).unique())))
-        combined_df = (
-            best_rows
-            .merge(sources.rename("source"), on="link", how="left")
-            .sort_values("relevance_score", ascending=False)
+    try:
+        search_result = await SearchOrchestrator().search(
+            original_query,
+            parsed_query,
+            browser,
+            engines,
+            num_results,
         )
+    except SynthesixError:
+        logger.error("Search failed.", exc_info=True)
+        return
 
-    # Generate report with relevant results
-    relevant_results = combined_df[combined_df['relevance_score'] > 0]
-    nb_results = len(relevant_results)
-    output_path = generate_html_report(relevant_results, parsed_query, total_time, nb_results)
-    if output_path:
-        logger.info("Generated report: %s", output_path)
-        result_tab = await browser.get(Path(output_path).resolve().as_uri(), new_tab=True)
-        add_to_history(original_query, parsed_query, nb_results, output_path)
-        generate_history_html()
+    if search_result.output_path:
+        result_tab = await browser.get(Path(search_result.output_path).resolve().as_uri(), new_tab=True)
         await result_tab.bring_to_front()
-    else:
-        logger.error("Can't generate report.")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
