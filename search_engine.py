@@ -4,6 +4,7 @@ import time
 import zendriver as uc
 import asyncio
 import logging
+from settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,13 @@ class SearchEngine(ABC):
         self.selector = None
         self.current_url = None
 
-    async def search(self, query, browser=None, max_results=20) -> pd.DataFrame:
+    async def search(self, query, browser=None, max_results=None) -> pd.DataFrame:
         """
         Launch a search and return a DataFrame of results.
         """
         self.query = query
         self.browser = browser
-        self.max_results = max_results
+        self.max_results = max_results if max_results is not None else get_settings().default_max_results
         self.results = []
         self.num_results = 0
         self.set_selector()
@@ -125,9 +126,12 @@ class SearchEngine(ABC):
         """
         pass
 
-    async def wait_for_page_load(self, timeout=2.5, interval=0.1) -> bool:
+    async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
         """Custom function to wait for the page to load.
         """
+        settings = get_settings()
+        timeout = settings.page_load_timeout if timeout is None else timeout
+        interval = settings.page_load_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
             try:

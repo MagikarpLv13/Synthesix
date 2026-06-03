@@ -1,10 +1,12 @@
 import re
 import json
+import os
 from html import escape, unescape
 import pandas as pd
 from datetime import datetime
-import os
+from pathlib import Path
 from typing import List, Optional
+from settings import get_settings
 
 
 def _html_escape(value) -> str:
@@ -16,6 +18,17 @@ def _theme_assets(asset_prefix: str = "") -> str:
     <link rel="stylesheet" href="{asset_prefix}theme.css">
     <script src="{asset_prefix}theme.js"></script>
 """
+
+
+def _relative_href(target: Path, from_dir: Path) -> str:
+    return os.path.relpath(target.resolve(), from_dir.resolve()).replace(os.sep, "/")
+
+
+def _asset_prefix(from_dir: Path, base_dir: Path) -> str:
+    relative_base = _relative_href(base_dir, from_dir)
+    if relative_base == ".":
+        return ""
+    return relative_base.rstrip("/") + "/"
 
 
 def _home_navigation_script() -> str:
@@ -43,13 +56,15 @@ def _home_navigation_script() -> str:
 """
 
 
-def load_search_history(limit: int = 25) -> List[dict]:
-    path = "history/history.json"
-    if not os.path.exists(path):
+def load_search_history(limit: int | None = None) -> List[dict]:
+    settings = get_settings()
+    limit = settings.default_history_limit if limit is None else limit
+    path = settings.history_json_path
+    if not path.exists():
         return []
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             history = json.load(f)
     except (OSError, json.JSONDecodeError):
         return []
@@ -83,7 +98,8 @@ def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
         link (str): The link to the search results
     """
     
-    path = "history/history.json"
+    settings = get_settings()
+    path = settings.history_json_path
     date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     data = {
         "date": date_str,
@@ -94,18 +110,18 @@ def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
     }
 
     # Load the history
-    if not os.path.exists(path):
+    if not path.exists():
         # Create the history directory if it doesn't exist
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         # Create an empty history file
         history = []
     else:
         # Load the existing history
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             history = json.load(f)
     
     history.append(data)
-    with open(path, "w", encoding="utf-8") as f:
+    with path.open("w", encoding="utf-8") as f:
         json.dump(history, f, indent=4)
         
         
@@ -115,17 +131,21 @@ def generate_history_html():
     Returns:
         str: The path to the generated HTML report
     """
-    path = "history/history.json"
-    output_path = "history.html"
+    settings = get_settings()
+    path = settings.history_json_path
+    output_path = settings.history_report_path
     
     # Charger l'historique
-    if not os.path.exists(path):
+    if not path.exists():
         history = []
     else:
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             history = json.load(f)
 
     # Début du HTML
+    search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
+    asset_prefix = _asset_prefix(output_path.parent, settings.base_dir)
+
     html = f'''
 <!DOCTYPE html>
 <html lang="en">
@@ -136,7 +156,7 @@ def generate_history_html():
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets()}
+    {_theme_assets(asset_prefix)}
 </head>
 <body>
     <main class="app app--wide">
@@ -146,7 +166,7 @@ def generate_history_html():
                 <span class="brand-subtitle">Search history</span>
             </div>
             <div class="top-actions">
-                <a href="index.html" data-home-link class="nav-link">Search</a>
+                <a href="{search_href}" data-home-link class="nav-link">Search</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
@@ -207,9 +227,9 @@ def generate_history_html():
 </html>
 '''
     # Écrire le fichier HTML
-    with open(output_path, "w", encoding="utf-8") as f:
+    with output_path.open("w", encoding="utf-8") as f:
         f.write(html)
-    return output_path
+    return str(output_path)
 
 def js_like_to_json(js_text):
     """Convert a JS like text to a JSON object
@@ -294,8 +314,12 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     """
 
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = "history/search_results_" + date_str + ".html"
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    settings = get_settings()
+    output_path = settings.search_results_path(date_str)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_prefix = _asset_prefix(output_path.parent, settings.base_dir)
+    search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
+    history_href = _relative_href(settings.history_report_path, output_path.parent)
     safe_search_term = _html_escape(search_term)
     safe_output_path = _html_escape(output_path)
 
@@ -309,7 +333,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets("../")}
+    {_theme_assets(asset_prefix)}
 </head>
 <body>
     <main class="app app--wide">
@@ -319,8 +343,8 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 <span class="brand-subtitle">Search results</span>
             </div>
             <div class="top-actions">
-                <a href="../index.html" data-home-link class="nav-link">Search</a>
-                <a href="../history.html" class="nav-link">History</a>
+                <a href="{search_href}" data-home-link class="nav-link">Search</a>
+                <a href="{history_href}" class="nav-link">History</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
@@ -369,11 +393,10 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 """
         full_html = html_head + rows_html + html_footer
         
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             f.write(full_html)
             
-        output_path = os.path.abspath(output_path)
-        return output_path
+        return str(output_path.resolve())
         
         
     rows_html = ""
@@ -416,9 +439,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 
     full_html = html_head + rows_html + html_footer
 
-    with open(output_path, "w", encoding="utf-8") as f:
+    with output_path.open("w", encoding="utf-8") as f:
         f.write(full_html)
 
-    output_path = os.path.abspath(output_path)
-
-    return output_path
+    return str(output_path.resolve())

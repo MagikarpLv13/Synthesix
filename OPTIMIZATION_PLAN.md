@@ -6,6 +6,9 @@ Etat au 2026-06-03.
 
 ### Termine recemment
 
+- La configuration runtime est centralisee dans `settings.py`.
+- Les chemins `history/`, `history.html`, `history/robot_challenges/` et `zendriver-profile/` sont configurables.
+- Les timeouts principaux navigateur/Brave et les moteurs actifs par defaut sont configurables par variables d'environnement.
 - `zendriver` est verrouille sur `zendriver==0.15.3`.
 - Les moteurs Google, Bing, Brave et DuckDuckGo sont disponibles.
 - DuckDuckGo utilise des parametres orientes recherche pure, sans blocs IA/suggestions quand le moteur les accepte.
@@ -29,21 +32,34 @@ Etat au 2026-06-03.
 
 Objectif : eviter que les chemins, timeouts et options moteur soient disperses.
 
-- Creer un module de configuration leger, par exemple `config.py` ou `settings.py`.
-- Centraliser :
+- Statut : termine.
+- Module ajoute : `settings.py`.
+- Centralise :
   - `history/`
   - `history/robot_challenges/`
   - `zendriver-profile/`
   - timeouts navigateur
-  - delais/retries moteur
+  - delais moteur Brave
   - moteurs actives par defaut
-- Lire les overrides depuis les variables d'environnement quand c'est utile.
-- Garder des valeurs par defaut locales simples.
+- Overrides disponibles via variables d'environnement :
+  - `SYNTHESIX_BASE_DIR`
+  - `SYNTHESIX_HISTORY_DIR`
+  - `SYNTHESIX_BROWSER_PROFILE_DIR`
+  - `SYNTHESIX_DEFAULT_ENGINES`
+  - `SYNTHESIX_HISTORY_LIMIT`
+  - `SYNTHESIX_DEFAULT_MAX_RESULTS`
+  - `SYNTHESIX_HOME_POLL_INTERVAL`
+  - `SYNTHESIX_EMPTY_TABS_GRACE_SECONDS`
+  - `SYNTHESIX_PAGE_LOAD_TIMEOUT`
+  - `SYNTHESIX_PAGE_LOAD_INTERVAL`
+  - `SYNTHESIX_BRAVE_RESULTS_TIMEOUT`
+  - `SYNTHESIX_BRAVE_RESULTS_INTERVAL`
+  - `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT`
 
 Tests :
 
-- Tests unitaires sur les valeurs par defaut.
-- Tests unitaires sur les overrides d'environnement.
+- Tests unitaires sur les valeurs par defaut : fait.
+- Tests unitaires sur les overrides d'environnement : fait.
 
 ### P1 - Extraire l'orchestration de recherche
 
@@ -127,8 +143,8 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 
 ## 3. Ordre d'execution recommande
 
-1. Ajouter `config.py` avec chemins/timeouts/moteurs par defaut.
-2. Adapter `utils.py`, `main.py` et les moteurs pour utiliser cette configuration.
+1. Ajouter `settings.py` avec chemins/timeouts/moteurs par defaut. Fait.
+2. Adapter `utils.py`, `main.py` et les moteurs pour utiliser cette configuration. Fait.
 3. Extraire l'orchestration multi-moteur hors de `main.py`.
 4. Ajouter les exceptions applicatives.
 5. Ajouter les timeouts/retries configurables.
@@ -147,7 +163,7 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 ## 5. Commandes de verification
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py
 venv\Scripts\python.exe -m unittest discover
 git diff --check
 ```

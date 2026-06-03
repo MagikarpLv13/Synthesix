@@ -2,6 +2,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -110,6 +111,34 @@ class UtilsTestCase(unittest.TestCase):
 
                 self.assertEqual(len(history), 1)
                 self.assertEqual(history[0]["query"], "two")
+            finally:
+                os.chdir(current_dir)
+
+    def test_report_links_follow_configured_history_directory(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                with patch.dict("os.environ", {"SYNTHESIX_HISTORY_DIR": "runtime/history"}):
+                    df = pd.DataFrame(
+                        [
+                            {
+                                "title": "Title",
+                                "description": "Description",
+                                "link": "https://example.com",
+                                "source": "Google",
+                                "relevance_score": 1.0,
+                            }
+                        ]
+                    )
+
+                    output_path = generate_html_report(df, '"configured"', 0.1, 1)
+                    content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertIn("../../theme.css", content)
+                self.assertIn("../../theme.js", content)
+                self.assertIn('href="../../index.html"', content)
+                self.assertIn('href="../../history.html"', content)
             finally:
                 os.chdir(current_dir)
 

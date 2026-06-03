@@ -42,7 +42,7 @@ Synthesix is a multi-engine search tool powered by zendriver that allows you to 
    - The browser will open to a simple interface.
    - Enter your search query in the input field and click **Search**.
    - The results will be synthesized and shown in a generated HTML report.
-   - Click **Quit** to exit the application.
+   - Closing all Synthesix tabs exits the application.
 
 ## How It Works
 
@@ -87,6 +87,24 @@ python main.py
 ## Runtime Data
 
 Synthesix writes browser profile data to `zendriver-profile/` and generated reports/history to `history/` plus `history.html`. These paths are ignored by Git and should not contain application secrets.
+
+## Configuration
+
+Runtime settings can be overridden with environment variables:
+
+- `SYNTHESIX_BASE_DIR`
+- `SYNTHESIX_HISTORY_DIR`
+- `SYNTHESIX_BROWSER_PROFILE_DIR`
+- `SYNTHESIX_DEFAULT_ENGINES` such as `google,duckduckgo`
+- `SYNTHESIX_DEFAULT_MAX_RESULTS`
+- `SYNTHESIX_HISTORY_LIMIT`
+- `SYNTHESIX_HOME_POLL_INTERVAL`
+- `SYNTHESIX_EMPTY_TABS_GRACE_SECONDS`
+- `SYNTHESIX_PAGE_LOAD_TIMEOUT`
+- `SYNTHESIX_PAGE_LOAD_INTERVAL`
+- `SYNTHESIX_BRAVE_RESULTS_TIMEOUT`
+- `SYNTHESIX_BRAVE_RESULTS_INTERVAL`
+- `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT`
 
 ---
 

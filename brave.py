@@ -6,11 +6,11 @@ import time
 import unicodedata
 from datetime import datetime
 from html import unescape
-from pathlib import Path
 from urllib.parse import quote_plus
 
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
+from settings import get_settings
 from utils import js_like_to_json
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class BraveSearchEngine(SearchEngine):
         return query
 
     async def capture_robot_challenge(self, raw_content: str = "") -> dict:
-        capture_dir = Path("history") / "robot_challenges"
+        capture_dir = get_settings().robot_challenges_dir
         capture_dir.mkdir(parents=True, exist_ok=True)
         stem = f"brave_anti_robot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -218,7 +218,10 @@ class BraveSearchEngine(SearchEngine):
 
         return captured
 
-    async def _wait_for_results_container(self, timeout: float = 45, interval: float = 0.25) -> bool:
+    async def _wait_for_results_container(self, timeout: float | None = None, interval: float | None = None) -> bool:
+        settings = get_settings()
+        timeout = settings.brave_results_timeout if timeout is None else timeout
+        interval = settings.brave_results_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
             try:
@@ -232,7 +235,11 @@ class BraveSearchEngine(SearchEngine):
     async def _click_robot_button_with_find(self):
         for text in BRAVE_ROBOT_FIND_PATTERNS:
             try:
-                button = await self.tab.find(text, best_match=True, timeout=0.2)
+                button = await self.tab.find(
+                    text,
+                    best_match=True,
+                    timeout=get_settings().brave_robot_find_timeout,
+                )
             except Exception:
                 button = None
             if button:
@@ -354,7 +361,7 @@ class BraveSearchEngine(SearchEngine):
 
         if clicked:
             print(f"Brave anti-robot control clicked: {clicked}")
-            return await self._wait_for_results_container(timeout=45)
+            return await self._wait_for_results_container()
         
         if challenge_detected:
             print("Brave anti-robot challenge detected, but no known control was clickable.")

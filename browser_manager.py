@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 import uuid
 from zendriver.core.config import Config
+from settings import AppSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -133,17 +134,18 @@ class HeadlessBrowserManager:
         self.profile_dir: str | None = None
 
     @classmethod
-    async def create(cls, home_url: str | None = None):
+    async def create(cls, home_url: str | None = None, settings: AppSettings | None = None):
         self = cls()
-        custom_profile = os.path.join(os.getcwd(), "zendriver-profile")
+        settings = settings or get_settings()
+        custom_profile = settings.browser_profile_dir
         os.makedirs(custom_profile, exist_ok=True)
-        self.profile_dir = custom_profile
-        _mark_profile_exited_cleanly(custom_profile)
+        self.profile_dir = str(custom_profile)
+        _mark_profile_exited_cleanly(str(custom_profile))
         if home_url:
-            _ensure_synthesix_bookmark(custom_profile, home_url)
+            _ensure_synthesix_bookmark(str(custom_profile), home_url)
 
         config = Config()
-        config.user_data_dir = custom_profile
+        config.user_data_dir = str(custom_profile)
 
         """⚠️ Headless mode is not working with Brave, instant flag as a robot 🤖.
         """

@@ -10,6 +10,7 @@ from duckduckgo import DuckDuckGoSearchEngine
 import pandas as pd
 from browser_manager import HeadlessBrowserManager
 from scoring import calculate_relevance
+from settings import AppSettings, get_settings
 import zendriver as uc
 from utils import (
     add_to_history,
@@ -21,9 +22,6 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
-HOME_POLL_INTERVAL = 0.25
-EMPTY_TABS_GRACE_SECONDS = 2.0
-DEFAULT_ENGINES = {"google": True, "bing": True, "brave": True, "duckduckgo": True}
 
 
 def _normalize_tab_url(url: str | None) -> str:
@@ -99,7 +97,12 @@ async def _consume_page_tab_action(tab):
         return None
 
 
-async def _focus_or_open_home_tab(browser: uc.Browser, index_url: str, home_tabs=None):
+async def _focus_or_open_home_tab(
+    browser: uc.Browser,
+    index_url: str,
+    home_tabs=None,
+    reuse_current_tab: bool = False,
+):
     if home_tabs is None:
         tabs = await _open_tabs(browser) or []
         home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
@@ -111,12 +114,13 @@ async def _focus_or_open_home_tab(browser: uc.Browser, index_url: str, home_tabs
         except Exception:
             logger.debug("Unable to focus existing home tab", exc_info=True)
 
-    home_tab = await browser.get(index_url, new_tab=True)
+    home_tab = await browser.get(index_url, new_tab=not reuse_current_tab)
     await home_tab.bring_to_front()
     return home_tab
 
 
-async def wait_for_home_action(browser: uc.Browser, index_url: str):
+async def wait_for_home_action(browser: uc.Browser, index_url: str, settings: AppSettings | None = None):
+    settings = settings or get_settings()
     empty_since = None
 
     while True:
@@ -125,22 +129,22 @@ async def wait_for_home_action(browser: uc.Browser, index_url: str):
 
         tabs = await _open_tabs(browser)
         if tabs is None:
-            await asyncio.sleep(HOME_POLL_INTERVAL)
+            await asyncio.sleep(settings.home_poll_interval)
             continue
 
         if not tabs:
             if empty_since is None:
                 empty_since = time.monotonic()
-            elif time.monotonic() - empty_since >= EMPTY_TABS_GRACE_SECONDS:
+            elif time.monotonic() - empty_since >= settings.empty_tabs_grace_seconds:
                 return {"action": "quit"}
-            await asyncio.sleep(HOME_POLL_INTERVAL)
+            await asyncio.sleep(settings.home_poll_interval)
             continue
 
         empty_since = None
 
         home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
         if home_tabs:
-            history_json = json.dumps(load_search_history())
+            history_json = json.dumps(load_search_history(limit=settings.default_history_limit))
             for tab in home_tabs:
                 state = await _consume_home_tab_action(tab, history_json)
                 if state and state.get("action"):
@@ -156,19 +160,20 @@ async def wait_for_home_action(browser: uc.Browser, index_url: str):
                 await _focus_or_open_home_tab(browser, index_url, home_tabs)
                 break
 
-        await asyncio.sleep(HOME_POLL_INTERVAL)
+        await asyncio.sleep(settings.home_poll_interval)
 
 async def main():
+    settings = get_settings()
     # Use a file:// URL so navigation works across platforms
-    index_url = Path("index.html").resolve().as_uri()
-    browser_manager = await HeadlessBrowserManager.create(home_url=index_url)
+    index_url = (settings.base_dir / "index.html").resolve().as_uri()
+    browser_manager = await HeadlessBrowserManager.create(home_url=index_url, settings=settings)
     browser = await browser_manager.get_driver()
-    home_tab = await _focus_or_open_home_tab(browser, index_url)
+    home_tab = await _focus_or_open_home_tab(browser, index_url, reuse_current_tab=True)
     await home_tab.bring_to_front()
 
     try:
         while True:
-            result = await wait_for_home_action(browser, index_url)
+            result = await wait_for_home_action(browser, index_url, settings=settings)
 
             # Quit the browser if the user wants to
             if result["action"] == "quit":
@@ -187,8 +192,8 @@ async def main():
                 parsed_query = original_query
                 
             # Perform the search
-            engines = result.get("engines", DEFAULT_ENGINES)
-            num_results = result.get("numResults", 20)
+            engines = result.get("engines", settings.default_engines)
+            num_results = result.get("numResults", settings.default_max_results)
             await perform_search(original_query, parsed_query, browser, engines, num_results)
 
     finally:
