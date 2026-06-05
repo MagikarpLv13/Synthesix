@@ -276,6 +276,51 @@ a:focus-visible {
     margin-top: 18px;
 }
 
+.osint-panel {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.osint-panel summary {
+    min-height: 44px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.operator-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 0 14px 14px;
+}
+
+.operator-field {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.operator-field input {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.operator-field input::placeholder {
+    color: var(--muted);
+}
+
 .engine-group {
     display: flex;
     flex-wrap: wrap;
@@ -518,6 +563,10 @@ table.dataTable.no-footer {
 
     .controls {
         align-items: stretch;
+    }
+
+    .operator-grid {
+        grid-template-columns: 1fr;
     }
 
     .engine-group,

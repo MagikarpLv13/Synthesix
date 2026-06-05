@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
+from query_operators import SearchFilters
 from search_orchestrator import SearchOrchestrator, aggregate_search_results
 from settings import get_settings
 
@@ -328,6 +329,39 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tracker["max_active"], 1)
         self.assertEqual(result.nb_results, 1)
 
+    async def test_engine_specific_queries_are_used_for_filters(self):
+        google_engine = FakeEngine()
+        bing_engine = FakeEngine()
+        orchestrator = SearchOrchestrator(
+            engine_factories={
+                "google": lambda: google_engine,
+                "bing": lambda: bing_engine,
+            },
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+        browser = object()
+
+        await orchestrator.search(
+            "john doe",
+            '"john doe" site:example.com intitle:profile inurl:admin',
+            browser,
+            {"google": True, "bing": True},
+            5,
+            filters=SearchFilters(site="example.com", title="profile", url="admin"),
+            base_query='"john doe"',
+        )
+
+        self.assertEqual(
+            google_engine.calls,
+            [('"john doe" site:example.com intitle:profile inurl:admin', browser, 5)],
+        )
+        self.assertEqual(
+            bing_engine.calls,
+            [('"john doe" site:example.com intitle:profile admin', browser, 5)],
+        )
+
 
 class AggregateSearchResultsTestCase(unittest.TestCase):
     def test_deduplicates_links_and_merges_sources(self):
@@ -366,6 +400,60 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
         self.assertEqual(duplicate_row["source"], "Bing, Google")
         self.assertEqual(len(combined), 2)
         self.assertIn("relevance_score", combined.columns)
+
+    def test_filters_results_after_engine_search(self):
+        engine_results = {
+            "bing": pd.DataFrame(
+                [
+                    {
+                        "title": "John Doe profile",
+                        "link": "https://example.com/admin/profile.pdf",
+                        "description": "John Doe reference.",
+                        "source": "Bing",
+                    },
+                    {
+                        "title": "John Doe profile",
+                        "link": "https://example.com/public/profile.html",
+                        "description": "John Doe reference.",
+                        "source": "Bing",
+                    },
+                ]
+            )
+        }
+
+        combined = aggregate_search_results(
+            engine_results,
+            '"john doe" site:example.com inurl:admin filetype:pdf',
+            filters=SearchFilters(site="example.com", url="admin", filetype="pdf"),
+            base_query='"john doe"',
+        )
+
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined.iloc[0]["link"], "https://example.com/admin/profile.pdf")
+
+    def test_filter_only_search_keeps_matching_results_with_minimum_score(self):
+        engine_results = {
+            "google": pd.DataFrame(
+                [
+                    {
+                        "title": "Document",
+                        "link": "https://example.com/report.pdf",
+                        "description": "Reference.",
+                        "source": "Google",
+                    }
+                ]
+            )
+        }
+
+        combined = aggregate_search_results(
+            engine_results,
+            "site:example.com filetype:pdf",
+            filters=SearchFilters(site="example.com", filetype="pdf"),
+            base_query="",
+        )
+
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined.iloc[0]["relevance_score"], 1.0)
 
 
 if __name__ == "__main__":

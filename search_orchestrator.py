@@ -7,6 +7,7 @@ from typing import Callable, Mapping
 import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
+from query_operators import SearchFilters, build_engine_query, result_matches_filters
 from scoring import build_relevance_scorer, calculate_relevance
 from settings import AppSettings, get_settings
 from utils import add_to_history, generate_history_html, generate_html_report
@@ -61,6 +62,8 @@ def aggregate_search_results(
     engine_results: Mapping[str, pd.DataFrame],
     parsed_query: str,
     scorer: Callable[[dict, str], float] = calculate_relevance,
+    filters: SearchFilters | Mapping | None = None,
+    base_query: str | None = None,
 ) -> pd.DataFrame:
     frames = []
     required_column_set = set(REQUIRED_RESULT_COLUMNS)
@@ -82,10 +85,23 @@ def aggregate_search_results(
 
     combined_df = pd.concat(frames, ignore_index=True)
     combined_df = combined_df.drop_duplicates(subset=list(REQUIRED_RESULT_COLUMNS))
+    filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
+    if filters.has_filters():
+        combined_df = combined_df[
+            combined_df.apply(lambda row: result_matches_filters(row, filters), axis=1)
+        ]
+        if combined_df.empty:
+            return pd.DataFrame(columns=[*REQUIRED_RESULT_COLUMNS, "relevance_score"])
+
     row_scorer = build_relevance_scorer(parsed_query) if scorer is calculate_relevance else (
         lambda row: scorer(row, parsed_query)
     )
     combined_df["relevance_score"] = combined_df.apply(row_scorer, axis=1)
+    if filters.has_filters() and not (base_query or "").strip():
+        combined_df["relevance_score"] = combined_df["relevance_score"].where(
+            combined_df["relevance_score"] > 0,
+            1.0,
+        )
     combined_df = combined_df.sort_values("relevance_score", ascending=False)
 
     best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
@@ -106,7 +122,7 @@ class SearchOrchestrator:
         self,
         engine_factories: Mapping[str, Callable[[], object]] | None = None,
         report_generator: Callable[[pd.DataFrame, str, float, int], str | None] = generate_html_report,
-        history_adder: Callable[[str, str, int, str], None] = add_to_history,
+        history_adder: Callable[..., None] = add_to_history,
         history_report_generator: Callable[[], str] = generate_history_html,
         scorer: Callable[[dict, str], float] = calculate_relevance,
         settings: AppSettings | None = None,
@@ -125,15 +141,20 @@ class SearchOrchestrator:
         browser,
         engines: Mapping[str, bool],
         num_results: int,
+        filters: SearchFilters | Mapping | None = None,
+        base_query: str | None = None,
     ) -> SearchRunResult:
+        filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
         logger.info("Search in progress for: %s", parsed_query)
         start_time = time.monotonic()
+        engine_base_query = base_query if base_query is not None else parsed_query
 
         engine_results, engine_errors, attempted_count = await self._run_engines(
-            parsed_query,
+            engine_base_query,
             browser,
             engines,
             num_results,
+            filters,
         )
         total_time = time.monotonic() - start_time
         logger.info("Global execution time: %.2f seconds", total_time)
@@ -148,14 +169,29 @@ class SearchOrchestrator:
                 engine_errors=engine_errors,
             )
 
-        combined_df = aggregate_search_results(engine_results, parsed_query, scorer=self.scorer)
+        combined_df = aggregate_search_results(
+            engine_results,
+            parsed_query,
+            scorer=self.scorer,
+            filters=filters,
+            base_query=base_query,
+        )
         relevant_results = combined_df[combined_df["relevance_score"] > 0]
         nb_results = len(relevant_results)
 
         output_path = self.report_generator(relevant_results, parsed_query, total_time, nb_results)
         if output_path:
             logger.info("Generated report: %s", output_path)
-            self.history_adder(original_query, parsed_query, nb_results, output_path)
+            if filters.has_filters():
+                self.history_adder(
+                    original_query,
+                    parsed_query,
+                    nb_results,
+                    output_path,
+                    filters.to_payload(),
+                )
+            else:
+                self.history_adder(original_query, parsed_query, nb_results, output_path)
             self.history_report_generator()
         else:
             logger.error("Can't generate report.")
@@ -173,6 +209,7 @@ class SearchOrchestrator:
         browser,
         selected_engines: Mapping[str, bool],
         num_results: int,
+        filters: SearchFilters,
     ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int]:
         tasks = []
         concurrency = max(1, self.settings.engine_concurrency)
@@ -187,13 +224,14 @@ class SearchOrchestrator:
                 continue
 
             engine = factory()
+            engine_query = build_engine_query(parsed_query, engine_name, filters)
             tasks.append((
                 engine_name,
                 asyncio.create_task(self._search_engine_limited(
                     semaphore,
                     engine_name,
                     engine,
-                    parsed_query,
+                    engine_query,
                     browser,
                     num_results,
                 )),

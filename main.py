@@ -7,6 +7,7 @@ import time
 import sys
 from browser_manager import HeadlessBrowserManager
 from exceptions import SynthesixError
+from query_operators import SearchFilters, build_display_query
 from search_orchestrator import SearchOrchestrator
 from settings import AppSettings, get_settings
 import zendriver as uc
@@ -219,6 +220,7 @@ async def wait_for_home_action(browser: uc.Browser, index_url: str, settings: Ap
 
         await asyncio.sleep(settings.home_poll_interval)
 
+
 async def main():
     settings = get_settings()
     # Use a file:// URL so navigation works across platforms
@@ -235,29 +237,45 @@ async def main():
             # Quit the browser if the user wants to
             if result["action"] == "quit":
                 return
-            # Get the search value
-            original_query = result["value"].strip()
-            # If the search value is empty, quit the browser
-            if not original_query:
+            original_query = str(result.get("value", "") or "").strip()
+            filters = SearchFilters.from_payload(result.get("filters"))
+            if not original_query and not filters.has_filters():
                 return
-            # If the query is not advanced, parse it to a smart query
+
             if not is_advanced_query(original_query):
                 logger.info("Parsing query to a smart query: %s", original_query)
-                parsed_query = smart_parse(original_query)
-                logger.info("Smart query: %s", parsed_query)
+                parsed_base_query = smart_parse(original_query)
+                logger.info("Smart query: %s", parsed_base_query)
             else:
-                parsed_query = original_query
-                
-            # Perform the search
+                parsed_base_query = original_query
+
+            parsed_query = build_display_query(parsed_base_query, filters)
             engines = result.get("engines", settings.default_engines)
             num_results = result.get("numResults", settings.default_max_results)
-            await perform_search(original_query, parsed_query, browser, engines, num_results)
+            await perform_search(
+                original_query,
+                parsed_query,
+                browser,
+                engines,
+                num_results,
+                filters,
+                parsed_base_query,
+            )
 
     finally:
         await browser_manager.stop()
         logger.info("Goodbye!")
 
-async def perform_search(original_query: str, parsed_query: str, browser: uc.Browser, engines: dict, num_results: int):
+
+async def perform_search(
+    original_query: str,
+    parsed_query: str,
+    browser: uc.Browser,
+    engines: dict,
+    num_results: int,
+    filters: SearchFilters | None = None,
+    base_query: str | None = None,
+):
     try:
         search_result = await SearchOrchestrator().search(
             original_query,
@@ -265,6 +283,8 @@ async def perform_search(original_query: str, parsed_query: str, browser: uc.Bro
             browser,
             engines,
             num_results,
+            filters=filters,
+            base_query=base_query,
         )
     except SynthesixError:
         logger.error("Search failed.", exc_info=True)

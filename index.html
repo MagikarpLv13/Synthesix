@@ -43,6 +43,36 @@
                 <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
             </div>
 
+            <details class="osint-panel">
+                <summary>OSINT filters</summary>
+                <div class="operator-grid" aria-label="OSINT search filters">
+                    <label class="operator-field" for="filter-site">
+                        <span>Site</span>
+                        <input type="text" id="filter-site" placeholder="example.com">
+                    </label>
+                    <label class="operator-field" for="filter-exclude-site">
+                        <span>Exclude</span>
+                        <input type="text" id="filter-exclude-site" placeholder="pinterest.com">
+                    </label>
+                    <label class="operator-field" for="filter-title">
+                        <span>Title</span>
+                        <input type="text" id="filter-title" placeholder="profile">
+                    </label>
+                    <label class="operator-field" for="filter-url">
+                        <span>URL</span>
+                        <input type="text" id="filter-url" placeholder="admin">
+                    </label>
+                    <label class="operator-field" for="filter-body">
+                        <span>Page text</span>
+                        <input type="text" id="filter-body" placeholder="email">
+                    </label>
+                    <label class="operator-field" for="filter-filetype">
+                        <span>File</span>
+                        <input type="text" id="filter-filetype" placeholder="pdf">
+                    </label>
+                </div>
+            </details>
+
             <div class="controls">
                 <div class="engine-group" aria-label="Search engines">
                     <label class="engine-option"><input type="checkbox" id="engine-google" checked> Google</label>
@@ -67,6 +97,14 @@
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
             const engineIds = ["google", "bing", "brave", "duckduckgo"];
+            const filterInputIds = {
+                site: "filter-site",
+                exclude_site: "filter-exclude-site",
+                title: "filter-title",
+                url: "filter-url",
+                body: "filter-body",
+                filetype: "filter-filetype"
+            };
             const state = {
                 history: [],
                 visibleItems: [],
@@ -96,7 +134,8 @@
             };
 
             const selectHistoryItem = (item) => {
-                searchField.value = item.query;
+                searchField.value = item.query || "";
+                setFilters(item.filters || {});
                 closeHistory();
                 searchField.focus();
                 setCaretToEnd();
@@ -112,7 +151,14 @@
             const renderHistory = (filterValue = "") => {
                 const filter = normalize(filterValue);
                 state.visibleItems = state.history
-                    .filter((item) => !filter || normalize(item.query).includes(filter))
+                    .filter((item) => {
+                        const haystack = [
+                            item.query,
+                            item.display_query,
+                            item.smart_query
+                        ].map(normalize).join(" ");
+                        return !filter || haystack.includes(filter);
+                    })
                     .slice(0, 8);
                 state.activeIndex = -1;
                 historyPanel.innerHTML = "";
@@ -136,7 +182,7 @@
                     const content = document.createElement("span");
                     const query = document.createElement("span");
                     query.className = "history-query";
-                    query.textContent = item.query;
+                    query.textContent = item.display_query || item.query;
 
                     const meta = document.createElement("span");
                     meta.className = "history-meta";
@@ -160,8 +206,10 @@
 
             const getSearchPayload = () => {
                 const value = searchField.value.trim();
-                if (!value) {
-                    alert("Please enter a search term.");
+                const filters = getFilters();
+                const hasFilters = Object.values(filters).some(Boolean);
+                if (!value && !hasFilters) {
+                    alert("Please enter a search term or filter.");
                     searchField.focus();
                     return null;
                 }
@@ -172,7 +220,7 @@
                 });
 
                 const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
-                return { action: "search", value, engines, numResults };
+                return { action: "search", value, filters, engines, numResults };
             };
 
             const submitSearch = () => {
@@ -189,15 +237,34 @@
                 state.history = Array.isArray(history)
                     ? history.filter((item) => {
                         const query = String(item && item.query || "").trim();
-                        if (!query || seen.has(query)) {
+                        const displayQuery = String(item && item.display_query || query || item.smart_query || "").trim();
+                        const filters = item && typeof item.filters === "object" && item.filters ? item.filters : {};
+                        const dedupeKey = JSON.stringify([query, filters]);
+                        if (!displayQuery || seen.has(dedupeKey)) {
                             return false;
                         }
-                        seen.add(query);
+                        seen.add(dedupeKey);
                         item.query = query;
+                        item.display_query = displayQuery;
+                        item.filters = filters;
                         return true;
                     })
                     : [];
                 renderHistory(searchField.value);
+            };
+
+            const getFilters = () => {
+                const filters = {};
+                Object.entries(filterInputIds).forEach(([name, id]) => {
+                    filters[name] = document.getElementById(id).value.trim();
+                });
+                return filters;
+            };
+
+            const setFilters = (filters) => {
+                Object.entries(filterInputIds).forEach(([name, id]) => {
+                    document.getElementById(id).value = String(filters[name] || "");
+                });
             };
 
             const consumeAction = () => {

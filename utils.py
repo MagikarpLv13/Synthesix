@@ -116,18 +116,23 @@ def load_search_history(limit: int | None = None) -> List[dict]:
     history = _read_history_entries(settings.history_json_path)
 
     searches = []
-    seen_queries = set()
+    seen_searches = set()
     for entry in _sorted_history_entries(history):
         query = str(entry.get("query", "")).strip()
-        if not query or query in seen_queries:
+        display_query = query or str(entry.get("smart_query", "")).strip()
+        filters = entry.get("filters", {}) if isinstance(entry.get("filters", {}), dict) else {}
+        dedupe_key = (query, json.dumps(filters, sort_keys=True))
+        if not display_query or dedupe_key in seen_searches:
             continue
-        seen_queries.add(query)
+        seen_searches.add(dedupe_key)
         searches.append(
             {
                 "query": query,
+                "display_query": display_query,
                 "smart_query": str(entry.get("smart_query", "")).strip(),
                 "date": str(entry.get("date", "")).strip(),
                 "nb_results": entry.get("nb_results", ""),
+                "filters": filters,
             }
         )
         if len(searches) >= limit:
@@ -135,7 +140,14 @@ def load_search_history(limit: int | None = None) -> List[dict]:
 
     return searches
 
-def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
+
+def add_to_history(
+    query: str,
+    smart_query: str,
+    nb_results: int,
+    link: str,
+    filters: dict | None = None,
+):
     """Add a search to the history
     
     Args:
@@ -156,6 +168,8 @@ def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
         "nb_results": nb_results,
         "link": link
     }
+    if filters:
+        data["filters"] = filters
 
     path.parent.mkdir(parents=True, exist_ok=True)
     history = _read_history_entries(path)
@@ -230,7 +244,7 @@ def generate_history_html():
     for entry in _sorted_history_entries(history):
         date = _html_escape(entry.get('date', ''))
         sort_key = _html_escape(f"{_history_sort_key(entry):.6f}")
-        query = _html_escape(entry.get('query', ''))
+        query = _html_escape(entry.get('query') or entry.get('smart_query', ''))
         smart_query = _html_escape(entry.get('smart_query', ''))
         nb_results = _html_escape(entry.get('nb_results', ''))
         link = _html_escape(entry.get('link', '#'))
@@ -332,7 +346,19 @@ def smart_parse(query: str)-> str:
 
 def is_advanced_query(query: str) -> bool:
     lowered = query.lower()
-    if any(op in lowered for op in ["site:", "inurl:", "intitle:", "\"", "("]):
+    advanced_markers = (
+        "site:",
+        "-site:",
+        "inurl:",
+        "intitle:",
+        "intext:",
+        "inbody:",
+        "filetype:",
+        "ext:",
+        "\"",
+        "(",
+    )
+    if any(op in lowered for op in advanced_markers):
         return True
     return re.search(r"\b(AND|OR|NOT)\b", query) is not None
 

@@ -81,6 +81,30 @@ is searched as:
 
 Advanced queries with explicit operators and quoted phrases are preserved by the parser.
 
+## OSINT Filters
+
+The home page includes an **OSINT filters** panel for common search operators without requiring users to remember engine syntax.
+
+| Field | Intent | Engine query behavior |
+| --- | --- | --- |
+| Site | Restrict results to one or more domains. | Uses `site:`. |
+| Exclude | Remove one or more domains. | Uses `-site:` on Google/DuckDuckGo and `NOT site:` on Bing/Brave. |
+| Title | Require text in the result title. | Uses `intitle:`. |
+| URL | Require text in the result URL. | Uses `inurl:` on Google/DuckDuckGo; falls back to a plain term on Bing/Brave. |
+| Page text | Bias the engine toward text in the page body. | Uses `intext:` on Google, `inbody:` on Bing/Brave, and a plain term on DuckDuckGo. |
+| File | Restrict by file extension. | Uses `filetype:`. |
+
+Multiple values can be separated with commas in a filter field. Values containing spaces are quoted automatically.
+
+Synthesix also applies local post-filtering when the condition can be verified from the collected result metadata:
+
+- `site` and `exclude` are checked against the result domain.
+- `title` is checked against the result title.
+- `url` and `file` are checked against the result URL.
+- `page text` is sent to the search engines but is not hard-filtered locally, because result snippets are not reliable full-page text.
+
+Filter-only searches are allowed. For example, leaving the main search box empty and setting `Site = example.com` plus `File = pdf` searches for documents on that domain.
+
 ## Search Engines
 
 | Engine | Status | Notes |
@@ -157,7 +181,7 @@ venv\Scripts\python.exe -m unittest discover
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py
 ```
 
 Check whitespace before committing:
@@ -202,7 +226,7 @@ Use this checklist before bumping Zendriver:
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py
+   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py
    venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
@@ -227,6 +251,7 @@ Use this checklist before bumping Zendriver:
 | `main.py` | Browser lifecycle, local UI loop, and report tab opening. |
 | `search_orchestrator.py` | Multi-engine orchestration, retries, timeouts, scoring, and report generation. |
 | `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
+| `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |
 | `settings.py` | Runtime configuration and environment variable parsing. |

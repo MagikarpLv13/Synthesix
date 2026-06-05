@@ -21,6 +21,8 @@ class UtilsTestCase(unittest.TestCase):
     def test_is_advanced_query_detects_boolean_operators(self):
         self.assertTrue(is_advanced_query("python AND asyncio"))
         self.assertTrue(is_advanced_query("site:example.com python"))
+        self.assertTrue(is_advanced_query("filetype:pdf python"))
+        self.assertTrue(is_advanced_query("intext:email python"))
         self.assertFalse(is_advanced_query("starvos and lynch"))
         self.assertFalse(is_advanced_query("python or cdp"))
         self.assertFalse(is_advanced_query("python asyncio tutorial"))
@@ -109,6 +111,42 @@ class UtilsTestCase(unittest.TestCase):
 
                 self.assertEqual([entry["query"] for entry in history], ["first query", "second query"])
                 self.assertEqual(history[0]["nb_results"], 5)
+            finally:
+                os.chdir(current_dir)
+
+    def test_load_search_history_preserves_filters(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history(
+                    "john doe",
+                    '"john doe" site:example.com inurl:admin',
+                    2,
+                    "result.html",
+                    {"site": "example.com", "url": "admin"},
+                )
+
+                history = load_search_history(limit=10)
+
+                self.assertEqual(history[0]["query"], "john doe")
+                self.assertEqual(history[0]["display_query"], "john doe")
+                self.assertEqual(history[0]["filters"], {"site": "example.com", "url": "admin"})
+            finally:
+                os.chdir(current_dir)
+
+    def test_load_search_history_keeps_same_query_with_different_filters(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history("john doe", '"john doe" site:example.com', 1, "one.html", {"site": "example.com"})
+                add_to_history("john doe", '"john doe" site:example.org', 1, "two.html", {"site": "example.org"})
+
+                history = load_search_history(limit=10)
+
+                self.assertEqual(len(history), 2)
+                self.assertEqual([entry["filters"]["site"] for entry in history], ["example.org", "example.com"])
             finally:
                 os.chdir(current_dir)
 
