@@ -197,11 +197,24 @@ Tests :
 
 Objectif : rendre le projet plus facile a lancer et maintenir.
 
-- Documenter les prerequis Chrome/Chromium.
-- Documenter l'installation de `zendriver`.
-- Documenter les moteurs disponibles et leurs limites.
-- Documenter les artefacts runtime ignores par git.
-- Documenter la procedure de mise a jour Zendriver :
+- Statut : termine.
+- Documentation mise a jour dans `README.md`.
+- Prerequis Chrome/Chromium documentes.
+- Installation de `zendriver` documentee avec la version pinnee.
+- Moteurs disponibles et limites documentes :
+  - Google
+  - Bing
+  - Brave
+  - DuckDuckGo
+- Artefacts runtime ignores par git documentes :
+  - `zendriver-profile/`
+  - `history/`
+  - `history/history.html`
+  - `history/search_results_*.html`
+  - `history/robot_challenges/`
+  - `history.html`
+  - `test_*.html`
+- Procedure de mise a jour Zendriver documentee :
   - bump version
   - smoke test navigateur
   - test moteurs
@@ -215,7 +228,9 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 4. Ajouter les exceptions applicatives. Fait.
 5. Ajouter les timeouts/retries configurables. Fait.
 6. Ajouter les tests unitaires des nouveaux services. Fait pour l'orchestration, les erreurs et les retries.
-7. Mettre a jour le README avec prerequis, lancement, artefacts et mise a jour Zendriver.
+7. Mettre a jour le README avec prerequis, lancement, artefacts et mise a jour Zendriver. Fait.
+
+Le plan d'optimisation initial est termine. Les prochaines evolutions peuvent maintenant etre traitees dans un plan produit/fonctionnel separe.
 
 ## 4. Regles de refactoring
 
