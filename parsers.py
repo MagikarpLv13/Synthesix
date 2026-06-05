@@ -1,4 +1,10 @@
+import logging
+
 from lxml import html
+
+
+logger = logging.getLogger(__name__)
+
 
 def parse_with_xpath(raw_results, result_xpath, title_xpath, link_xpath, desc_xpath, source):
     """
@@ -42,8 +48,8 @@ def parse_with_xpath(raw_results, result_xpath, title_xpath, link_xpath, desc_xp
                 "description": description,
                 "source": source
             })
-        except Exception as e:
-            print(f"Error parsing {source}: {e}")
+        except Exception:
+            logger.debug("Error parsing %s result block.", source, exc_info=True)
             continue  
     return res
 

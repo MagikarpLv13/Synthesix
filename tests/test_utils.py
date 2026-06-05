@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -83,6 +84,18 @@ class UtilsTestCase(unittest.TestCase):
             finally:
                 os.chdir(current_dir)
 
+    def test_generate_history_html_creates_output_directory_without_history_file(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                output_path = generate_history_html()
+                content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertIn("0 saved searches", content)
+            finally:
+                os.chdir(current_dir)
+
     def test_load_search_history_returns_recent_unique_queries(self):
         current_dir = os.getcwd()
         with TemporaryDirectory() as temp_dir:
@@ -111,6 +124,72 @@ class UtilsTestCase(unittest.TestCase):
 
                 self.assertEqual(len(history), 1)
                 self.assertEqual(history[0]["query"], "two")
+            finally:
+                os.chdir(current_dir)
+
+    def test_history_is_sorted_chronologically_with_legacy_dates(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                history_path = Path("history") / "history.json"
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                history_path.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "date": "02/01/2026 10:00",
+                                "query": "january query",
+                                "smart_query": '"january query"',
+                                "nb_results": 1,
+                                "link": "january.html",
+                            },
+                            {
+                                "date": "15/12/2025 10:00",
+                                "query": "december query",
+                                "smart_query": '"december query"',
+                                "nb_results": 1,
+                                "link": "december.html",
+                            },
+                            {
+                                "date": "01/02/2026 09:00",
+                                "query": "february query",
+                                "smart_query": '"february query"',
+                                "nb_results": 1,
+                                "link": "february.html",
+                            },
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                history = load_search_history(limit=10)
+                output_path = generate_history_html()
+                content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertEqual(
+                    [entry["query"] for entry in history],
+                    ["february query", "january query", "december query"],
+                )
+                self.assertLess(content.index("february query"), content.index("january query"))
+                self.assertIn('data-order="', content)
+            finally:
+                os.chdir(current_dir)
+
+    def test_corrupted_history_file_is_ignored(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                history_path = Path("history") / "history.json"
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                history_path.write_text("{not-json", encoding="utf-8")
+
+                self.assertEqual(load_search_history(limit=10), [])
+                add_to_history("fresh query", '"fresh query"', 2, "fresh.html")
+
+                history = load_search_history(limit=10)
+                self.assertEqual([entry["query"] for entry in history], ["fresh query"])
             finally:
                 os.chdir(current_dir)
 

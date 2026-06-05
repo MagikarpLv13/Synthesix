@@ -2,8 +2,10 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from browser_manager import _ensure_synthesix_bookmark, _mark_profile_exited_cleanly
+from browser_manager import _build_zendriver_config, _ensure_synthesix_bookmark, _mark_profile_exited_cleanly
+from settings import get_settings
 
 
 class BrowserManagerTestCase(unittest.TestCase):
@@ -82,6 +84,26 @@ class BrowserManagerTestCase(unittest.TestCase):
 
             self.assertEqual(len(children), 1)
             self.assertEqual(children[0]["url"], "file:///new/index.html")
+
+    def test_zendriver_config_uses_runtime_browser_settings(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_BROWSER_PROFILE_DIR": "profile",
+                "SYNTHESIX_BROWSER": "brave",
+                "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "bin/brave.exe",
+                "SYNTHESIX_BROWSER_CONNECTION_TIMEOUT": "0.75",
+                "SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES": "20",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            config = _build_zendriver_config(settings)
+
+        self.assertEqual(config.user_data_dir, str(settings.browser_profile_dir))
+        self.assertEqual(config.browser_executable_path, str(settings.browser_executable_path))
+        self.assertEqual(config.browser_connection_timeout, 0.75)
+        self.assertEqual(config.browser_connection_max_tries, 20)
 
 
 if __name__ == "__main__":

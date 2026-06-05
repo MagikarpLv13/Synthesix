@@ -1,6 +1,11 @@
+import logging
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
 from urllib.parse import quote_plus, urljoin
+
+
+logger = logging.getLogger(__name__)
+
 
 class BingSearchEngine(SearchEngine):
     def __init__(self):
@@ -18,8 +23,8 @@ class BingSearchEngine(SearchEngine):
         while self.num_results < self.max_results:
             try:
                 next_button = await self.tab.xpath(".//a[contains(@class, 'sb_pagN') and @href]")
-            except Exception as e:
-                print(e)
+            except Exception:
+                logger.debug("Unable to locate Bing next page button.", exc_info=True)
                 break
             if not next_button:
                 break
@@ -72,10 +77,3 @@ class BingSearchEngine(SearchEngine):
             'link': ".//a[@href]",
             'desc': ".//div[contains(@class, 'b_caption')]"
         }
-
-    def test(self):
-        with open("test_bing.html", "r", encoding="utf-8", errors="replace") as file:
-            raw_results = file.read()
-
-        res = self.parse_results(raw_results)
-        print(res)

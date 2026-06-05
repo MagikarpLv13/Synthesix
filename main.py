@@ -1,8 +1,10 @@
 import asyncio
+import argparse
 from pathlib import Path
 import logging
 import json
 import time
+import sys
 from browser_manager import HeadlessBrowserManager
 from exceptions import SynthesixError
 from search_orchestrator import SearchOrchestrator
@@ -15,6 +17,7 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
+_MISSING_HISTORY_SIGNATURE = object()
 
 
 def _normalize_tab_url(url: str | None) -> str:
@@ -45,7 +48,8 @@ def _is_home_tab(tab, index_url: str) -> bool:
     return _normalize_tab_url(getattr(tab, "url", None)) == index_url
 
 
-async def _consume_home_tab_action(tab, history_json: str):
+async def _consume_home_tab_action(tab, history_json: str, history_version: str):
+    history_version_json = json.dumps(history_version)
     try:
         return await tab.evaluate(
             f"""
@@ -57,7 +61,11 @@ async def _consume_home_tab_action(tab, history_json: str):
                     return {{ ready: false, action: null }};
                 }}
                 window.name = "synthesix-home";
-                window.synthesixHome.setHistory({history_json});
+                const nextHistoryVersion = {history_version_json};
+                if (window.synthesixHome.historyVersion !== nextHistoryVersion) {{
+                    window.synthesixHome.setHistory({history_json});
+                    window.synthesixHome.historyVersion = nextHistoryVersion;
+                }}
                 return {{
                     ready: true,
                     action: window.synthesixHome.consumeAction()
@@ -68,6 +76,61 @@ async def _consume_home_tab_action(tab, history_json: str):
     except Exception:
         logger.debug("Unable to read home tab action", exc_info=True)
         return None
+
+
+def _history_signature(settings: AppSettings):
+    try:
+        stat = settings.history_json_path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _cached_history_payload(settings: AppSettings, cache: dict) -> tuple[str, str]:
+    signature = _history_signature(settings)
+    if cache.get("signature", _MISSING_HISTORY_SIGNATURE) != signature:
+        cache["signature"] = signature
+        cache["json"] = json.dumps(load_search_history(limit=settings.default_history_limit))
+        cache["version"] = "" if signature is None else f"{signature[0]}:{signature[1]}"
+    return cache["json"], cache["version"]
+
+
+def parse_cli_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Start Synthesix browser-driven multi-engine search.",
+    )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only show warnings and errors.",
+    )
+    verbosity.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show debug logs.",
+    )
+    return parser.parse_args(argv)
+
+
+def _log_level_from_args(args) -> int:
+    if args.verbose:
+        return logging.DEBUG
+    if args.quiet:
+        return logging.WARNING
+    return logging.INFO
+
+
+def configure_logging(args) -> None:
+    logging.basicConfig(
+        level=_log_level_from_args(args),
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
+
+
+def configure_event_loop_policy() -> None:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 async def _consume_page_tab_action(tab):
@@ -115,6 +178,7 @@ async def _focus_or_open_home_tab(
 async def wait_for_home_action(browser: uc.Browser, index_url: str, settings: AppSettings | None = None):
     settings = settings or get_settings()
     empty_since = None
+    history_cache = {}
 
     while True:
         if getattr(browser, "stopped", False):
@@ -137,9 +201,9 @@ async def wait_for_home_action(browser: uc.Browser, index_url: str, settings: Ap
 
         home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
         if home_tabs:
-            history_json = json.dumps(load_search_history(limit=settings.default_history_limit))
+            history_json, history_version = _cached_history_payload(settings, history_cache)
             for tab in home_tabs:
-                state = await _consume_home_tab_action(tab, history_json)
+                state = await _consume_home_tab_action(tab, history_json, history_version)
                 if state and state.get("action"):
                     return state["action"]
 
@@ -211,5 +275,7 @@ async def perform_search(original_query: str, parsed_query: str, browser: uc.Bro
         await result_tab.bring_to_front()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    cli_args = parse_cli_args()
+    configure_logging(cli_args)
+    configure_event_loop_policy()
     asyncio.run(main())

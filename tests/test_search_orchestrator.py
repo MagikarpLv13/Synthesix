@@ -62,6 +62,29 @@ class SlowEngine:
         return pd.DataFrame()
 
 
+class ConcurrencyTrackingEngine:
+    def __init__(self, tracker):
+        self.tracker = tracker
+
+    async def search(self, query, browser, max_results):
+        self.tracker["active"] += 1
+        self.tracker["max_active"] = max(self.tracker["max_active"], self.tracker["active"])
+        try:
+            await asyncio.sleep(0.01)
+            return pd.DataFrame(
+                [
+                    {
+                        "title": "Python async guide",
+                        "link": "https://example.com/python-async",
+                        "description": "A guide about Python async.",
+                        "source": "Test",
+                    }
+                ]
+            )
+        finally:
+            self.tracker["active"] -= 1
+
+
 class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_search_passes_exact_query_to_enabled_engines(self):
         frame = pd.DataFrame(
@@ -273,6 +296,37 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(engine.calls), 2)
         self.assertIsInstance(raised.exception.original_error, TimeoutError)
+
+    async def test_engine_concurrency_limit_is_respected(self):
+        tracker = {"active": 0, "max_active": 0}
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_ENGINE_CONCURRENCY": "1",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "google": lambda: ConcurrencyTrackingEngine(tracker),
+                    "bing": lambda: ConcurrencyTrackingEngine(tracker),
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            result = await orchestrator.search(
+                "python async",
+                '"python async"',
+                object(),
+                {"google": True, "bing": True},
+                5,
+            )
+
+        self.assertEqual(tracker["max_active"], 1)
+        self.assertEqual(result.nb_results, 1)
 
 
 class AggregateSearchResultsTestCase(unittest.TestCase):

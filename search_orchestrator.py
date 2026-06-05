@@ -6,12 +6,8 @@ from typing import Callable, Mapping
 
 import pandas as pd
 
-from bing import BingSearchEngine
-from brave import BraveSearchEngine
-from duckduckgo import DuckDuckGoSearchEngine
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
-from google import GoogleSearchEngine
-from scoring import calculate_relevance
+from scoring import build_relevance_scorer, calculate_relevance
 from settings import AppSettings, get_settings
 from utils import add_to_history, generate_history_html, generate_html_report
 
@@ -29,11 +25,35 @@ class SearchRunResult:
     engine_errors: dict[str, Exception] = field(default_factory=dict)
 
 
+def _create_google_engine():
+    from google import GoogleSearchEngine
+
+    return GoogleSearchEngine()
+
+
+def _create_bing_engine():
+    from bing import BingSearchEngine
+
+    return BingSearchEngine()
+
+
+def _create_brave_engine():
+    from brave import BraveSearchEngine
+
+    return BraveSearchEngine()
+
+
+def _create_duckduckgo_engine():
+    from duckduckgo import DuckDuckGoSearchEngine
+
+    return DuckDuckGoSearchEngine()
+
+
 DEFAULT_ENGINE_FACTORIES: dict[str, Callable[[], object]] = {
-    "google": GoogleSearchEngine,
-    "bing": BingSearchEngine,
-    "brave": BraveSearchEngine,
-    "duckduckgo": DuckDuckGoSearchEngine,
+    "google": _create_google_engine,
+    "bing": _create_bing_engine,
+    "brave": _create_brave_engine,
+    "duckduckgo": _create_duckduckgo_engine,
 }
 
 
@@ -61,7 +81,11 @@ def aggregate_search_results(
         return pd.DataFrame(columns=[*REQUIRED_RESULT_COLUMNS, "relevance_score"])
 
     combined_df = pd.concat(frames, ignore_index=True)
-    combined_df["relevance_score"] = combined_df.apply(lambda row: scorer(row, parsed_query), axis=1)
+    combined_df = combined_df.drop_duplicates(subset=list(REQUIRED_RESULT_COLUMNS))
+    row_scorer = build_relevance_scorer(parsed_query) if scorer is calculate_relevance else (
+        lambda row: scorer(row, parsed_query)
+    )
+    combined_df["relevance_score"] = combined_df.apply(row_scorer, axis=1)
     combined_df = combined_df.sort_values("relevance_score", ascending=False)
 
     best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
@@ -151,6 +175,8 @@ class SearchOrchestrator:
         num_results: int,
     ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int]:
         tasks = []
+        concurrency = max(1, self.settings.engine_concurrency)
+        semaphore = asyncio.Semaphore(concurrency)
         for engine_name, enabled in selected_engines.items():
             if not enabled:
                 continue
@@ -163,7 +189,8 @@ class SearchOrchestrator:
             engine = factory()
             tasks.append((
                 engine_name,
-                asyncio.create_task(self._search_engine_with_retries(
+                asyncio.create_task(self._search_engine_limited(
+                    semaphore,
                     engine_name,
                     engine,
                     parsed_query,
@@ -195,6 +222,24 @@ class SearchOrchestrator:
                 engine_results[engine_name] = result
 
         return engine_results, engine_errors, len(tasks)
+
+    async def _search_engine_limited(
+        self,
+        semaphore: asyncio.Semaphore,
+        engine_name: str,
+        engine,
+        parsed_query: str,
+        browser,
+        num_results: int,
+    ) -> pd.DataFrame:
+        async with semaphore:
+            return await self._search_engine_with_retries(
+                engine_name,
+                engine,
+                parsed_query,
+                browser,
+                num_results,
+            )
 
     def _normalize_engine_error(self, engine_name: str, error: Exception) -> Exception:
         if isinstance(error, SynthesixError):

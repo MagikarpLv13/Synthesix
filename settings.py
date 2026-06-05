@@ -27,6 +27,20 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_str(name: str, default: str) -> str:
+    return os.getenv(name, default).strip() or default
+
+
+def _env_optional_path(name: str, base_dir: Path) -> Path | None:
+    value = os.getenv(name)
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        path = base_dir / path
+    return path
+
+
 def _env_path(name: str, default: str, base_dir: Path) -> Path:
     value = os.getenv(name, default)
     path = Path(value)
@@ -52,6 +66,10 @@ class AppSettings:
     history_report_path: Path
     robot_challenges_dir: Path
     browser_profile_dir: Path
+    browser_type: str
+    browser_executable_path: Path | None
+    browser_connection_timeout: float
+    browser_connection_max_tries: int
     default_engines: Dict[str, bool]
     default_history_limit: int
     default_max_results: int
@@ -63,6 +81,7 @@ class AppSettings:
     brave_results_interval: float
     brave_robot_find_timeout: float
     engine_search_timeout: float
+    engine_concurrency: int
     engine_retry_attempts: int
     engine_retry_delay: float
     engine_retry_backoff: float
@@ -88,6 +107,10 @@ def get_settings() -> AppSettings:
         history_report_path=history_report_path,
         robot_challenges_dir=history_dir / "robot_challenges",
         browser_profile_dir=browser_profile_dir,
+        browser_type=_env_str("SYNTHESIX_BROWSER", "auto"),
+        browser_executable_path=_env_optional_path("SYNTHESIX_BROWSER_EXECUTABLE_PATH", base_dir),
+        browser_connection_timeout=_env_float("SYNTHESIX_BROWSER_CONNECTION_TIMEOUT", 0.25),
+        browser_connection_max_tries=_env_int("SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES", 10),
         default_engines=_env_engines(),
         default_history_limit=_env_int("SYNTHESIX_HISTORY_LIMIT", 25),
         default_max_results=_env_int("SYNTHESIX_DEFAULT_MAX_RESULTS", 20),
@@ -99,6 +122,7 @@ def get_settings() -> AppSettings:
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
         engine_search_timeout=_env_float("SYNTHESIX_ENGINE_SEARCH_TIMEOUT", 90.0),
+        engine_concurrency=_env_int("SYNTHESIX_ENGINE_CONCURRENCY", len(ENGINE_NAMES)),
         engine_retry_attempts=_env_int("SYNTHESIX_ENGINE_RETRY_ATTEMPTS", 1),
         engine_retry_delay=_env_float("SYNTHESIX_ENGINE_RETRY_DELAY", 0.5),
         engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),

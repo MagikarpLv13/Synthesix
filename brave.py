@@ -154,7 +154,7 @@ class BraveSearchEngine(SearchEngine):
                         self.num_results += 1
                         self.nb_results_per_page += 1
         else:
-            print("'results' block not found.")
+            logger.debug("Brave results block not found in page source.")
 
         return results
 
@@ -372,7 +372,7 @@ class BraveSearchEngine(SearchEngine):
                 url=self.current_url,
                 captured_artifacts=captured,
             )
-        
+
         if challenge_detected:
             raise RobotChallengeError(
                 self.name,
@@ -384,14 +384,3 @@ class BraveSearchEngine(SearchEngine):
 
         # If the button is not found, we can assume that we are not a robot
         return False
-
-    def test(self):
-        with open("test_brave.html", "r", encoding="utf-8", errors="replace") as file:
-            raw_results = file.read()
-        begin_time = time.time()
-        res = self.parse_results(raw_results)
-        print(res)
-        print(len(res))
-        end_time = time.time()
-        print(f"Temps d'exécution pour le parsing avec lxml: {end_time - begin_time:.2f} secondes")
-        begin_time = time.time()

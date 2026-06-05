@@ -1,5 +1,25 @@
 import re
-from typing import List
+from typing import Callable, List
+
+
+ACCENT_TRANSLATION = str.maketrans({
+    "é": "e",
+    "è": "e",
+    "ê": "e",
+    "ë": "e",
+    "à": "a",
+    "â": "a",
+    "ä": "a",
+    "ï": "i",
+    "î": "i",
+    "ô": "o",
+    "ö": "o",
+    "ù": "u",
+    "û": "u",
+    "ü": "u",
+    "ÿ": "y",
+    "ç": "c",
+})
 
 
 def extract_scoring_terms(search_term: str) -> List[str]:
@@ -17,7 +37,52 @@ def extract_scoring_terms(search_term: str) -> List[str]:
     return terms
 
 
-def calculate_relevance(row: dict, search_term: str) -> int:
+def _strip_basic_accents(value: str) -> str:
+    return value.translate(ACCENT_TRANSLATION)
+
+
+def build_relevance_scorer(search_term: str) -> Callable[[dict], float]:
+    prepared_terms = []
+    for term in extract_scoring_terms(search_term):
+        clean_term = term.replace('"', '')
+        lower_term = clean_term.lower()
+        lower_term_no_accent = _strip_basic_accents(lower_term)
+        prepared_terms.append((
+            lower_term,
+            lower_term_no_accent,
+            " " in lower_term_no_accent or "-" in lower_term_no_accent,
+        ))
+
+    def score_row(row: dict) -> float:
+        title = str(row["title"]).lower()
+        description = str(row["description"]).lower()
+        link = str(row["link"]).lower()
+        score = 0.0
+
+        for lower_term, lower_term_no_accent, can_have_url_variants in prepared_terms:
+            if lower_term in title:
+                score += 4.5
+            if lower_term in description:
+                score += 4.5
+
+            if can_have_url_variants:
+                hyphenated_term = lower_term_no_accent.replace(" ", "-")
+                if hyphenated_term in link:
+                    score += 1
+
+                spaced_term = lower_term_no_accent.replace(" ", "")
+                if spaced_term in link:
+                    score += 1
+
+            if lower_term_no_accent in link:
+                score += 1
+
+        return score
+
+    return score_row
+
+
+def calculate_relevance(row: dict, search_term: str) -> float:
     """Calcul relevance score
 
     Args:
@@ -27,35 +92,4 @@ def calculate_relevance(row: dict, search_term: str) -> int:
     Returns:
         int: relevance score
     """
-    terms = extract_scoring_terms(search_term)
-    score = 0
-                
-    #print(terms)
-    for term in terms:
-        clean_term = term.replace('"', '')
-        if clean_term.lower() in str(row['title']).lower():
-            score += 4.5
-        if clean_term.lower() in str(row['description']).lower():
-            score += 4.5
-
-        # Remove accents from clean_term and text fields
-        clean_term_no_accent = re.sub(r'[éèêë]', 'e', clean_term.lower())
-        clean_term_no_accent = re.sub(r'[àâä]', 'a', clean_term_no_accent)
-        clean_term_no_accent = re.sub(r'[ïî]', 'i', clean_term_no_accent)
-        clean_term_no_accent = re.sub(r'[ôö]', 'o', clean_term_no_accent)
-        clean_term_no_accent = re.sub(r'[ùûü]', 'u', clean_term_no_accent)
-        clean_term_no_accent = re.sub(r'[ÿ]', 'y', clean_term_no_accent)
-        clean_term_no_accent = re.sub(r'[ç]', 'c', clean_term_no_accent)
-        
-        if ' ' in clean_term_no_accent or '-' in clean_term_no_accent:
-            hyphenated_term = clean_term_no_accent.replace(' ', '-')
-            if hyphenated_term.lower() in str(row['link']).lower():
-                score += 1
-
-            spaced_term = clean_term_no_accent.replace(' ', '')
-            if spaced_term.lower() in str(row['link']).lower():
-                score += 1
-
-        if clean_term_no_accent.lower() in str(row['link']).lower():
-            score += 1
-    return score
+    return build_relevance_scorer(search_term)(row)

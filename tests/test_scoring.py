@@ -1,6 +1,6 @@
 import unittest
 
-from scoring import calculate_relevance, extract_scoring_terms
+from scoring import build_relevance_scorer, calculate_relevance, extract_scoring_terms
 
 
 class ScoringTestCase(unittest.TestCase):
@@ -33,6 +33,17 @@ class ScoringTestCase(unittest.TestCase):
 
     def test_unquoted_lowercase_and_is_not_split(self):
         self.assertEqual(extract_scoring_terms("starvos and lych"), ["starvos and lych"])
+
+    def test_prebuilt_scorer_matches_calculate_relevance(self):
+        row = {
+            "title": "Starvos and Lych archive",
+            "description": "Reference page",
+            "link": "https://example.com/starvos-and-lych",
+        }
+
+        scorer = build_relevance_scorer('"starvos and lych"')
+
+        self.assertEqual(scorer(row), calculate_relevance(row, '"starvos and lych"'))
 
 
 if __name__ == "__main__":

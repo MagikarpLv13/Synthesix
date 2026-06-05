@@ -128,6 +128,22 @@ def _ensure_synthesix_bookmark(profile_dir: str, home_url: str) -> None:
     except OSError:
         logger.debug("Unable to write Chrome bookmarks file: %s", bookmarks_path, exc_info=True)
 
+
+def _build_zendriver_config(settings: AppSettings) -> Config:
+    config = Config(
+        browser=settings.browser_type,
+        browser_executable_path=(
+            str(settings.browser_executable_path)
+            if settings.browser_executable_path is not None
+            else None
+        ),
+        browser_connection_timeout=settings.browser_connection_timeout,
+        browser_connection_max_tries=settings.browser_connection_max_tries,
+    )
+    config.user_data_dir = str(settings.browser_profile_dir)
+    return config
+
+
 class HeadlessBrowserManager:
     def __init__(self):
         self.browser : uc.Browser = None
@@ -144,8 +160,7 @@ class HeadlessBrowserManager:
         if home_url:
             _ensure_synthesix_bookmark(str(custom_profile), home_url)
 
-        config = Config()
-        config.user_data_dir = str(custom_profile)
+        config = _build_zendriver_config(settings)
 
         """⚠️ Headless mode is not working with Brave, instant flag as a robot 🤖.
         """

@@ -1,11 +1,4 @@
-requests
 pandas
-selenium
-beautifulsoup4
-fake-useragent
 setuptools
 zendriver==0.15.3
 lxml
-reliq
-pyquery
-bs4

@@ -1,12 +1,17 @@
 import re
 import json
 import os
+import logging
 from html import escape, unescape
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from settings import get_settings
+
+
+logger = logging.getLogger(__name__)
+HISTORY_DATE_FORMATS = ("%d/%m/%Y %H:%M",)
 
 
 def _html_escape(value) -> str:
@@ -56,10 +61,7 @@ def _home_navigation_script() -> str:
 """
 
 
-def load_search_history(limit: int | None = None) -> List[dict]:
-    settings = get_settings()
-    limit = settings.default_history_limit if limit is None else limit
-    path = settings.history_json_path
+def _read_history_entries(path: Path) -> list[dict]:
     if not path.exists():
         return []
 
@@ -67,11 +69,55 @@ def load_search_history(limit: int | None = None) -> List[dict]:
         with path.open("r", encoding="utf-8") as f:
             history = json.load(f)
     except (OSError, json.JSONDecodeError):
+        logger.debug("Unable to read search history file: %s", path, exc_info=True)
         return []
+
+    if not isinstance(history, list):
+        return []
+    return [entry for entry in history if isinstance(entry, dict)]
+
+
+def _parse_history_datetime(entry: dict) -> datetime | None:
+    timestamp = str(entry.get("timestamp", "")).strip()
+    if timestamp:
+        try:
+            return datetime.fromisoformat(timestamp)
+        except ValueError:
+            logger.debug("Invalid history timestamp ignored: %s", timestamp)
+
+    date = str(entry.get("date", "")).strip()
+    for date_format in HISTORY_DATE_FORMATS:
+        try:
+            return datetime.strptime(date, date_format)
+        except ValueError:
+            continue
+    return None
+
+
+def _history_sort_key(entry: dict) -> float:
+    parsed = _parse_history_datetime(entry)
+    if parsed is None:
+        return 0.0
+    return parsed.timestamp()
+
+
+def _sorted_history_entries(history: list[dict]) -> list[dict]:
+    indexed_history = list(enumerate(history))
+    indexed_history.sort(
+        key=lambda item: (_history_sort_key(item[1]), item[0]),
+        reverse=True,
+    )
+    return [entry for _, entry in indexed_history]
+
+
+def load_search_history(limit: int | None = None) -> List[dict]:
+    settings = get_settings()
+    limit = settings.default_history_limit if limit is None else limit
+    history = _read_history_entries(settings.history_json_path)
 
     searches = []
     seen_queries = set()
-    for entry in reversed(history):
+    for entry in _sorted_history_entries(history):
         query = str(entry.get("query", "")).strip()
         if not query or query in seen_queries:
             continue
@@ -100,25 +146,19 @@ def add_to_history(query: str, smart_query: str, nb_results: int, link: str):
     
     settings = get_settings()
     path = settings.history_json_path
-    date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    now = datetime.now()
+    date_str = now.strftime("%d/%m/%Y %H:%M")
     data = {
         "date": date_str,
+        "timestamp": now.isoformat(timespec="microseconds"),
         "query": query,
         "smart_query": smart_query,
         "nb_results": nb_results,
         "link": link
     }
 
-    # Load the history
-    if not path.exists():
-        # Create the history directory if it doesn't exist
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Create an empty history file
-        history = []
-    else:
-        # Load the existing history
-        with path.open("r", encoding="utf-8") as f:
-            history = json.load(f)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    history = _read_history_entries(path)
     
     history.append(data)
     with path.open("w", encoding="utf-8") as f:
@@ -135,12 +175,7 @@ def generate_history_html():
     path = settings.history_json_path
     output_path = settings.history_report_path
     
-    # Charger l'historique
-    if not path.exists():
-        history = []
-    else:
-        with path.open("r", encoding="utf-8") as f:
-            history = json.load(f)
+    history = _read_history_entries(path)
 
     # Début du HTML
     search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
@@ -191,22 +226,24 @@ def generate_history_html():
                     </thead>
                     <tbody>
 '''
-    # Ajouter les lignes du tableau
-    for entry in reversed(history):
+    rows = []
+    for entry in _sorted_history_entries(history):
         date = _html_escape(entry.get('date', ''))
+        sort_key = _html_escape(f"{_history_sort_key(entry):.6f}")
         query = _html_escape(entry.get('query', ''))
         smart_query = _html_escape(entry.get('smart_query', ''))
         nb_results = _html_escape(entry.get('nb_results', ''))
         link = _html_escape(entry.get('link', '#'))
-        html += f"""
+        rows.append(f"""
             <tr>
-                <td>{date}</td>
+                <td data-order="{sort_key}">{date}</td>
                 <td>{query}</td>
                 <td>{smart_query}</td>
                 <td>{nb_results}</td>
                 <td><a href="{link}" target="_blank" rel="noopener noreferrer">View results</a></td>
             </tr>
-        """
+        """)
+    html += "".join(rows)
     html += '''
                     </tbody>
                 </table>
@@ -226,7 +263,7 @@ def generate_history_html():
 </body>
 </html>
 '''
-    # Écrire le fichier HTML
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
         f.write(html)
     return str(output_path)
@@ -261,8 +298,8 @@ def js_like_to_json(js_text):
     try:
         data = json.loads(js_text)
         return data
-    except Exception as e:
-        print("Error parsing JSON:", e)
+    except json.JSONDecodeError:
+        logger.debug("Unable to parse JavaScript-like JSON payload.", exc_info=True)
         return None
 
 
@@ -399,7 +436,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         return str(output_path.resolve())
         
         
-    rows_html = ""
+    rows = []
     for _, row in df.iterrows():
         title = _html_escape(row["title"])
         desc = _html_escape(row["description"])
@@ -407,7 +444,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         source = _html_escape(row["source"])
         score = f"{row['relevance_score']:.2f}"
         link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
-        rows_html += f"""
+        rows.append(f"""
         <tr>
             <td>{title}</td>
             <td class="description">{desc}</td>
@@ -415,7 +452,8 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             <td>{source}</td>
             <td>{score}</td>
         </tr>
-        """
+        """)
+    rows_html = "".join(rows)
 
     html_footer = """
                     </tbody>

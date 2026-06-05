@@ -6,7 +6,7 @@ The application is async-first and browser-driven: Zendriver controls Chrome/Chr
 
 ## Prerequisites
 
-- Python 3.8+.
+- Python 3.10+.
 - Google Chrome or Chromium installed locally.
 - Network access to the enabled search engines.
 - A writable project directory for runtime files.
@@ -47,6 +47,13 @@ Start the application:
 
 ```powershell
 python main.py
+```
+
+Optional logging flags:
+
+```powershell
+python main.py --quiet
+python main.py --verbose
 ```
 
 Synthesix opens a Chrome/Chromium window on the local home page. Enter a query and click **Search**. Results are written to `history/` and opened in browser tabs.
@@ -111,6 +118,10 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
 | `SYNTHESIX_BROWSER_PROFILE_DIR` | Chrome/Chromium profile directory. |
+| `SYNTHESIX_BROWSER` | Zendriver browser type: `auto`, `chrome`, or `brave`. |
+| `SYNTHESIX_BROWSER_EXECUTABLE_PATH` | Explicit Chrome/Brave executable path when autodetection is not enough. |
+| `SYNTHESIX_BROWSER_CONNECTION_TIMEOUT` | Delay between Zendriver browser connection checks. |
+| `SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES` | Maximum Zendriver browser connection attempts. |
 | `SYNTHESIX_DEFAULT_ENGINES` | Comma-separated default engines, such as `google,duckduckgo`. |
 | `SYNTHESIX_DEFAULT_MAX_RESULTS` | Default maximum results kept in reports. |
 | `SYNTHESIX_HISTORY_LIMIT` | Maximum saved history entries. |
@@ -122,6 +133,7 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BRAVE_RESULTS_INTERVAL` | Brave-specific result polling interval. |
 | `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT` | Brave anti-robot detection timeout. |
 | `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` | Global timeout for one engine search. |
+| `SYNTHESIX_ENGINE_CONCURRENCY` | Maximum number of engines searched at the same time. |
 | `SYNTHESIX_ENGINE_RETRY_ATTEMPTS` | Retry attempts for transient engine failures. |
 | `SYNTHESIX_ENGINE_RETRY_DELAY` | Initial retry delay. |
 | `SYNTHESIX_ENGINE_RETRY_BACKOFF` | Retry delay multiplier. |
@@ -152,6 +164,20 @@ Check whitespace before committing:
 
 ```powershell
 git diff --check
+```
+
+Profile Python startup/import overhead:
+
+```powershell
+Measure-Command { venv\Scripts\python.exe -c "import main" }
+venv\Scripts\python.exe -X importtime -c "import main"
+```
+
+Profile the non-browser test suite:
+
+```powershell
+Measure-Command { venv\Scripts\python.exe -m unittest discover }
+venv\Scripts\python.exe -m cProfile -s cumtime -m unittest discover
 ```
 
 Optional live smoke test:
