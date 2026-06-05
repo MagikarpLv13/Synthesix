@@ -138,7 +138,7 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../../theme.css", content)
                 self.assertIn("../../theme.js", content)
                 self.assertIn('href="../../index.html"', content)
-                self.assertIn('href="../../history.html"', content)
+                self.assertIn('href="history.html"', content)
             finally:
                 os.chdir(current_dir)
 

@@ -1,6 +1,6 @@
 # Plan d'optimisation
 
-Etat au 2026-06-03.
+Etat au 2026-06-05.
 
 ## 1. Etat actuel
 
@@ -22,6 +22,9 @@ Etat au 2026-06-03.
 - L'agregation multi-moteur est couverte par des tests unitaires avec moteurs factices async.
 - Les erreurs applicatives sont normalisees dans `exceptions.py`.
 - Les echecs moteur, session navigateur et challenge anti-robot Brave remontent avec des types explicites.
+- Les recherches moteur sont encadrees par un timeout global configurable.
+- Les erreurs transitoires moteur sont retryees de maniere limitee et configurable.
+- Les rapports et l'historique HTML runtime sont generes dans `history/` par defaut.
 
 ### A conserver comme contraintes
 
@@ -49,6 +52,7 @@ Objectif : eviter que les chemins, timeouts et options moteur soient disperses.
 - Overrides disponibles via variables d'environnement :
   - `SYNTHESIX_BASE_DIR`
   - `SYNTHESIX_HISTORY_DIR`
+  - `SYNTHESIX_HISTORY_REPORT_PATH`
   - `SYNTHESIX_BROWSER_PROFILE_DIR`
   - `SYNTHESIX_DEFAULT_ENGINES`
   - `SYNTHESIX_HISTORY_LIMIT`
@@ -60,6 +64,10 @@ Objectif : eviter que les chemins, timeouts et options moteur soient disperses.
   - `SYNTHESIX_BRAVE_RESULTS_TIMEOUT`
   - `SYNTHESIX_BRAVE_RESULTS_INTERVAL`
   - `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT`
+  - `SYNTHESIX_ENGINE_SEARCH_TIMEOUT`
+  - `SYNTHESIX_ENGINE_RETRY_ATTEMPTS`
+  - `SYNTHESIX_ENGINE_RETRY_DELAY`
+  - `SYNTHESIX_ENGINE_RETRY_BACKOFF`
 
 Tests :
 
@@ -140,30 +148,50 @@ Tests :
 
 Objectif : limiter les blocages navigateur/reseau.
 
-- Encadrer les actions navigateur critiques avec des timeouts explicites.
-- Ajouter des retries limites uniquement sur erreurs temporaires.
-- Eviter les retries sur anti-robot, parsing invalide ou erreur logique.
-- Rendre les timeouts configurables.
+- Statut : termine pour la premiere passe.
+- Ajoute dans `SearchOrchestrator` :
+  - timeout global par moteur avec `asyncio.wait_for`
+  - retry limite sur erreurs transitoires
+  - backoff configurable entre retries
+- Erreurs retryees :
+  - `BrowserSessionError`
+  - `TimeoutError`
+  - `ConnectionError`
+  - `OSError`
+  - `SearchEngineError` issue d'un timeout ou d'un chargement incomplet
+- Erreurs non retryees :
+  - `RobotChallengeError`
+  - erreurs de parsing
+  - erreurs logiques non classees temporaires
+- Configuration ajoutee :
+  - `SYNTHESIX_ENGINE_SEARCH_TIMEOUT`
+  - `SYNTHESIX_ENGINE_RETRY_ATTEMPTS`
+  - `SYNTHESIX_ENGINE_RETRY_DELAY`
+  - `SYNTHESIX_ENGINE_RETRY_BACKOFF`
 
 Tests :
 
-- Tests unitaires sur la politique de retry.
-- Smoke test optionnel avec Chrome/Chromium local.
+- Tests unitaires sur la politique de retry : fait.
+- Tests unitaires sur le non-retry anti-robot : fait.
+- Tests unitaires sur le timeout moteur global : fait.
+- Smoke test optionnel avec Chrome/Chromium local : a lancer avant release si les moteurs sont modifies.
 
 ### P2 - Structurer les rapports et l'historique
 
 Objectif : eviter que les artefacts runtime polluent la racine du projet.
 
-- Garder `index.html`, `theme.css` et `theme.js` a la racine.
-- Generer `history.html` a la racine uniquement au runtime.
-- Generer les resultats dans `history/`.
-- Garder les captures anti-robot dans `history/robot_challenges/`.
-- Ne pas committer les rapports HTML generes.
+- Statut : termine.
+- Garder `index.html`, `theme.css` et `theme.js` a la racine : fait.
+- Generer l'historique HTML dans `history/history.html` par defaut : fait.
+- Generer les resultats dans `history/` : fait.
+- Garder les captures anti-robot dans `history/robot_challenges/` : fait.
+- Ne pas committer les rapports HTML generes : fait via `.gitignore`.
+- Override disponible : `SYNTHESIX_HISTORY_REPORT_PATH`.
 
 Tests :
 
-- Tests unitaires sur les chemins generes.
-- Tests unitaires sur l'echappement HTML des rapports.
+- Tests unitaires sur les chemins generes : fait.
+- Tests unitaires sur l'echappement HTML des rapports : fait.
 
 ### P3 - Documentation minimale
 
@@ -185,8 +213,8 @@ Objectif : rendre le projet plus facile a lancer et maintenir.
 2. Adapter `utils.py`, `main.py` et les moteurs pour utiliser cette configuration. Fait.
 3. Extraire l'orchestration multi-moteur hors de `main.py`. Fait.
 4. Ajouter les exceptions applicatives. Fait.
-5. Ajouter les timeouts/retries configurables.
-6. Ajouter les tests unitaires des nouveaux services. Partiellement fait pour l'orchestration et les erreurs.
+5. Ajouter les timeouts/retries configurables. Fait.
+6. Ajouter les tests unitaires des nouveaux services. Fait pour l'orchestration, les erreurs et les retries.
 7. Mettre a jour le README avec prerequis, lancement, artefacts et mise a jour Zendriver.
 
 ## 4. Regles de refactoring

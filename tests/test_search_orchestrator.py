@@ -1,9 +1,12 @@
+import asyncio
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
-from exceptions import SearchEngineError
+from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
 from search_orchestrator import SearchOrchestrator, aggregate_search_results
+from settings import get_settings
 
 
 class FakeEngine:
@@ -33,6 +36,30 @@ class ReportCapture:
             }
         )
         return "/tmp/synthesix-report.html"
+
+
+class SequenceEngine:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    async def search(self, query, browser, max_results):
+        self.calls.append((query, browser, max_results))
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome.copy()
+
+
+class SlowEngine:
+    def __init__(self, delay):
+        self.delay = delay
+        self.calls = []
+
+    async def search(self, query, browser, max_results):
+        self.calls.append((query, browser, max_results))
+        await asyncio.sleep(self.delay)
+        return pd.DataFrame()
 
 
 class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
@@ -139,6 +166,113 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.engine_name, "all")
         self.assertEqual(set(raised.exception.engine_errors), {"google", "bing"})
         self.assertEqual(report_capture.calls, [])
+
+    async def test_retryable_browser_session_error_is_retried(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Google",
+                }
+            ]
+        )
+        engine = SequenceEngine([
+            BrowserSessionError("temporary browser disconnect"),
+            frame,
+        ])
+        report_capture = ReportCapture()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "1",
+                "SYNTHESIX_ENGINE_RETRY_DELAY": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"google": lambda: engine},
+                report_generator=report_capture,
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="WARNING") as logs:
+                result = await orchestrator.search(
+                    "python async",
+                    '"python async"',
+                    object(),
+                    {"google": True},
+                    5,
+                )
+
+        self.assertEqual(len(engine.calls), 2)
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(result.engine_errors, {})
+        self.assertTrue(any("retrying" in entry for entry in logs.output))
+
+    async def test_robot_challenge_error_is_not_retried(self):
+        engine = SequenceEngine([
+            RobotChallengeError("Brave", "robot challenge"),
+        ])
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "3",
+                "SYNTHESIX_ENGINE_RETRY_DELAY": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"brave": lambda: engine},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="ERROR"):
+                with self.assertRaises(RobotChallengeError):
+                    await orchestrator.search(
+                        "python async",
+                        '"python async"',
+                        object(),
+                        {"brave": True},
+                        5,
+                    )
+
+        self.assertEqual(len(engine.calls), 1)
+
+    async def test_engine_timeout_is_limited_and_retried(self):
+        engine = SlowEngine(delay=0.05)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_ENGINE_SEARCH_TIMEOUT": "0.01",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "1",
+                "SYNTHESIX_ENGINE_RETRY_DELAY": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"google": lambda: engine},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="ERROR"):
+                with self.assertRaises(SearchEngineError) as raised:
+                    await orchestrator.search(
+                        "python async",
+                        '"python async"',
+                        object(),
+                        {"google": True},
+                        5,
+                    )
+
+        self.assertEqual(len(engine.calls), 2)
+        self.assertIsInstance(raised.exception.original_error, TimeoutError)
 
 
 class AggregateSearchResultsTestCase(unittest.TestCase):

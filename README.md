@@ -86,7 +86,7 @@ python main.py
 
 ## Runtime Data
 
-Synthesix writes browser profile data to `zendriver-profile/` and generated reports/history to `history/` plus `history.html`. These paths are ignored by Git and should not contain application secrets.
+Synthesix writes browser profile data to `zendriver-profile/` and generated reports/history to `history/`. These paths are ignored by Git and should not contain application secrets.
 
 ## Configuration
 
@@ -94,6 +94,7 @@ Runtime settings can be overridden with environment variables:
 
 - `SYNTHESIX_BASE_DIR`
 - `SYNTHESIX_HISTORY_DIR`
+- `SYNTHESIX_HISTORY_REPORT_PATH`
 - `SYNTHESIX_BROWSER_PROFILE_DIR`
 - `SYNTHESIX_DEFAULT_ENGINES` such as `google,duckduckgo`
 - `SYNTHESIX_DEFAULT_MAX_RESULTS`
@@ -105,6 +106,10 @@ Runtime settings can be overridden with environment variables:
 - `SYNTHESIX_BRAVE_RESULTS_TIMEOUT`
 - `SYNTHESIX_BRAVE_RESULTS_INTERVAL`
 - `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT`
+- `SYNTHESIX_ENGINE_SEARCH_TIMEOUT`
+- `SYNTHESIX_ENGINE_RETRY_ATTEMPTS`
+- `SYNTHESIX_ENGINE_RETRY_DELAY`
+- `SYNTHESIX_ENGINE_RETRY_BACKOFF`
 
 ---
 

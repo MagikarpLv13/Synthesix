@@ -62,6 +62,10 @@ class AppSettings:
     brave_results_timeout: float
     brave_results_interval: float
     brave_robot_find_timeout: float
+    engine_search_timeout: float
+    engine_retry_attempts: int
+    engine_retry_delay: float
+    engine_retry_backoff: float
 
     def search_results_path(self, date_str: str) -> Path:
         return self.history_dir / f"search_results_{date_str}.html"
@@ -70,13 +74,18 @@ class AppSettings:
 def get_settings() -> AppSettings:
     base_dir = Path(os.getenv("SYNTHESIX_BASE_DIR", ".")).resolve()
     history_dir = _env_path("SYNTHESIX_HISTORY_DIR", "history", base_dir)
+    history_report_path = _env_path(
+        "SYNTHESIX_HISTORY_REPORT_PATH",
+        str(history_dir / "history.html"),
+        base_dir,
+    )
     browser_profile_dir = _env_path("SYNTHESIX_BROWSER_PROFILE_DIR", "zendriver-profile", base_dir)
 
     return AppSettings(
         base_dir=base_dir,
         history_dir=history_dir,
         history_json_path=history_dir / "history.json",
-        history_report_path=base_dir / "history.html",
+        history_report_path=history_report_path,
         robot_challenges_dir=history_dir / "robot_challenges",
         browser_profile_dir=browser_profile_dir,
         default_engines=_env_engines(),
@@ -89,4 +98,8 @@ def get_settings() -> AppSettings:
         brave_results_timeout=_env_float("SYNTHESIX_BRAVE_RESULTS_TIMEOUT", 45.0),
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
+        engine_search_timeout=_env_float("SYNTHESIX_ENGINE_SEARCH_TIMEOUT", 90.0),
+        engine_retry_attempts=_env_int("SYNTHESIX_ENGINE_RETRY_ATTEMPTS", 1),
+        engine_retry_delay=_env_float("SYNTHESIX_ENGINE_RETRY_DELAY", 0.5),
+        engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),
     )

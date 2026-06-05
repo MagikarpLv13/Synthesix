@@ -9,9 +9,10 @@ import pandas as pd
 from bing import BingSearchEngine
 from brave import BraveSearchEngine
 from duckduckgo import DuckDuckGoSearchEngine
-from exceptions import SearchEngineError, SynthesixError
+from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
 from google import GoogleSearchEngine
 from scoring import calculate_relevance
+from settings import AppSettings, get_settings
 from utils import add_to_history, generate_history_html, generate_html_report
 
 
@@ -84,12 +85,14 @@ class SearchOrchestrator:
         history_adder: Callable[[str, str, int, str], None] = add_to_history,
         history_report_generator: Callable[[], str] = generate_history_html,
         scorer: Callable[[dict, str], float] = calculate_relevance,
+        settings: AppSettings | None = None,
     ):
         self.engine_factories = dict(engine_factories or DEFAULT_ENGINE_FACTORIES)
         self.report_generator = report_generator
         self.history_adder = history_adder
         self.history_report_generator = history_report_generator
         self.scorer = scorer
+        self.settings = settings or get_settings()
 
     async def search(
         self,
@@ -160,7 +163,13 @@ class SearchOrchestrator:
             engine = factory()
             tasks.append((
                 engine_name,
-                asyncio.create_task(engine.search(parsed_query, browser, num_results)),
+                asyncio.create_task(self._search_engine_with_retries(
+                    engine_name,
+                    engine,
+                    parsed_query,
+                    browser,
+                    num_results,
+                )),
             ))
 
         if not tasks:
@@ -195,3 +204,56 @@ class SearchOrchestrator:
             f"{engine_name} search failed.",
             original_error=error,
         )
+
+    async def _search_engine_with_retries(
+        self,
+        engine_name: str,
+        engine,
+        parsed_query: str,
+        browser,
+        num_results: int,
+    ) -> pd.DataFrame:
+        attempts = max(0, self.settings.engine_retry_attempts)
+        delay = max(0.0, self.settings.engine_retry_delay)
+        backoff = max(1.0, self.settings.engine_retry_backoff)
+        last_error = None
+
+        for attempt_index in range(attempts + 1):
+            try:
+                return await asyncio.wait_for(
+                    engine.search(parsed_query, browser, num_results),
+                    timeout=self.settings.engine_search_timeout,
+                )
+            except Exception as exc:
+                error = self._normalize_engine_error(engine_name, exc)
+                last_error = error
+                if attempt_index >= attempts or not self._is_retryable_error(error):
+                    raise error from exc
+
+                logger.warning(
+                    "%s search failed with a retryable error; retrying in %.2fs (%s/%s): %s",
+                    engine_name,
+                    delay,
+                    attempt_index + 1,
+                    attempts,
+                    error,
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                delay *= backoff
+
+        raise last_error
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        if isinstance(error, RobotChallengeError):
+            return False
+        if isinstance(error, BrowserSessionError):
+            return True
+        if isinstance(error, TimeoutError):
+            return True
+        if isinstance(error, SearchEngineError):
+            if isinstance(error.original_error, (TimeoutError, ConnectionError, OSError)):
+                return True
+            message = str(error).lower()
+            return "timeout" in message or "did not load" in message
+        return isinstance(error, (ConnectionError, OSError))
