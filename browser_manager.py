@@ -11,6 +11,7 @@ import time
 import uuid
 
 import zendriver as uc
+from zendriver import cdp
 from zendriver.core.config import Config
 
 from settings import AppSettings, get_settings
@@ -47,6 +48,35 @@ LINUX_BROWSER_PATHS = {
         "/snap/bin/brave",
     ),
 }
+
+BROWSER_PROFILE_DATA_PATHS = (
+    "Default/History",
+    "Default/History-journal",
+    "Default/Visited Links",
+    "Default/Top Sites",
+    "Default/Top Sites-journal",
+    "Default/Shortcuts",
+    "Default/Shortcuts-journal",
+    "Default/Favicons",
+    "Default/Favicons-journal",
+    "Default/Cookies",
+    "Default/Cookies-journal",
+    "Default/Network/Cookies",
+    "Default/Network/Cookies-journal",
+    "Default/Cache",
+    "Default/Code Cache",
+    "Default/GPUCache",
+    "Default/Service Worker",
+    "Default/Local Storage",
+    "Default/Session Storage",
+    "Default/IndexedDB",
+    "Default/Storage",
+    "Default/databases",
+    "Default/CacheStorage",
+    "Default/SharedStorage",
+    "Default/Shared Dictionary",
+    "Default/Sessions",
+)
 
 
 def _browser_types_to_try(browser_type: str) -> tuple[str, ...]:
@@ -170,6 +200,31 @@ def _mark_profile_exited_cleanly(profile_dir: str) -> None:
     _update_json_file(profile_path / "Local State", update_local_state)
 
 
+def _clear_profile_browsing_data(profile_dir: str) -> int:
+    profile_root = Path(profile_dir).resolve()
+    removed = 0
+
+    for relative_path in BROWSER_PROFILE_DATA_PATHS:
+        target = (profile_root / relative_path).resolve()
+        try:
+            target.relative_to(profile_root)
+        except ValueError:
+            logger.error("Refusing to remove browser data outside the profile: %s", target)
+            continue
+
+        try:
+            if target.is_dir():
+                shutil.rmtree(target)
+                removed += 1
+            elif target.is_file():
+                target.unlink()
+                removed += 1
+        except OSError:
+            logger.warning("Unable to remove browser profile data: %s", target, exc_info=True)
+
+    return removed
+
+
 def _chrome_timestamp() -> str:
     return str(int((time.time() + 11644473600) * 1000000))
 
@@ -282,11 +337,15 @@ class HeadlessBrowserManager:
     def __init__(self):
         self.browser : uc.Browser = None
         self.profile_dir: str | None = None
+        self.home_url: str | None = None
+        self.settings: AppSettings | None = None
 
     @classmethod
     async def create(cls, home_url: str | None = None, settings: AppSettings | None = None):
         self = cls()
         settings = settings or get_settings()
+        self.settings = settings
+        self.home_url = home_url
         custom_profile = settings.browser_profile_dir
         os.makedirs(custom_profile, exist_ok=True)
         self.profile_dir = str(custom_profile)
@@ -304,6 +363,41 @@ class HeadlessBrowserManager:
         return self
 
     async def get_driver(self):
+        return self.browser
+
+    async def _clear_live_browser_data(self) -> None:
+        if self.browser is None:
+            return
+
+        try:
+            await self.browser.cookies.clear()
+        except Exception:
+            logger.warning("Unable to clear live browser cookies", exc_info=True)
+
+        connection = next(
+            (tab for tab in self.browser.tabs if not getattr(tab, "closed", False)),
+            self.browser.connection,
+        )
+        if connection is not None:
+            try:
+                await connection.send(cdp.network.clear_browser_cache())
+            except Exception:
+                logger.warning("Unable to clear live browser cache", exc_info=True)
+
+    async def clear_browser_data(self):
+        if self.settings is None or self.profile_dir is None:
+            raise RuntimeError("Browser manager is not initialized.")
+
+        await self._clear_live_browser_data()
+        await self.stop()
+        removed = _clear_profile_browsing_data(self.profile_dir)
+        _mark_profile_exited_cleanly(self.profile_dir)
+        if self.home_url:
+            _ensure_synthesix_bookmark(self.profile_dir, self.home_url)
+
+        config = _build_zendriver_config(self.settings)
+        self.browser = await uc.start(config=config)
+        logger.info("Browser profile data cleared (%s paths removed).", removed)
         return self.browser
 
     async def stop(self):

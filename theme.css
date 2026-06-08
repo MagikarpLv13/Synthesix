@@ -321,6 +321,58 @@ a:focus-visible {
     color: var(--muted);
 }
 
+.data-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.data-actions__label {
+    margin-right: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.secondary-button,
+.danger-button {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.secondary-button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+}
+
+.danger-button {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+    color: var(--danger);
+}
+
+.danger-button:hover {
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.action-status {
+    min-height: 18px;
+    margin: 10px 0 0;
+    color: var(--accent);
+    font-size: 13px;
+}
+
+.action-status.is-error {
+    color: var(--danger);
+}
+
 .engine-group {
     display: flex;
     flex-wrap: wrap;
@@ -571,6 +623,16 @@ table.dataTable.no-footer {
 
     .engine-group,
     .result-control {
+        width: 100%;
+    }
+
+    .data-actions {
+        align-items: stretch;
+    }
+
+    .data-actions__label,
+    .secondary-button,
+    .danger-button {
         width: 100%;
     }
 

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from browser_manager import (
     FLATPAK_BRAVE_APP_ID,
     _build_zendriver_config,
+    _clear_profile_browsing_data,
     _ensure_synthesix_bookmark,
     _find_native_browser_executable,
     _mark_profile_exited_cleanly,
@@ -16,6 +17,27 @@ from settings import get_settings
 
 
 class BrowserManagerTestCase(unittest.TestCase):
+    def test_clear_profile_browsing_data_preserves_bookmarks_and_login_data(self):
+        with TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir)
+            default_dir = profile_dir / "Default"
+            (default_dir / "Cache").mkdir(parents=True)
+            (default_dir / "Cache" / "entry").write_text("cache", encoding="utf-8")
+            (default_dir / "History").write_text("history", encoding="utf-8")
+            (default_dir / "Network").mkdir()
+            (default_dir / "Network" / "Cookies").write_text("cookies", encoding="utf-8")
+            (default_dir / "Bookmarks").write_text("bookmarks", encoding="utf-8")
+            (default_dir / "Login Data").write_text("passwords", encoding="utf-8")
+
+            removed = _clear_profile_browsing_data(temp_dir)
+
+            self.assertGreaterEqual(removed, 3)
+            self.assertFalse((default_dir / "Cache").exists())
+            self.assertFalse((default_dir / "History").exists())
+            self.assertFalse((default_dir / "Network" / "Cookies").exists())
+            self.assertTrue((default_dir / "Bookmarks").exists())
+            self.assertTrue((default_dir / "Login Data").exists())
+
     def test_mark_profile_exited_cleanly_updates_chrome_state_files(self):
         with TemporaryDirectory() as temp_dir:
             profile_dir = Path(temp_dir)

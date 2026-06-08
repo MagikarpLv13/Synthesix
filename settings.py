@@ -27,6 +27,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_str(name: str, default: str) -> str:
     return os.getenv(name, default).strip() or default
 
@@ -65,6 +72,8 @@ class AppSettings:
     history_json_path: Path
     history_report_path: Path
     robot_challenges_dir: Path
+    debug_html: bool
+    debug_html_dir: Path
     browser_profile_dir: Path
     browser_type: str
     browser_executable_path: Path | None
@@ -80,6 +89,8 @@ class AppSettings:
     brave_results_timeout: float
     brave_results_interval: float
     brave_robot_find_timeout: float
+    duckduckgo_robot_timeout: float
+    duckduckgo_robot_interval: float
     engine_search_timeout: float
     engine_concurrency: int
     engine_retry_attempts: int
@@ -106,6 +117,12 @@ def get_settings() -> AppSettings:
         history_json_path=history_dir / "history.json",
         history_report_path=history_report_path,
         robot_challenges_dir=history_dir / "robot_challenges",
+        debug_html=_env_bool("SYNTHESIX_DEBUG_HTML"),
+        debug_html_dir=_env_path(
+            "SYNTHESIX_DEBUG_HTML_DIR",
+            str(history_dir / "debug_pages"),
+            base_dir,
+        ),
         browser_profile_dir=browser_profile_dir,
         browser_type=_env_str("SYNTHESIX_BROWSER", "auto"),
         browser_executable_path=_env_optional_path("SYNTHESIX_BROWSER_EXECUTABLE_PATH", base_dir),
@@ -121,6 +138,8 @@ def get_settings() -> AppSettings:
         brave_results_timeout=_env_float("SYNTHESIX_BRAVE_RESULTS_TIMEOUT", 45.0),
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
+        duckduckgo_robot_timeout=_env_float("SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT", 75.0),
+        duckduckgo_robot_interval=_env_float("SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL", 0.5),
         engine_search_timeout=_env_float("SYNTHESIX_ENGINE_SEARCH_TIMEOUT", 90.0),
         engine_concurrency=_env_int("SYNTHESIX_ENGINE_CONCURRENCY", len(ENGINE_NAMES)),
         engine_retry_attempts=_env_int("SYNTHESIX_ENGINE_RETRY_ATTEMPTS", 1),

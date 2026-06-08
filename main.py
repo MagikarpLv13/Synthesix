@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import logging
 import json
+import os
 import time
 import sys
 from browser_manager import HeadlessBrowserManager
@@ -12,6 +13,7 @@ from search_orchestrator import SearchOrchestrator
 from settings import AppSettings, get_settings
 import zendriver as uc
 from utils import (
+    clear_synthesix_history,
     is_advanced_query,
     load_search_history,
     smart_parse,
@@ -111,6 +113,11 @@ def parse_cli_args(argv=None):
         action="store_true",
         help="Show debug logs.",
     )
+    parser.add_argument(
+        "--debug-html",
+        action="store_true",
+        help="Keep raw search-engine HTML pages in history/debug_pages/.",
+    )
     return parser.parse_args(argv)
 
 
@@ -127,6 +134,11 @@ def configure_logging(args) -> None:
         level=_log_level_from_args(args),
         format="%(levelname)s:%(name)s:%(message)s",
     )
+
+
+def apply_cli_runtime_overrides(args) -> None:
+    if args.debug_html:
+        os.environ["SYNTHESIX_DEBUG_HTML"] = "1"
 
 
 def configure_event_loop_policy() -> None:
@@ -152,6 +164,35 @@ async def _consume_page_tab_action(tab):
     except Exception:
         logger.debug("Unable to read page tab action", exc_info=True)
         return None
+
+
+async def _set_home_status(
+    browser: uc.Browser,
+    index_url: str,
+    message: str,
+    is_error: bool = False,
+) -> None:
+    tabs = await _open_tabs(browser) or []
+    message_json = json.dumps(message)
+    error_json = json.dumps(is_error)
+    for tab in tabs:
+        if not _is_home_tab(tab, index_url):
+            continue
+        try:
+            await tab.evaluate(
+                f"""
+                (() => {{
+                    if (
+                        window.synthesixHome &&
+                        typeof window.synthesixHome.setStatus === "function"
+                    ) {{
+                        window.synthesixHome.setStatus({message_json}, {error_json});
+                    }}
+                }})()
+                """,
+            )
+        except Exception:
+            logger.debug("Unable to update the home status", exc_info=True)
 
 
 async def _focus_or_open_home_tab(
@@ -237,6 +278,37 @@ async def main():
             # Quit the browser if the user wants to
             if result["action"] == "quit":
                 return
+            if result["action"] == "clear_synthesix_history":
+                removed = clear_synthesix_history()
+                await _set_home_status(
+                    browser,
+                    index_url,
+                    f"Synthesix history cleared ({removed} files removed).",
+                )
+                continue
+            if result["action"] == "clear_browser_data":
+                try:
+                    browser = await browser_manager.clear_browser_data()
+                    home_tab = await _focus_or_open_home_tab(
+                        browser,
+                        index_url,
+                        reuse_current_tab=True,
+                    )
+                    await home_tab.bring_to_front()
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "Browser history, cookies, cache, and site data cleared.",
+                    )
+                except Exception:
+                    logger.error("Unable to clear browser data.", exc_info=True)
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "Browser data could not be cleared. Check the logs.",
+                        is_error=True,
+                    )
+                continue
             original_query = str(result.get("value", "") or "").strip()
             filters = SearchFilters.from_payload(result.get("filters"))
             if not original_query and not filters.has_filters():
@@ -296,6 +368,7 @@ async def perform_search(
 
 if __name__ == "__main__":
     cli_args = parse_cli_args()
+    apply_cli_runtime_overrides(cli_args)
     configure_logging(cli_args)
     configure_event_loop_policy()
     asyncio.run(main())

@@ -177,8 +177,28 @@ def add_to_history(
     history.append(data)
     with path.open("w", encoding="utf-8") as f:
         json.dump(history, f, indent=4)
-        
-        
+
+
+def clear_synthesix_history() -> int:
+    settings = get_settings()
+    paths = {
+        settings.history_json_path,
+        settings.history_report_path,
+        *settings.history_dir.glob("search_results_*.html"),
+    }
+    removed = 0
+    for path in paths:
+        try:
+            if path.is_file():
+                path.unlink()
+                removed += 1
+        except OSError:
+            logger.warning("Unable to remove Synthesix history file: %s", path, exc_info=True)
+
+    generate_history_html()
+    return removed
+
+
 def generate_history_html():
     """Generate an HTML report of the history
     
@@ -355,6 +375,8 @@ def is_advanced_query(query: str) -> bool:
         "inbody:",
         "filetype:",
         "ext:",
+        "after:",
+        "before:",
         "\"",
         "(",
     )

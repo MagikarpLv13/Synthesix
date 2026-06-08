@@ -224,6 +224,7 @@ class SearchOrchestrator:
                 continue
 
             engine = factory()
+            engine.search_filters = filters
             engine_query = build_engine_query(parsed_query, engine_name, filters)
             tasks.append((
                 engine_name,

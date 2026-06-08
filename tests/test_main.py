@@ -9,6 +9,7 @@ from unittest.mock import patch
 from main import (
     _cached_history_payload,
     _log_level_from_args,
+    apply_cli_runtime_overrides,
     configure_event_loop_policy,
     parse_cli_args,
 )
@@ -25,6 +26,15 @@ class MainCliTestCase(unittest.TestCase):
         with redirect_stderr(StringIO()):
             with self.assertRaises(SystemExit):
                 parse_cli_args(["--quiet", "--verbose"])
+
+    def test_debug_html_flag_enables_runtime_setting(self):
+        args = parse_cli_args(["--debug-html"])
+
+        with patch.dict("os.environ", {}, clear=True):
+            apply_cli_runtime_overrides(args)
+            settings = get_settings()
+
+        self.assertTrue(settings.debug_html)
 
     def test_windows_event_loop_policy_is_configured_on_windows(self):
         policy = object()

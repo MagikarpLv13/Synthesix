@@ -54,6 +54,13 @@ Optional logging flags:
 ```powershell
 python main.py --quiet
 python main.py --verbose
+python main.py --debug-html
+```
+
+`--debug-html` keeps unique raw search-engine pages in `history/debug_pages/`. Filenames include the timestamp, engine, and capture stage, for example `20260608_190000_000000_duckduckgo_results.html`. Combine it with `--verbose` to see every saved path in the console:
+
+```powershell
+python main.py --debug-html --verbose
 ```
 
 Synthesix opens a Chrome/Chromium window on the local home page. Enter a query and click **Search**. Results are written to `history/` and opened in browser tabs.
@@ -64,6 +71,10 @@ Session behavior:
 - Closing only the original home tab does not stop the program if other Synthesix tabs are still open.
 - The generated history page can reopen previous searches.
 - The home page includes a default bookmark/favorite entry for returning to Synthesix.
+- **Clear Synthesix history** removes saved searches and generated result reports.
+- **Clear browser data** restarts the automated browser after removing browsing history, cookies, cache, sessions, and site storage from the Synthesix profile.
+
+Browser-data cleanup affects only `zendriver-profile/`, not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark and saved browser passwords, but clearing cookies signs out active website sessions.
 
 ## Search Behavior
 
@@ -93,8 +104,21 @@ The home page includes an **OSINT filters** panel for common search operators wi
 | URL | Require text in the result URL. | Uses `inurl:` on Google/DuckDuckGo; falls back to a plain term on Bing/Brave. |
 | Page text | Bias the engine toward text in the page body. | Uses `intext:` on Google, `inbody:` on Bing/Brave, and a plain term on DuckDuckGo. |
 | File | Restrict by file extension. | Uses `filetype:`. |
+| After | Keep results from or after a selected date. | Uses each compatible engine's native date-range format. |
+| Before | Keep results up to a selected date. | Uses each compatible engine's native date-range format. |
 
 Multiple values can be separated with commas in a filter field. Values containing spaces are quoted automatically.
+
+`After` and `Before` use native date pickers and store dates as `YYYY-MM-DD`. Synthesix converts the selected range per engine:
+
+| Engine | Date range sent by Synthesix |
+| --- | --- |
+| Google | `tbs=cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY` |
+| Brave | `tf=YYYY-MM-DDtoYYYY-MM-DD` |
+| DuckDuckGo | `df=YYYY-MM-DD..YYYY-MM-DD` |
+| Bing | No custom date range is sent because Bing's public Web search documentation does not define a stable equivalent. |
+
+When only `After` is selected, Brave and DuckDuckGo use the current date as the upper bound. When only `Before` is selected, they use `1970-01-01` as the technical lower bound. Google supports either bound independently.
 
 Synthesix also applies local post-filtering when the condition can be verified from the collected result metadata:
 
@@ -113,7 +137,7 @@ Filter-only searches are allowed. For example, leaving the main search box empty
 | Google | Available | Result parsing depends on Google's current HTML structure. |
 | Bing | Available | Result parsing depends on Bing's current HTML structure. |
 | Brave | Available | Anti-robot challenges are detected and captured in `history/robot_challenges/` for debugging/resolution. |
-| DuckDuckGo | Available | Uses the `noai.duckduckgo.com` HTML endpoint with parameters oriented toward pure search, without AI/suggested blocks when DuckDuckGo accepts them. |
+| DuckDuckGo | Available | Uses the main Web search for a fuller result set, parses only organic Web results, and loads additional result pages when requested. The HTML endpoint remains a fallback. |
 
 Search engines can change their markup or anti-bot behavior at any time. When a parser starts returning poor results, update only the affected engine and add or adjust a focused test.
 
@@ -127,7 +151,8 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
 | `history/search_results_*.html` | Generated search result reports. |
-| `history/robot_challenges/` | Captured anti-robot pages, especially Brave challenges. |
+| `history/robot_challenges/` | Captured Brave and DuckDuckGo anti-robot pages (`.html`, visible `.txt`, and `.png` when available). |
+| `history/debug_pages/` | Raw engine HTML pages kept only when debug HTML mode is enabled. |
 | `history.html` | Legacy ignored history path. |
 | `test_*.html` | Temporary diagnostic captures. |
 
@@ -142,6 +167,8 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
+| `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
+| `SYNTHESIX_DEBUG_HTML_DIR` | Directory used for raw engine HTML captures. |
 | `SYNTHESIX_BROWSER_PROFILE_DIR` | Chrome/Chromium profile directory. |
 | `SYNTHESIX_BROWSER` | Zendriver browser type: `auto`, `chrome`, or `brave`. |
 | `SYNTHESIX_BROWSER_EXECUTABLE_PATH` | Explicit Chrome/Brave executable path when autodetection is not enough. |
@@ -157,6 +184,8 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BRAVE_RESULTS_TIMEOUT` | Brave-specific result wait timeout. |
 | `SYNTHESIX_BRAVE_RESULTS_INTERVAL` | Brave-specific result polling interval. |
 | `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT` | Brave anti-robot detection timeout. |
+| `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT` | Maximum time allowed for manual DuckDuckGo challenge resolution. |
+| `SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL` | Polling interval while waiting for DuckDuckGo results after manual resolution. |
 | `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` | Global timeout for one engine search. |
 | `SYNTHESIX_ENGINE_CONCURRENCY` | Maximum number of engines searched at the same time. |
 | `SYNTHESIX_ENGINE_RETRY_ATTEMPTS` | Retry attempts for transient engine failures. |
@@ -170,6 +199,8 @@ $env:SYNTHESIX_DEFAULT_ENGINES = "google,bing,duckduckgo"
 $env:SYNTHESIX_ENGINE_SEARCH_TIMEOUT = "45"
 python main.py
 ```
+
+DuckDuckGo's visual challenge requires manual resolution. Synthesix brings the challenge tab to the foreground, captures it in `history/robot_challenges/`, waits up to 75 seconds by default, and resumes as soon as the normal result container appears. If DuckDuckGo displays an intermediate `Forbidden` page after submission, Synthesix captures it, reloads the original query, then tries the standard HTML endpoint as a fallback. Keep `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` greater than `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT`.
 
 ### Linux Browser Detection
 

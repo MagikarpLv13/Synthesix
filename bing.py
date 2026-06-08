@@ -42,7 +42,7 @@ class BingSearchEngine(SearchEngine):
 
             self.tab = await self.tab.get(next_url)
             await self.wait_for_page_load()
-            raw_results = await self.tab.get_content()
+            raw_results = await self.read_page_content("pagination")
             results = self.parse_results(raw_results)
             self.results.extend(results)
             self.num_results = len(self.results)

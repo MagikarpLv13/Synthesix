@@ -70,6 +70,14 @@
                         <span>File</span>
                         <input type="text" id="filter-filetype" placeholder="pdf">
                     </label>
+                    <label class="operator-field" for="filter-after">
+                        <span>After</span>
+                        <input type="date" id="filter-after">
+                    </label>
+                    <label class="operator-field" for="filter-before">
+                        <span>Before</span>
+                        <input type="date" id="filter-before">
+                    </label>
                 </div>
             </details>
 
@@ -85,6 +93,16 @@
                     <input type="number" id="num-results" min="1" max="100" value="20">
                 </label>
             </div>
+            <div class="data-actions" aria-label="Data management">
+                <span class="data-actions__label">Data</span>
+                <button id="clear-synthesix-history" class="secondary-button" type="button">
+                    Clear Synthesix history
+                </button>
+                <button id="clear-browser-data" class="danger-button" type="button">
+                    Clear browser data
+                </button>
+            </div>
+            <p id="action-status" class="action-status" role="status" aria-live="polite"></p>
             <p class="session-note">Closing all Synthesix tabs stops the program.</p>
         </section>
     </main>
@@ -96,6 +114,9 @@
             const searchButton = document.getElementById("search-button");
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
+            const actionStatus = document.getElementById("action-status");
+            const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
+            const clearBrowserDataButton = document.getElementById("clear-browser-data");
             const engineIds = ["google", "bing", "brave", "duckduckgo"];
             const filterInputIds = {
                 site: "filter-site",
@@ -103,7 +124,9 @@
                 title: "filter-title",
                 url: "filter-url",
                 body: "filter-body",
-                filetype: "filter-filetype"
+                filetype: "filter-filetype",
+                after: "filter-after",
+                before: "filter-before"
             };
             const state = {
                 history: [],
@@ -213,6 +236,11 @@
                     searchField.focus();
                     return null;
                 }
+                if (filters.after && filters.before && filters.after > filters.before) {
+                    alert("The After date must be earlier than or equal to the Before date.");
+                    document.getElementById("filter-after").focus();
+                    return null;
+                }
 
                 const engines = {};
                 engineIds.forEach((engine) => {
@@ -230,6 +258,17 @@
                 }
                 state.pendingAction = payload;
                 closeHistory();
+            };
+
+            const queueAction = (action) => {
+                state.pendingAction = { action };
+                closeHistory();
+                setStatus("Processing...");
+            };
+
+            const setStatus = (message, isError = false) => {
+                actionStatus.textContent = String(message || "");
+                actionStatus.classList.toggle("is-error", Boolean(isError));
             };
 
             const setHistory = (history) => {
@@ -274,6 +313,21 @@
             };
 
             searchButton.addEventListener("click", submitSearch);
+            clearSynthesixHistoryButton.addEventListener("click", () => {
+                if (confirm("Delete all Synthesix search history and generated result reports?")) {
+                    queueAction("clear_synthesix_history");
+                }
+            });
+            clearBrowserDataButton.addEventListener("click", () => {
+                if (
+                    confirm(
+                        "Clear history, cookies, cache, and site data from the Synthesix "
+                        + "browser profile? Saved sessions will be signed out."
+                    )
+                ) {
+                    queueAction("clear_browser_data");
+                }
+            });
             searchField.addEventListener("input", openHistory);
             searchField.addEventListener("focus", openHistory);
             searchField.addEventListener("keydown", (event) => {
@@ -310,6 +364,7 @@
 
             window.synthesixHome = {
                 setHistory,
+                setStatus,
                 consumeAction
             };
         })();

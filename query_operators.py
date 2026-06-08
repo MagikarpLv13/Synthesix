@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Mapping
 from urllib.parse import urlparse
 
 
-FILTER_FIELDS = ("site", "exclude", "title", "url", "body", "filetype")
+FILTER_FIELDS = ("site", "exclude", "title", "url", "body", "filetype", "after", "before")
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,8 @@ class SearchFilters:
     url: str = ""
     body: str = ""
     filetype: str = ""
+    after: str = ""
+    before: str = ""
 
     @classmethod
     def from_payload(cls, payload: Mapping | None) -> "SearchFilters":
@@ -23,7 +26,8 @@ class SearchFilters:
             return cls()
         values = {}
         for field in FILTER_FIELDS:
-            values[field] = str(payload.get(field, "") or "").strip()
+            value = str(payload.get(field, "") or "").strip()
+            values[field] = _normalize_date(value) if field in {"after", "before"} else value
         return cls(**values)
 
     def has_filters(self) -> bool:
@@ -64,6 +68,54 @@ def _plain_terms(values: str) -> list[str]:
     return [_quote_operator_value(value) for value in _split_values(values)]
 
 
+def _normalize_date(value: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        return ""
+
+
+def _date_range(filters: SearchFilters) -> tuple[str, str]:
+    after = _normalize_date(filters.after)
+    before = _normalize_date(filters.before)
+    if after and before and after > before:
+        return "", ""
+    return after, before
+
+
+def build_engine_date_params(
+    engine_name: str,
+    filters: SearchFilters | Mapping | None = None,
+    today: date | None = None,
+) -> dict[str, str]:
+    filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
+    after, before = _date_range(filters)
+    if not after and not before:
+        return {}
+
+    engine = engine_name.lower()
+    if engine == "google":
+        values = ["cdr:1"]
+        if after:
+            values.append(f"cd_min:{datetime.strptime(after, '%Y-%m-%d').strftime('%m/%d/%Y')}")
+        if before:
+            values.append(f"cd_max:{datetime.strptime(before, '%Y-%m-%d').strftime('%m/%d/%Y')}")
+        return {"tbs": ",".join(values)}
+
+    range_start = after or "1970-01-01"
+    range_end = before or (today or date.today()).isoformat()
+    if range_start > range_end:
+        return {}
+    if engine == "brave":
+        return {"tf": f"{range_start}to{range_end}"}
+    if engine == "duckduckgo":
+        return {"df": f"{range_start}..{range_end}"}
+    return {}
+
+
 def build_display_query(base_query: str, filters: SearchFilters | Mapping | None = None) -> str:
     filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
     parts = [base_query.strip()] if base_query.strip() else []
@@ -73,6 +125,11 @@ def build_display_query(base_query: str, filters: SearchFilters | Mapping | None
     parts.extend(_operator_terms("inurl", filters.url))
     parts.extend(_operator_terms("inbody", filters.body))
     parts.extend(_operator_terms("filetype", filters.filetype))
+    after, before = _date_range(filters)
+    if after:
+        parts.append(f"after:{after}")
+    if before:
+        parts.append(f"before:{before}")
     return " ".join(part for part in parts if part)
 
 

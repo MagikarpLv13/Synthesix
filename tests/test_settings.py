@@ -18,6 +18,8 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.history_json_path, base_dir / "history" / "history.json")
             self.assertEqual(settings.history_report_path, base_dir / "history" / "history.html")
             self.assertEqual(settings.robot_challenges_dir, base_dir / "history" / "robot_challenges")
+            self.assertFalse(settings.debug_html)
+            self.assertEqual(settings.debug_html_dir, base_dir / "history" / "debug_pages")
             self.assertEqual(settings.browser_profile_dir, base_dir / "zendriver-profile")
             self.assertEqual(settings.browser_type, "auto")
             self.assertIsNone(settings.browser_executable_path)
@@ -38,6 +40,8 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.brave_results_timeout, 45.0)
             self.assertEqual(settings.brave_results_interval, 0.25)
             self.assertEqual(settings.brave_robot_find_timeout, 0.2)
+            self.assertEqual(settings.duckduckgo_robot_timeout, 75.0)
+            self.assertEqual(settings.duckduckgo_robot_interval, 0.5)
             self.assertEqual(settings.engine_search_timeout, 90.0)
             self.assertEqual(settings.engine_concurrency, 4)
             self.assertEqual(settings.engine_retry_attempts, 1)
@@ -50,6 +54,8 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_BASE_DIR": temp_dir,
                 "SYNTHESIX_HISTORY_DIR": "runtime/history",
                 "SYNTHESIX_HISTORY_REPORT_PATH": "runtime/history-report.html",
+                "SYNTHESIX_DEBUG_HTML": "true",
+                "SYNTHESIX_DEBUG_HTML_DIR": "runtime/debug-pages",
                 "SYNTHESIX_BROWSER_PROFILE_DIR": "runtime/profile",
                 "SYNTHESIX_BROWSER": "brave",
                 "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "runtime/brave.exe",
@@ -65,6 +71,8 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_BRAVE_RESULTS_TIMEOUT": "60",
                 "SYNTHESIX_BRAVE_RESULTS_INTERVAL": "0.75",
                 "SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT": "0.4",
+                "SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT": "70",
+                "SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL": "0.6",
                 "SYNTHESIX_ENGINE_SEARCH_TIMEOUT": "30",
                 "SYNTHESIX_ENGINE_CONCURRENCY": "2",
                 "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "3",
@@ -77,6 +85,8 @@ class SettingsTestCase(unittest.TestCase):
             base_dir = Path(temp_dir).resolve()
             self.assertEqual(settings.history_dir, base_dir / "runtime" / "history")
             self.assertEqual(settings.history_report_path, base_dir / "runtime" / "history-report.html")
+            self.assertTrue(settings.debug_html)
+            self.assertEqual(settings.debug_html_dir, base_dir / "runtime" / "debug-pages")
             self.assertEqual(settings.browser_profile_dir, base_dir / "runtime" / "profile")
             self.assertEqual(settings.browser_type, "brave")
             self.assertEqual(settings.browser_executable_path, base_dir / "runtime" / "brave.exe")
@@ -97,6 +107,8 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.brave_results_timeout, 60.0)
             self.assertEqual(settings.brave_results_interval, 0.75)
             self.assertEqual(settings.brave_robot_find_timeout, 0.4)
+            self.assertEqual(settings.duckduckgo_robot_timeout, 70.0)
+            self.assertEqual(settings.duckduckgo_robot_interval, 0.6)
             self.assertEqual(settings.engine_search_timeout, 30.0)
             self.assertEqual(settings.engine_concurrency, 2)
             self.assertEqual(settings.engine_retry_attempts, 3)

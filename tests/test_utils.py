@@ -9,6 +9,7 @@ import pandas as pd
 
 from utils import (
     add_to_history,
+    clear_synthesix_history,
     generate_history_html,
     generate_html_report,
     is_advanced_query,
@@ -18,11 +19,36 @@ from utils import (
 
 
 class UtilsTestCase(unittest.TestCase):
+    def test_clear_synthesix_history_removes_search_files_only(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history("query", '"query"', 1, "result.html")
+                generate_history_html()
+                results_path = Path("history") / "search_results_20260609_120000.html"
+                results_path.write_text("results", encoding="utf-8")
+                challenge_path = Path("history") / "robot_challenges" / "challenge.html"
+                challenge_path.parent.mkdir(parents=True)
+                challenge_path.write_text("challenge", encoding="utf-8")
+
+                removed = clear_synthesix_history()
+
+                self.assertEqual(removed, 3)
+                self.assertFalse((Path("history") / "history.json").exists())
+                self.assertFalse(results_path.exists())
+                self.assertTrue((Path("history") / "history.html").exists())
+                self.assertTrue(challenge_path.exists())
+                self.assertEqual(load_search_history(limit=10), [])
+            finally:
+                os.chdir(current_dir)
+
     def test_is_advanced_query_detects_boolean_operators(self):
         self.assertTrue(is_advanced_query("python AND asyncio"))
         self.assertTrue(is_advanced_query("site:example.com python"))
         self.assertTrue(is_advanced_query("filetype:pdf python"))
         self.assertTrue(is_advanced_query("intext:email python"))
+        self.assertTrue(is_advanced_query("pesto after:2024-01-01"))
         self.assertTrue(is_advanced_query("sandwich au jambon -fromage"))
         self.assertFalse(is_advanced_query("starvos and lynch"))
         self.assertFalse(is_advanced_query("python or cdp"))

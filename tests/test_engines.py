@@ -1,10 +1,16 @@
 import asyncio
 import unittest
+from urllib.parse import parse_qs, urlparse
 
 from bing import BingSearchEngine
 from brave import BraveSearchEngine, looks_like_brave_robot_challenge
-from duckduckgo import DuckDuckGoSearchEngine
+from duckduckgo import (
+    DuckDuckGoSearchEngine,
+    looks_like_duckduckgo_forbidden,
+    looks_like_duckduckgo_robot_challenge,
+)
 from google import GoogleSearchEngine
+from query_operators import SearchFilters
 
 
 class EngineUrlTestCase(unittest.TestCase):
@@ -14,6 +20,16 @@ class EngineUrlTestCase(unittest.TestCase):
         engine.max_results = 20
 
         self.assertIn("q=%22python+async%22+AND+cdp", engine.construct_url())
+
+    def test_google_url_uses_custom_date_range(self):
+        engine = GoogleSearchEngine()
+        engine.query = '"python async"'
+        engine.max_results = 20
+        engine.search_filters = SearchFilters(after="2024-01-02", before="2024-03-04")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["tbs"], ["cdr:1,cd_min:01/02/2024,cd_max:03/04/2024"])
 
     def test_bing_url_encodes_advanced_query(self):
         engine = BingSearchEngine()
@@ -28,19 +44,38 @@ class EngineUrlTestCase(unittest.TestCase):
 
         self.assertIn("q=%22python+async%22+AND+cdp", engine.construct_url())
 
-    def test_duckduckgo_url_uses_noai_html_and_pure_search_params(self):
+    def test_brave_url_uses_custom_date_range(self):
+        engine = BraveSearchEngine()
+        engine.query = '"python async"'
+        engine.search_filters = SearchFilters(after="2024-01-02", before="2024-03-04")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["tf"], ["2024-01-02to2024-03-04"])
+
+    def test_duckduckgo_url_uses_main_web_search_and_pure_search_params(self):
         engine = DuckDuckGoSearchEngine()
         engine.query = '"python async" AND cdp'
 
         url = engine.construct_url()
 
-        self.assertTrue(url.startswith("https://noai.duckduckgo.com/html/?"))
+        self.assertTrue(url.startswith("https://duckduckgo.com/?"))
         self.assertIn("q=%22python+async%22+AND+cdp", url)
+        self.assertIn("ia=web", url)
         self.assertIn("kp=-2", url)
         self.assertIn("kz=-1", url)
         self.assertIn("kac=-1", url)
         self.assertIn("k1=-1", url)
         self.assertIn("kl=wt-wt", url)
+
+    def test_duckduckgo_url_uses_custom_date_range(self):
+        engine = DuckDuckGoSearchEngine()
+        engine.query = '"python async"'
+        engine.search_filters = SearchFilters(after="2024-01-02", before="2024-03-04")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["df"], ["2024-01-02..2024-03-04"])
 
 
 class BingPaginationTestCase(unittest.TestCase):
@@ -101,6 +136,40 @@ class BraveRobotChallengeTestCase(unittest.TestCase):
 
 
 class DuckDuckGoParsingTestCase(unittest.TestCase):
+    def test_detects_duckduckgo_robot_challenge_variants(self):
+        self.assertTrue(
+            looks_like_duckduckgo_robot_challenge(
+                '<section class="anomaly-modal">'
+                '<h1 class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</h1>'
+                "</section>"
+            )
+        )
+        self.assertTrue(
+            looks_like_duckduckgo_robot_challenge(
+                "<main>Please complete the following challenge to confirm this search "
+                "was made by a human.</main>"
+            )
+        )
+
+    def test_does_not_detect_regular_duckduckgo_results(self):
+        self.assertFalse(
+            looks_like_duckduckgo_robot_challenge(
+                '<main><div class="result__body">Regular search result</div></main>'
+            )
+        )
+
+    def test_detects_duckduckgo_forbidden_page(self):
+        self.assertTrue(
+            looks_like_duckduckgo_forbidden(
+                "<html><head><title>403 Forbidden</title></head><body>Forbidden</body></html>"
+            )
+        )
+        self.assertFalse(
+            looks_like_duckduckgo_forbidden(
+                '<div class="result__body">Forbidden Stories investigation</div>'
+            )
+        )
+
     def test_parse_html_results_and_decode_redirect_links(self):
         raw_html = """
         <html>
@@ -135,6 +204,40 @@ class DuckDuckGoParsingTestCase(unittest.TestCase):
             ],
         )
 
+    def test_parse_modern_web_results_and_skip_ads(self):
+        raw_html = """
+        <html><body>
+            <article data-testid="result">
+                <a data-testid="result-title-a" href="https://example.com/python">
+                    Python Example
+                </a>
+                <div data-result="snippet">A modern DuckDuckGo result.</div>
+            </article>
+            <article data-testid="result">
+                <a data-testid="result-title-a" href="https://duckduckgo.com/y.js?ad_domain=example.org">
+                    Sponsored result
+                </a>
+                <div data-result="snippet">Advertisement</div>
+            </article>
+        </body></html>
+        """
+        engine = DuckDuckGoSearchEngine()
+        engine.max_results = 10
+
+        results = engine.parse_results(raw_html)
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "title": "Python Example",
+                    "link": "https://example.com/python",
+                    "description": "A modern DuckDuckGo result.",
+                    "source": "DuckDuckGo",
+                }
+            ],
+        )
+
     def test_parse_results_honors_max_results(self):
         raw_html = """
         <html><body>
@@ -155,6 +258,46 @@ class DuckDuckGoParsingTestCase(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "One")
+
+    def test_post_execute_search_loads_additional_modern_results(self):
+        class MoreResultsButton:
+            async def click(self):
+                return None
+
+        class PaginatedTab:
+            async def xpath(self, _selector):
+                return [MoreResultsButton()]
+
+            async def get_content(self):
+                return """
+                <html><body>
+                    <article data-testid="result">
+                        <a data-testid="result-title-a" href="https://example.com/one">One</a>
+                        <div data-result="snippet">First</div>
+                    </article>
+                    <article data-testid="result">
+                        <a data-testid="result-title-a" href="https://example.com/two">Two</a>
+                        <div data-result="snippet">Second</div>
+                    </article>
+                </body></html>
+                """
+
+        engine = DuckDuckGoSearchEngine()
+        engine.tab = PaginatedTab()
+        engine.max_results = 2
+        engine.results = [
+            {
+                "title": "One",
+                "link": "https://example.com/one",
+                "description": "First",
+                "source": "DuckDuckGo",
+            }
+        ]
+        engine.num_results = 1
+
+        asyncio.run(engine.post_execute_search())
+
+        self.assertEqual([result["title"] for result in engine.results], ["One", "Two"])
 
 
 if __name__ == "__main__":

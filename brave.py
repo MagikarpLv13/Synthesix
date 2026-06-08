@@ -6,10 +6,11 @@ import time
 import unicodedata
 from datetime import datetime
 from html import unescape
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
+from query_operators import build_engine_date_params
 from search_engine import SearchEngine
 from settings import get_settings
 from utils import js_like_to_json
@@ -106,6 +107,9 @@ class BraveSearchEngine(SearchEngine):
 
     def construct_url(self):
         url = f"{self.base_url}/search?q={quote_plus(self.construct_query(self.query))}&spellcheck=0"
+        date_params = build_engine_date_params("brave", self.search_filters)
+        if date_params:
+            url += "&" + urlencode(date_params)
         return url
 
     # There is some cases where Brave does not display the Title in the HTML
@@ -173,7 +177,7 @@ class BraveSearchEngine(SearchEngine):
             self.tab = await self.tab.get(next_url)
             self.offset += 1
             await self.wait_for_page_load()
-            raw_results = await self.tab.get_content()
+            raw_results = await self.read_page_content("pagination")
             results = self.parse_results(raw_results)
             self.results.extend(results)
 
@@ -192,7 +196,7 @@ class BraveSearchEngine(SearchEngine):
 
         if not raw_content:
             try:
-                raw_content = await self.tab.get_content()
+                raw_content = await self.read_page_content("robot_capture")
             except Exception as exc:
                 raw_content = f"Unable to capture HTML content: {exc}"
 
@@ -350,7 +354,7 @@ class BraveSearchEngine(SearchEngine):
         await self.tab.bring_to_front()
 
         try:
-            raw_content = await self.tab.get_content()
+            raw_content = await self.read_page_content("robot_check")
         except Exception:
             raw_content = ""
 
