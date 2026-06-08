@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="background" x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.62" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <path id="blade" d="M29 12 34 9l4 13-5 4-4-3z"/>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#background)"/>
+  <g fill="#FFFFFF">
+    <use href="#blade"/>
+    <use href="#blade" transform="rotate(36 32 32)"/>
+    <use href="#blade" transform="rotate(72 32 32)"/>
+    <use href="#blade" transform="rotate(108 32 32)"/>
+    <use href="#blade" transform="rotate(144 32 32)"/>
+    <use href="#blade" transform="rotate(180 32 32)"/>
+    <use href="#blade" transform="rotate(216 32 32)"/>
+    <use href="#blade" transform="rotate(252 32 32)"/>
+    <use href="#blade" transform="rotate(288 32 32)"/>
+    <use href="#blade" transform="rotate(324 32 32)"/>
+  </g>
+  <circle cx="32" cy="32" r="7" fill="#06B6D4"/>
+</svg>

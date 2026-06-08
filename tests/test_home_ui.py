@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from lxml import html
+from lxml import etree, html
 
 
 class HomeUiTestCase(unittest.TestCase):
@@ -31,6 +31,38 @@ class HomeUiTestCase(unittest.TestCase):
         for status in ("checking", "active", "inactive", "unknown"):
             with self.subTest(status=status):
                 self.assertIn(f'"{status}"', self.content)
+
+    def test_brand_assets_and_palette_are_wired_to_home(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        theme = (project_dir / "theme.css").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            self.tree.xpath("//link[@rel='icon']/@href"),
+            ["assets/favicon.svg"],
+        )
+        self.assertEqual(
+            self.tree.xpath("//img[contains(@class, 'brand-logo')]/@src"),
+            ["assets/synthesix-mark.svg"],
+        )
+        for color in ("#2563EB", "#0F172A", "#06B6D4", "#64748B", "#000000", "#FFFFFF"):
+            with self.subTest(color=color):
+                self.assertIn(color, theme)
+
+    def test_svg_brand_assets_are_valid_xml(self):
+        assets_dir = Path(__file__).resolve().parents[1] / "assets"
+        filenames = (
+            "favicon.svg",
+            "synthesix-app-icon.svg",
+            "synthesix-logo.svg",
+            "synthesix-logo-dark.svg",
+            "synthesix-mark.svg",
+            "synthesix-mark-black.svg",
+            "synthesix-mark-white.svg",
+        )
+
+        for filename in filenames:
+            with self.subTest(filename=filename):
+                etree.parse(str(assets_dir / filename))
 
 
 if __name__ == "__main__":

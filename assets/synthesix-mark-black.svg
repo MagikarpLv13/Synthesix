@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Synthesix black monochrome mark</title>
+  <defs>
+    <path id="blade" d="M58 12 69 6l9 38-12 9-9-7z"/>
+  </defs>
+  <g fill="#000000">
+    <use href="#blade"/>
+    <use href="#blade" transform="rotate(36 64 64)"/>
+    <use href="#blade" transform="rotate(72 64 64)"/>
+    <use href="#blade" transform="rotate(108 64 64)"/>
+    <use href="#blade" transform="rotate(144 64 64)"/>
+    <use href="#blade" transform="rotate(180 64 64)"/>
+    <use href="#blade" transform="rotate(216 64 64)"/>
+    <use href="#blade" transform="rotate(252 64 64)"/>
+    <use href="#blade" transform="rotate(288 64 64)"/>
+    <use href="#blade" transform="rotate(324 64 64)"/>
+    <circle cx="64" cy="64" r="15"/>
+  </g>
+</svg>

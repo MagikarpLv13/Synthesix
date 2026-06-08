@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Synthesix mark</title>
+  <defs>
+    <linearGradient id="blade-a" x1="20" y1="108" x2="108" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="blade-b" x1="18" y1="32" x2="108" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="0.55" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <path id="blade" d="M58 12 69 6l9 38-12 9-9-7z"/>
+  </defs>
+  <g>
+    <use href="#blade" fill="url(#blade-a)"/>
+    <use href="#blade" fill="url(#blade-b)" transform="rotate(36 64 64)"/>
+    <use href="#blade" fill="url(#blade-a)" transform="rotate(72 64 64)"/>
+    <use href="#blade" fill="url(#blade-b)" transform="rotate(108 64 64)"/>
+    <use href="#blade" fill="url(#blade-a)" transform="rotate(144 64 64)"/>
+    <use href="#blade" fill="url(#blade-b)" transform="rotate(180 64 64)"/>
+    <use href="#blade" fill="url(#blade-a)" transform="rotate(216 64 64)"/>
+    <use href="#blade" fill="url(#blade-b)" transform="rotate(252 64 64)"/>
+    <use href="#blade" fill="url(#blade-a)" transform="rotate(288 64 64)"/>
+    <use href="#blade" fill="url(#blade-b)" transform="rotate(324 64 64)"/>
+  </g>
+  <circle cx="64" cy="64" r="15" fill="#2563EB"/>
+  <circle cx="64" cy="64" r="13" fill="url(#blade-b)"/>
+</svg>

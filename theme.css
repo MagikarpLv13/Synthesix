@@ -1,37 +1,49 @@
 :root {
     color-scheme: light;
-    --bg: #f6f7f4;
-    --surface: #ffffff;
-    --surface-2: #eef2ed;
-    --surface-3: #e8ede6;
-    --text: #17201a;
-    --muted: #5e6a62;
-    --line: #d9ded7;
-    --accent: #166b49;
-    --accent-strong: #0f5135;
-    --accent-soft: #e3f1ea;
-    --warm: #a85f19;
-    --danger: #9d2f2f;
-    --shadow: 0 18px 45px rgba(23, 32, 26, 0.12);
-    --focus: 0 0 0 3px rgba(22, 107, 73, 0.22);
+    --brand-primary: #2563EB;
+    --brand-navy: #0F172A;
+    --brand-cyan: #06B6D4;
+    --brand-slate: #64748B;
+    --black: #000000;
+    --white: #FFFFFF;
+    --bg: #F8FAFC;
+    --surface: #FFFFFF;
+    --surface-2: #F1F5F9;
+    --surface-3: #E2E8F0;
+    --text: #0F172A;
+    --muted: #64748B;
+    --line: #CBD5E1;
+    --accent: #2563EB;
+    --accent-strong: #1D4ED8;
+    --accent-soft: #DBEAFE;
+    --secondary: #06B6D4;
+    --secondary-soft: #CFFAFE;
+    --success: #16A34A;
+    --warning: #D97706;
+    --danger: #DC2626;
+    --shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+    --focus: 0 0 0 3px rgba(37, 99, 235, 0.24);
 }
 
 :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #111612;
-    --surface: #1a211c;
-    --surface-2: #202920;
-    --surface-3: #273127;
-    --text: #edf3ed;
-    --muted: #aebbad;
-    --line: #344036;
-    --accent: #58c98f;
-    --accent-strong: #7be2aa;
-    --accent-soft: #1e3a2b;
-    --warm: #f0b15f;
-    --danger: #ff8a8a;
+    --bg: #000000;
+    --surface: #0F172A;
+    --surface-2: #172033;
+    --surface-3: #1E293B;
+    --text: #FFFFFF;
+    --muted: #94A3B8;
+    --line: #334155;
+    --accent: #2563EB;
+    --accent-strong: #06B6D4;
+    --accent-soft: #172554;
+    --secondary: #06B6D4;
+    --secondary-soft: #164E63;
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --danger: #F87171;
     --shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
-    --focus: 0 0 0 3px rgba(88, 201, 143, 0.28);
+    --focus: 0 0 0 3px rgba(6, 182, 212, 0.28);
 }
 
 * {
@@ -86,15 +98,27 @@ a:focus-visible {
 
 .brand {
     display: flex;
-    align-items: baseline;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
+}
+
+.brand-logo {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+}
+
+.brand-copy {
+    display: grid;
+    gap: 2px;
 }
 
 .brand-name {
     margin: 0;
-    font-size: 24px;
+    font-size: 26px;
     font-weight: 700;
     letter-spacing: 0;
+    line-height: 1;
 }
 
 .brand-subtitle {
@@ -152,8 +176,8 @@ a:focus-visible {
 }
 
 .vpn-status--active .vpn-status__dot {
-    background: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--success);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent);
 }
 
 .vpn-status--inactive .vpn-status__dot {
@@ -162,8 +186,8 @@ a:focus-visible {
 }
 
 .vpn-status--unknown .vpn-status__dot {
-    background: var(--warm);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warm) 18%, transparent);
+    background: var(--warning);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 18%, transparent);
 }
 
 .workspace {
@@ -218,10 +242,6 @@ a:focus-visible {
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
-}
-
-:root[data-theme="dark"] .search-button {
-    color: #07140d;
 }
 
 .search-button:hover {
@@ -290,7 +310,7 @@ a:focus-visible {
 }
 
 .history-count {
-    color: var(--warm);
+    color: var(--secondary);
     font-size: 13px;
     font-weight: 700;
     white-space: nowrap;
@@ -613,20 +633,28 @@ table.dataTable.no-footer {
     }
 
     .topbar {
+        flex-direction: column;
         align-items: flex-start;
+        gap: 16px;
         margin-bottom: 40px;
     }
 
     .brand {
-        display: block;
+        gap: 8px;
+    }
+
+    .brand-logo {
+        width: 38px;
+        height: 38px;
+        flex-basis: 38px;
     }
 
     .brand-subtitle {
-        display: block;
-        margin-top: 4px;
+        font-size: 12px;
     }
 
     .top-actions {
+        width: 100%;
         justify-content: flex-start;
     }
 

@@ -20,8 +20,21 @@ def _html_escape(value) -> str:
 
 def _theme_assets(asset_prefix: str = "") -> str:
     return f"""
+    <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="{asset_prefix}theme.css">
     <script src="{asset_prefix}theme.js"></script>
+"""
+
+
+def _brand_markup(subtitle: str, asset_prefix: str = "") -> str:
+    return f"""
+            <div class="brand">
+                <img class="brand-logo" src="{asset_prefix}assets/synthesix-mark.svg" alt="">
+                <div class="brand-copy">
+                    <h1 class="brand-name">Synthesix</h1>
+                    <span class="brand-subtitle">{_html_escape(subtitle)}</span>
+                </div>
+            </div>
 """
 
 
@@ -230,10 +243,7 @@ def generate_history_html():
 <body>
     <main class="app app--wide">
         <header class="topbar">
-            <div class="brand">
-                <h1 class="brand-name">Synthesix</h1>
-                <span class="brand-subtitle">Search history</span>
-            </div>
+            {_brand_markup("Search history", asset_prefix)}
             <div class="top-actions">
                 <a href="{search_href}" data-home-link class="nav-link">Search</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
@@ -425,10 +435,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 <body>
     <main class="app app--wide">
         <header class="topbar">
-            <div class="brand">
-                <h1 class="brand-name">Synthesix</h1>
-                <span class="brand-subtitle">Search results</span>
-            </div>
+            {_brand_markup("Search results", asset_prefix)}
             <div class="top-actions">
                 <a href="{search_href}" data-home-link class="nav-link">Search</a>
                 <a href="{history_href}" class="nav-link">History</a>

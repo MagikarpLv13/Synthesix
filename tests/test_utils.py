@@ -84,6 +84,9 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("rel=\"noopener noreferrer\"", content)
                 self.assertIn("../theme.css", content)
                 self.assertIn("../theme.js", content)
+                self.assertIn("../assets/favicon.svg", content)
+                self.assertIn("../assets/synthesix-mark.svg", content)
+                self.assertIn('class="brand-logo"', content)
                 self.assertIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
                 self.assertIn("data-home-link", content)
@@ -106,6 +109,8 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("file://C:/tmp/&quot;result&quot;.html", content)
                 self.assertIn("theme.css", content)
                 self.assertIn("theme.js", content)
+                self.assertIn("../assets/favicon.svg", content)
+                self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
                 self.assertIn("data-home-link", content)
@@ -281,6 +286,8 @@ class UtilsTestCase(unittest.TestCase):
 
                 self.assertIn("../../theme.css", content)
                 self.assertIn("../../theme.js", content)
+                self.assertIn("../../assets/favicon.svg", content)
+                self.assertIn("../../assets/synthesix-mark.svg", content)
                 self.assertIn('href="../../index.html"', content)
                 self.assertIn('href="history.html"', content)
             finally:

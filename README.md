@@ -4,6 +4,34 @@ Synthesix is a multi-engine search tool powered by Zendriver and Chrome DevTools
 
 The application is async-first and browser-driven: Zendriver controls Chrome/Chromium, while the user interacts with a local browser home page.
 
+## Brand
+
+Synthesix uses the following application palette:
+
+| Role | Color |
+| --- | --- |
+| Primary blue | `#2563EB` |
+| Primary navy | `#0F172A` |
+| Secondary cyan | `#06B6D4` |
+| Secondary slate | `#64748B` |
+| Monochrome black | `#000000` |
+| Monochrome white | `#FFFFFF` |
+
+Brand assets live in `assets/`:
+
+| Asset | Purpose |
+| --- | --- |
+| `synthesix-logo.svg` | Full logo for light backgrounds. |
+| `synthesix-logo-dark.svg` | Full logo for dark backgrounds. |
+| `synthesix-mark.svg` | Color symbol used in application headers. |
+| `synthesix-app-icon.svg` | Square application icon. |
+| `favicon.svg` | Browser tab and bookmark favicon. |
+| `synthesix-mark-black.svg` | Pure-black monochrome mark. |
+| `synthesix-mark-white.svg` | Pure-white monochrome mark. |
+
+The shared `theme.css` applies the palette to the home page, generated history page,
+and generated result reports in both light and dark modes.
+
 ## Prerequisites
 
 - Python 3.10+.
@@ -356,6 +384,7 @@ Use this checklist before bumping Zendriver:
 | `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
+| `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |
 | `settings.py` | Runtime configuration and environment variable parsing. |
