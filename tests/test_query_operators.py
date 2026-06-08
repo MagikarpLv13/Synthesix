@@ -46,6 +46,17 @@ class QueryOperatorsTestCase(unittest.TestCase):
             'after:2024-01-01 before:2024-12-31',
         )
 
+    def test_country_filter_does_not_change_search_terms(self):
+        filters = SearchFilters(country="Sweden")
+
+        self.assertEqual(build_display_query('"john doe"', filters), '"john doe"')
+        for engine in ("google", "bing", "brave", "duckduckgo"):
+            with self.subTest(engine=engine):
+                self.assertEqual(
+                    build_engine_query('"john doe"', engine, filters),
+                    '"john doe"',
+                )
+
     def test_build_engine_date_params_uses_engine_specific_formats(self):
         filters = SearchFilters(after="2024-01-02", before="2024-03-04")
 

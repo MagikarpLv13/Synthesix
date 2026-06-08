@@ -11,6 +11,7 @@ from lxml import html
 from exceptions import RobotChallengeError
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
+from search_regions import build_engine_region_params
 from settings import get_settings
 
 
@@ -81,6 +82,7 @@ class DuckDuckGoSearchEngine(SearchEngine):
             "kl": "wt-wt",  # No region
         }
         params.update(build_engine_date_params("duckduckgo", self.search_filters))
+        params.update(build_engine_region_params("duckduckgo", self.search_filters))
         query_string = "&".join(f"{key}={value}" for key, value in params.items())
         return f"{base_url or self.base_url}?{query_string}"
 

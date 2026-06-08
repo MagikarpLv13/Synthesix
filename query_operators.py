@@ -6,7 +6,17 @@ from typing import Mapping
 from urllib.parse import urlparse
 
 
-FILTER_FIELDS = ("site", "exclude", "title", "url", "body", "filetype", "after", "before")
+FILTER_FIELDS = (
+    "site",
+    "exclude",
+    "title",
+    "url",
+    "body",
+    "filetype",
+    "country",
+    "after",
+    "before",
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +27,7 @@ class SearchFilters:
     url: str = ""
     body: str = ""
     filetype: str = ""
+    country: str = ""
     after: str = ""
     before: str = ""
 

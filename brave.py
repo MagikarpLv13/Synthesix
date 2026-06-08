@@ -12,6 +12,7 @@ from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
+from search_regions import build_engine_region_params
 from settings import get_settings
 from utils import js_like_to_json
 
@@ -107,9 +108,10 @@ class BraveSearchEngine(SearchEngine):
 
     def construct_url(self):
         url = f"{self.base_url}/search?q={quote_plus(self.construct_query(self.query))}&spellcheck=0"
-        date_params = build_engine_date_params("brave", self.search_filters)
-        if date_params:
-            url += "&" + urlencode(date_params)
+        extra_params = build_engine_date_params("brave", self.search_filters)
+        extra_params.update(build_engine_region_params("brave", self.search_filters))
+        if extra_params:
+            url += "&" + urlencode(extra_params)
         return url
 
     # There is some cases where Brave does not display the Title in the HTML

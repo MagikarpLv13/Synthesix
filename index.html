@@ -17,6 +17,16 @@
                 <span class="brand-subtitle">Multi-engine search</span>
             </div>
             <div class="top-actions">
+                <button
+                    id="vpn-status"
+                    class="vpn-status vpn-status--checking"
+                    type="button"
+                    title="Checking the public IP used by Chrome. Click to refresh."
+                    aria-label="Checking VPN status"
+                >
+                    <span class="vpn-status__dot" aria-hidden="true"></span>
+                    <span id="vpn-status-label">Checking VPN</span>
+                </button>
                 <a href="history/history.html" target="_blank" rel="noopener noreferrer" class="nav-link">History</a>
                 <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
@@ -70,6 +80,16 @@
                         <span>File</span>
                         <input type="text" id="filter-filetype" placeholder="pdf">
                     </label>
+                    <label class="operator-field" for="filter-country">
+                        <span>Country</span>
+                        <input
+                            type="text"
+                            id="filter-country"
+                            list="country-options"
+                            placeholder="Sweden or SE"
+                            autocomplete="off"
+                        >
+                    </label>
                     <label class="operator-field" for="filter-after">
                         <span>After</span>
                         <input type="date" id="filter-after">
@@ -79,6 +99,65 @@
                         <input type="date" id="filter-before">
                     </label>
                 </div>
+                <datalist id="country-options">
+                    <option value="Argentina">AR</option>
+                    <option value="Australia">AU</option>
+                    <option value="Austria">AT</option>
+                    <option value="Belgium">BE</option>
+                    <option value="Brazil">BR</option>
+                    <option value="Bulgaria">BG</option>
+                    <option value="Canada">CA</option>
+                    <option value="Chile">CL</option>
+                    <option value="China">CN</option>
+                    <option value="Colombia">CO</option>
+                    <option value="Croatia">HR</option>
+                    <option value="Czechia">CZ</option>
+                    <option value="Denmark">DK</option>
+                    <option value="Estonia">EE</option>
+                    <option value="Finland">FI</option>
+                    <option value="France">FR</option>
+                    <option value="Germany">DE</option>
+                    <option value="Greece">GR</option>
+                    <option value="Hong Kong">HK</option>
+                    <option value="Hungary">HU</option>
+                    <option value="Iceland">IS</option>
+                    <option value="India">IN</option>
+                    <option value="Indonesia">ID</option>
+                    <option value="Ireland">IE</option>
+                    <option value="Israel">IL</option>
+                    <option value="Italy">IT</option>
+                    <option value="Japan">JP</option>
+                    <option value="South Korea">KR</option>
+                    <option value="Latvia">LV</option>
+                    <option value="Lithuania">LT</option>
+                    <option value="Malaysia">MY</option>
+                    <option value="Mexico">MX</option>
+                    <option value="Netherlands">NL</option>
+                    <option value="New Zealand">NZ</option>
+                    <option value="Norway">NO</option>
+                    <option value="Pakistan">PK</option>
+                    <option value="Peru">PE</option>
+                    <option value="Philippines">PH</option>
+                    <option value="Poland">PL</option>
+                    <option value="Portugal">PT</option>
+                    <option value="Romania">RO</option>
+                    <option value="Russia">RU</option>
+                    <option value="Saudi Arabia">SA</option>
+                    <option value="Singapore">SG</option>
+                    <option value="Slovakia">SK</option>
+                    <option value="Slovenia">SI</option>
+                    <option value="South Africa">ZA</option>
+                    <option value="Spain">ES</option>
+                    <option value="Sweden">SE</option>
+                    <option value="Switzerland">CH</option>
+                    <option value="Taiwan">TW</option>
+                    <option value="Thailand">TH</option>
+                    <option value="Turkey">TR</option>
+                    <option value="Ukraine">UA</option>
+                    <option value="United Kingdom">GB</option>
+                    <option value="United States">US</option>
+                    <option value="Vietnam">VN</option>
+                </datalist>
             </details>
 
             <div class="controls">
@@ -117,6 +196,9 @@
             const actionStatus = document.getElementById("action-status");
             const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
             const clearBrowserDataButton = document.getElementById("clear-browser-data");
+            const vpnStatusButton = document.getElementById("vpn-status");
+            const vpnStatusLabel = document.getElementById("vpn-status-label");
+            const vpnCheckUrl = "https://api.ipapi.is";
             const engineIds = ["google", "bing", "brave", "duckduckgo"];
             const filterInputIds = {
                 site: "filter-site",
@@ -125,6 +207,7 @@
                 url: "filter-url",
                 body: "filter-body",
                 filetype: "filter-filetype",
+                country: "filter-country",
                 after: "filter-after",
                 before: "filter-before"
             };
@@ -132,7 +215,8 @@
                 history: [],
                 visibleItems: [],
                 activeIndex: -1,
-                pendingAction: null
+                pendingAction: null,
+                vpnCheckId: 0
             };
 
             const normalize = (value) => String(value || "").toLowerCase().trim();
@@ -178,7 +262,8 @@
                         const haystack = [
                             item.query,
                             item.display_query,
-                            item.smart_query
+                            item.smart_query,
+                            JSON.stringify(item.filters || {})
                         ].map(normalize).join(" ");
                         return !filter || haystack.includes(filter);
                     })
@@ -271,6 +356,68 @@
                 actionStatus.classList.toggle("is-error", Boolean(isError));
             };
 
+            const setVpnStatus = (status, label, detail) => {
+                vpnStatusButton.className = `vpn-status vpn-status--${status}`;
+                vpnStatusLabel.textContent = label;
+                vpnStatusButton.title = `${detail} Click to refresh.`;
+                vpnStatusButton.setAttribute("aria-label", `${label}. ${detail}`);
+                vpnStatusButton.disabled = status === "checking";
+            };
+
+            const checkVpnStatus = async () => {
+                const checkId = ++state.vpnCheckId;
+                const controller = new AbortController();
+                const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+                setVpnStatus(
+                    "checking",
+                    "Checking VPN",
+                    "Checking the public IP used by Chrome."
+                );
+
+                try {
+                    const response = await fetch(vpnCheckUrl, {
+                        cache: "no-store",
+                        signal: controller.signal
+                    });
+                    if (!response.ok) {
+                        throw new Error(`VPN check failed with HTTP ${response.status}`);
+                    }
+
+                    const payload = await response.json();
+                    if (payload.error || typeof payload.is_vpn !== "boolean") {
+                        throw new Error(payload.error || "VPN status is missing");
+                    }
+                    if (checkId !== state.vpnCheckId) {
+                        return;
+                    }
+
+                    if (payload.is_vpn) {
+                        setVpnStatus(
+                            "active",
+                            "VPN likely",
+                            "The public IP is listed as a known VPN exit node. Detection can be wrong."
+                        );
+                    } else {
+                        setVpnStatus(
+                            "inactive",
+                            "VPN not detected",
+                            "The public IP is not listed as a known VPN exit node. This does not prove that a VPN is off."
+                        );
+                    }
+                } catch (error) {
+                    if (checkId !== state.vpnCheckId) {
+                        return;
+                    }
+                    setVpnStatus(
+                        "unknown",
+                        "VPN unknown",
+                        "The external VPN check is unavailable or timed out."
+                    );
+                } finally {
+                    window.clearTimeout(timeoutId);
+                }
+            };
+
             const setHistory = (history) => {
                 const seen = new Set();
                 state.history = Array.isArray(history)
@@ -313,6 +460,7 @@
             };
 
             searchButton.addEventListener("click", submitSearch);
+            vpnStatusButton.addEventListener("click", checkVpnStatus);
             clearSynthesixHistoryButton.addEventListener("click", () => {
                 if (confirm("Delete all Synthesix search history and generated result reports?")) {
                     queueAction("clear_synthesix_history");
@@ -365,8 +513,10 @@
             window.synthesixHome = {
                 setHistory,
                 setStatus,
+                checkVpnStatus,
                 consumeAction
             };
+            checkVpnStatus();
         })();
     </script>
 </body>

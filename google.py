@@ -4,6 +4,7 @@ from urllib.parse import quote_plus, urlencode
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
+from search_regions import build_engine_region_params
 
 
 logger = logging.getLogger(__name__)
@@ -16,9 +17,10 @@ class GoogleSearchEngine(SearchEngine):
 
     def construct_url(self) -> str:
         url = f"{self.base_url}/search?q={quote_plus(self.query)}&num={self.max_results}&start=0&filter=0&nfpr=1&udm=14&safe=off"
-        date_params = build_engine_date_params("google", self.search_filters)
-        if date_params:
-            url += "&" + urlencode(date_params)
+        extra_params = build_engine_date_params("google", self.search_filters)
+        extra_params.update(build_engine_region_params("google", self.search_filters))
+        if extra_params:
+            url += "&" + urlencode(extra_params)
         return url
 
     def parse_results(self, raw_results):

@@ -1,7 +1,9 @@
 import logging
+from urllib.parse import quote_plus, urlencode, urljoin
+
 from parsers import parse_with_xpath
 from search_engine import SearchEngine
-from urllib.parse import quote_plus, urljoin
+from search_regions import build_engine_region_params
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,11 @@ class BingSearchEngine(SearchEngine):
 
     def construct_url(self) -> str:
         count = min(50, int(self.max_results * 1.5 + 0.5))
-        return f"{self.base_url}/search?q={quote_plus(self.query)}&count={count}&adlt=off"
+        url = f"{self.base_url}/search?q={quote_plus(self.query)}&count={count}&adlt=off"
+        region_params = build_engine_region_params("bing", self.search_filters)
+        if region_params:
+            url += "&" + urlencode(region_params)
+        return url
 
     def parse_results(self, raw_results):
         xpaths = self.get_xpaths()

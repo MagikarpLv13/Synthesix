@@ -31,12 +31,32 @@ class EngineUrlTestCase(unittest.TestCase):
 
         self.assertEqual(params["tbs"], ["cdr:1,cd_min:01/02/2024,cd_max:03/04/2024"])
 
+    def test_google_url_targets_selected_country(self):
+        engine = GoogleSearchEngine()
+        engine.query = '"python async"'
+        engine.max_results = 20
+        engine.search_filters = SearchFilters(country="Sweden")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["gl"], ["se"])
+
     def test_bing_url_encodes_advanced_query(self):
         engine = BingSearchEngine()
         engine.query = '"python async" AND cdp'
         engine.max_results = 20
 
         self.assertIn("q=%22python+async%22+AND+cdp", engine.construct_url())
+
+    def test_bing_url_targets_selected_country(self):
+        engine = BingSearchEngine()
+        engine.query = '"python async"'
+        engine.max_results = 20
+        engine.search_filters = SearchFilters(country="Sweden")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["cc"], ["SE"])
 
     def test_brave_url_encodes_advanced_query(self):
         engine = BraveSearchEngine()
@@ -52,6 +72,15 @@ class EngineUrlTestCase(unittest.TestCase):
         params = parse_qs(urlparse(engine.construct_url()).query)
 
         self.assertEqual(params["tf"], ["2024-01-02to2024-03-04"])
+
+    def test_brave_url_targets_selected_country(self):
+        engine = BraveSearchEngine()
+        engine.query = '"python async"'
+        engine.search_filters = SearchFilters(country="Sweden")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["country"], ["se"])
 
     def test_duckduckgo_url_uses_main_web_search_and_pure_search_params(self):
         engine = DuckDuckGoSearchEngine()
@@ -76,6 +105,15 @@ class EngineUrlTestCase(unittest.TestCase):
         params = parse_qs(urlparse(engine.construct_url()).query)
 
         self.assertEqual(params["df"], ["2024-01-02..2024-03-04"])
+
+    def test_duckduckgo_url_targets_selected_country(self):
+        engine = DuckDuckGoSearchEngine()
+        engine.query = '"python async"'
+        engine.search_filters = SearchFilters(country="Sweden")
+
+        params = parse_qs(urlparse(engine.construct_url()).query)
+
+        self.assertEqual(params["kl"], ["se-sv"])
 
 
 class BingPaginationTestCase(unittest.TestCase):

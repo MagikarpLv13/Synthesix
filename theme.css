@@ -110,7 +110,8 @@ a:focus-visible {
 }
 
 .nav-link,
-.theme-toggle {
+.theme-toggle,
+.vpn-status {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -126,9 +127,43 @@ a:focus-visible {
 }
 
 .nav-link:hover,
-.theme-toggle:hover {
+.theme-toggle:hover,
+.vpn-status:hover {
     color: var(--text);
     background: var(--surface-2);
+}
+
+.vpn-status {
+    gap: 8px;
+}
+
+.vpn-status:disabled {
+    cursor: wait;
+    opacity: 0.8;
+}
+
+.vpn-status__dot {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 50%;
+    background: var(--muted);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.vpn-status--active .vpn-status__dot {
+    background: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.vpn-status--inactive .vpn-status__dot {
+    background: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.vpn-status--unknown .vpn-status__dot {
+    background: var(--warm);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warm) 18%, transparent);
 }
 
 .workspace {

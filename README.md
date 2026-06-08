@@ -73,8 +73,27 @@ Session behavior:
 - The home page includes a default bookmark/favorite entry for returning to Synthesix.
 - **Clear Synthesix history** removes saved searches and generated result reports.
 - **Clear browser data** restarts the automated browser after removing browsing history, cookies, cache, sessions, and site storage from the Synthesix profile.
+- The VPN indicator checks the public IP used by Chrome when the home page opens. Click the indicator to refresh it.
 
 Browser-data cleanup affects only `zendriver-profile/`, not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark and saved browser passwords, but clearing cookies signs out active website sessions.
+
+### VPN indicator
+
+The home page displays a connection indicator:
+
+- Green, `VPN likely`: the public IP is listed as a known VPN exit node.
+- Red, `VPN not detected`: the public IP is not listed as a known VPN exit node.
+- Gray/amber, `VPN unknown`: the check is running, unavailable, or timed out.
+
+The check runs from the Chrome page, so it observes the same public route as browser
+searches, including browser-level VPNs or proxies when they affect that page. It uses
+the anonymous `https://api.ipapi.is` endpoint and therefore sends the browser's public
+IP address to that external service. No search query, history entry, cookie, or account
+data is sent.
+
+VPN detection is probabilistic. A green indicator means the exit IP is known to the
+provider; a red indicator does not prove that no VPN is active. New, private,
+residential, corporate, or self-hosted VPN exits can remain undetected.
 
 ## Search Behavior
 
@@ -104,6 +123,7 @@ The home page includes an **OSINT filters** panel for common search operators wi
 | URL | Require text in the result URL. | Uses `inurl:` on Google/DuckDuckGo; falls back to a plain term on Bing/Brave. |
 | Page text | Bias the engine toward text in the page body. | Uses `intext:` on Google, `inbody:` on Bing/Brave, and a plain term on DuckDuckGo. |
 | File | Restrict by file extension. | Uses `filetype:`. |
+| Country | Prioritize results for a selected country or market. | Uses each engine's native regional parameter without changing the query text. |
 | After | Keep results from or after a selected date. | Uses each compatible engine's native date-range format. |
 | Before | Keep results up to a selected date. | Uses each compatible engine's native date-range format. |
 
@@ -129,6 +149,27 @@ Synthesix also applies local post-filtering when the condition can be verified f
 - `page text` is sent to the search engines but is not hard-filtered locally, because result snippets are not reliable full-page text.
 
 Filter-only searches are allowed. For example, leaving the main search box empty and setting `Site = example.com` plus `File = pdf` searches for documents on that domain.
+
+### Country targeting
+
+The `Country` field provides a searchable country list and also accepts direct two-letter
+country codes. Common English, French, and local aliases are normalized, so `Sweden`,
+`Suede` (with or without accents), `Sverige`, and `SE` all select Sweden.
+
+Synthesix sends the corresponding native regional parameter:
+
+| Engine | Sweden example |
+| --- | --- |
+| Google | `gl=se` |
+| Bing | `cc=SE` |
+| Brave | `country=se` |
+| DuckDuckGo | `kl=se-sv` |
+
+Country targeting prioritizes the selected market; it is not a strict country-domain
+filter. Combine it with `Site = .se` or a specific Swedish domain when the investigation
+requires a hard domain restriction. DuckDuckGo targeting is available for the regions
+defined by its public settings; unsupported two-letter codes still work on the other
+engines and leave DuckDuckGo on its worldwide region.
 
 ## Search Engines
 
@@ -243,7 +284,7 @@ venv\Scripts\python.exe -m unittest discover
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py
 ```
 
 Check whitespace before committing:
@@ -288,7 +329,7 @@ Use this checklist before bumping Zendriver:
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py
+   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py
    venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
@@ -314,6 +355,7 @@ Use this checklist before bumping Zendriver:
 | `search_orchestrator.py` | Multi-engine orchestration, retries, timeouts, scoring, and report generation. |
 | `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
+| `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |
 | `settings.py` | Runtime configuration and environment variable parsing. |
