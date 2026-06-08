@@ -35,7 +35,7 @@ def _env_optional_path(name: str, base_dir: Path) -> Path | None:
     value = os.getenv(name)
     if not value:
         return None
-    path = Path(value)
+    path = Path(value).expanduser()
     if not path.is_absolute():
         path = base_dir / path
     return path
@@ -43,7 +43,7 @@ def _env_optional_path(name: str, base_dir: Path) -> Path | None:
 
 def _env_path(name: str, default: str, base_dir: Path) -> Path:
     value = os.getenv(name, default)
-    path = Path(value)
+    path = Path(value).expanduser()
     if not path.is_absolute():
         path = base_dir / path
     return path

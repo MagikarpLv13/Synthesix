@@ -70,13 +70,13 @@ Session behavior:
 Simple queries are intentionally protected as exact phrases. For example:
 
 ```text
-starvos and lynch
+recette de pesto
 ```
 
 is searched as:
 
 ```text
-"starvos and lynch"
+"recette de pesto"
 ```
 
 Advanced queries with explicit operators and quoted phrases are preserved by the parser.
@@ -168,6 +168,36 @@ Example:
 $env:SYNTHESIX_DEFAULT_ENGINES = "google,bing,duckduckgo"
 $env:SYNTHESIX_ENGINE_SEARCH_TIMEOUT = "45"
 python main.py
+```
+
+### Linux Browser Detection
+
+Synthesix resolves the browser executable in this order:
+
+1. `SYNTHESIX_BROWSER_EXECUTABLE_PATH`, when explicitly configured.
+2. Chrome/Chromium or Brave commands available on `PATH`.
+3. Common Linux and Snap paths such as `/snap/bin/brave`.
+4. Brave Flatpak application `com.brave.Browser`.
+
+For Brave Flatpak, Synthesix checks the installation with `flatpak info` and generates an executable launcher in `.cache/synthesix/brave-flatpak`. Zendriver then uses that launcher as its browser executable, so CDP arguments are forwarded to:
+
+```bash
+flatpak run com.brave.Browser
+```
+
+No user-specific path is hardcoded. A custom launcher remains supported:
+
+```bash
+export SYNTHESIX_BROWSER=brave
+export SYNTHESIX_BROWSER_EXECUTABLE_PATH="$HOME/bin/brave-flatpak"
+python main.py
+```
+
+The launcher must be executable and forward every argument received from Zendriver:
+
+```sh
+#!/bin/sh
+exec flatpak run com.brave.Browser "$@"
 ```
 
 ## Development Checks

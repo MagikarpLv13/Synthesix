@@ -4,7 +4,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from browser_manager import _build_zendriver_config, _ensure_synthesix_bookmark, _mark_profile_exited_cleanly
+from browser_manager import (
+    FLATPAK_BRAVE_APP_ID,
+    _build_zendriver_config,
+    _ensure_synthesix_bookmark,
+    _find_native_browser_executable,
+    _mark_profile_exited_cleanly,
+    _resolve_browser_executable,
+)
 from settings import get_settings
 
 
@@ -104,6 +111,49 @@ class BrowserManagerTestCase(unittest.TestCase):
         self.assertEqual(config.browser_executable_path, str(settings.browser_executable_path))
         self.assertEqual(config.browser_connection_timeout, 0.75)
         self.assertEqual(config.browser_connection_max_tries, 20)
+
+    def test_native_browser_discovery_supports_brave_browser_stable(self):
+        with TemporaryDirectory() as temp_dir:
+            executable = Path(temp_dir) / "brave-browser-stable"
+            executable.write_text("", encoding="utf-8")
+
+            with patch(
+                "browser_manager.shutil.which",
+                side_effect=lambda command: (
+                    str(executable) if command == "brave-browser-stable" else None
+                ),
+            ):
+                resolved = _find_native_browser_executable("brave")
+
+        self.assertEqual(resolved, executable)
+
+    def test_flatpak_brave_wrapper_is_generated_when_no_native_binary_exists(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_BROWSER": "brave",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            flatpak_executable = "/usr/bin/flatpak"
+            with (
+                patch("browser_manager.sys.platform", "linux"),
+                patch(
+                    "browser_manager.shutil.which",
+                    side_effect=lambda command: (
+                        flatpak_executable if command == "flatpak" else None
+                    ),
+                ),
+                patch("browser_manager._flatpak_brave_is_installed", return_value=True),
+            ):
+                resolved = _resolve_browser_executable(settings)
+
+            self.assertIsNotNone(resolved)
+            content = resolved.read_text(encoding="utf-8")
+
+        self.assertIn(f"run {FLATPAK_BRAVE_APP_ID}", content)
+        self.assertIn('"$@"', content)
 
 
 if __name__ == "__main__":

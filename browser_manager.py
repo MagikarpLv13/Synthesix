@@ -1,14 +1,136 @@
-import zendriver as uc
-import os
 import json
 import logging
+import os
 from pathlib import Path
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
 import time
 import uuid
+
+import zendriver as uc
 from zendriver.core.config import Config
+
 from settings import AppSettings, get_settings
 
 logger = logging.getLogger(__name__)
+
+FLATPAK_BRAVE_APP_ID = "com.brave.Browser"
+BROWSER_COMMANDS = {
+    "chrome": (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+    ),
+    "brave": (
+        "brave-browser",
+        "brave-browser-stable",
+        "brave",
+    ),
+}
+LINUX_BROWSER_PATHS = {
+    "chrome": (
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+    ),
+    "brave": (
+        "/usr/bin/brave-browser",
+        "/usr/bin/brave-browser-stable",
+        "/opt/brave.com/brave/brave-browser",
+        "/snap/bin/brave",
+    ),
+}
+
+
+def _browser_types_to_try(browser_type: str) -> tuple[str, ...]:
+    normalized = browser_type.strip().lower()
+    if normalized == "auto":
+        return ("chrome", "brave")
+    if normalized in BROWSER_COMMANDS:
+        return (normalized,)
+    return ()
+
+
+def _find_native_browser_executable(browser_type: str) -> Path | None:
+    for candidate_type in _browser_types_to_try(browser_type):
+        for command in BROWSER_COMMANDS[candidate_type]:
+            executable = shutil.which(command)
+            if executable:
+                return Path(executable)
+
+        if sys.platform.startswith("linux"):
+            for candidate in LINUX_BROWSER_PATHS[candidate_type]:
+                path = Path(candidate)
+                if path.is_file() and os.access(path, os.X_OK):
+                    return path
+
+    return None
+
+
+def _flatpak_brave_is_installed(flatpak_executable: str) -> bool:
+    try:
+        result = subprocess.run(
+            [flatpak_executable, "info", FLATPAK_BRAVE_APP_ID],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.debug("Unable to inspect the Brave Flatpak installation", exc_info=True)
+        return False
+    return result.returncode == 0
+
+
+def _ensure_flatpak_brave_wrapper(settings: AppSettings, flatpak_executable: str) -> Path | None:
+    wrapper_path = settings.base_dir / ".cache" / "synthesix" / "brave-flatpak"
+    wrapper_content = (
+        "#!/bin/sh\n"
+        f"exec {shlex.quote(flatpak_executable)} run {FLATPAK_BRAVE_APP_ID} \"$@\"\n"
+    )
+
+    try:
+        wrapper_path.parent.mkdir(parents=True, exist_ok=True)
+        if not wrapper_path.exists() or wrapper_path.read_text(encoding="utf-8") != wrapper_content:
+            wrapper_path.write_text(wrapper_content, encoding="utf-8", newline="\n")
+        wrapper_path.chmod(
+            wrapper_path.stat().st_mode
+            | stat.S_IXUSR
+            | stat.S_IXGRP
+            | stat.S_IXOTH
+        )
+    except OSError:
+        logger.warning("Unable to create the Brave Flatpak launcher: %s", wrapper_path, exc_info=True)
+        return None
+
+    return wrapper_path
+
+
+def _resolve_browser_executable(settings: AppSettings) -> Path | None:
+    if settings.browser_executable_path is not None:
+        return settings.browser_executable_path
+
+    executable = _find_native_browser_executable(settings.browser_type)
+    if executable is not None:
+        return executable
+
+    if not sys.platform.startswith("linux"):
+        return None
+    if "brave" not in _browser_types_to_try(settings.browser_type):
+        return None
+
+    flatpak_executable = shutil.which("flatpak")
+    if not flatpak_executable or not _flatpak_brave_is_installed(flatpak_executable):
+        return None
+
+    return _ensure_flatpak_brave_wrapper(settings, flatpak_executable)
 
 
 def _update_json_file(path: Path, update_callback) -> None:
@@ -130,16 +252,28 @@ def _ensure_synthesix_bookmark(profile_dir: str, home_url: str) -> None:
 
 
 def _build_zendriver_config(settings: AppSettings) -> Config:
-    config = Config(
-        browser=settings.browser_type,
-        browser_executable_path=(
-            str(settings.browser_executable_path)
-            if settings.browser_executable_path is not None
-            else None
-        ),
-        browser_connection_timeout=settings.browser_connection_timeout,
-        browser_connection_max_tries=settings.browser_connection_max_tries,
-    )
+    browser_executable_path = _resolve_browser_executable(settings)
+    if browser_executable_path is not None:
+        logger.info("Using browser executable: %s", browser_executable_path)
+
+    try:
+        config = Config(
+            browser=settings.browser_type.strip().lower(),
+            browser_executable_path=(
+                str(browser_executable_path)
+                if browser_executable_path is not None
+                else None
+            ),
+            browser_connection_timeout=settings.browser_connection_timeout,
+            browser_connection_max_tries=settings.browser_connection_max_tries,
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "Synthesix could not find Chrome or Brave. Install a native, Snap, or "
+            "Flatpak browser, or set SYNTHESIX_BROWSER_EXECUTABLE_PATH to the "
+            "browser executable or an executable wrapper."
+        ) from exc
+
     config.user_data_dir = str(settings.browser_profile_dir)
     return config
 
