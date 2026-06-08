@@ -88,7 +88,7 @@ The home page includes an **OSINT filters** panel for common search operators wi
 | Field | Intent | Engine query behavior |
 | --- | --- | --- |
 | Site | Restrict results to one or more domains. | Uses `site:`. |
-| Exclude | Remove one or more domains. | Uses `-site:` on Google/DuckDuckGo and `NOT site:` on Bing/Brave. |
+| Exclude | Remove results containing one or more terms. | Uses `-term` or `-"quoted phrase"`. |
 | Title | Require text in the result title. | Uses `intitle:`. |
 | URL | Require text in the result URL. | Uses `inurl:` on Google/DuckDuckGo; falls back to a plain term on Bing/Brave. |
 | Page text | Bias the engine toward text in the page body. | Uses `intext:` on Google, `inbody:` on Bing/Brave, and a plain term on DuckDuckGo. |
@@ -98,7 +98,8 @@ Multiple values can be separated with commas in a filter field. Values containin
 
 Synthesix also applies local post-filtering when the condition can be verified from the collected result metadata:
 
-- `site` and `exclude` are checked against the result domain.
+- `site` is checked against the result domain.
+- `exclude` is checked against the result title, description, and URL.
 - `title` is checked against the result title.
 - `url` and `file` are checked against the result URL.
 - `page text` is sent to the search engines but is not hard-filtered locally, because result snippets are not reliable full-page text.

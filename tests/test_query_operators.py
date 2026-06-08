@@ -9,10 +9,24 @@ from query_operators import (
 
 
 class QueryOperatorsTestCase(unittest.TestCase):
+    def test_exclude_filter_adds_negative_search_term(self):
+        filters = SearchFilters(exclude="fromage")
+
+        self.assertEqual(
+            build_display_query('"Sandwich au jambon"', filters),
+            '"Sandwich au jambon" -fromage',
+        )
+        for engine in ("google", "bing", "brave", "duckduckgo"):
+            with self.subTest(engine=engine):
+                self.assertEqual(
+                    build_engine_query('"Sandwich au jambon"', engine, filters),
+                    '"Sandwich au jambon" -fromage',
+                )
+
     def test_build_display_query_uses_canonical_operators(self):
         filters = SearchFilters(
             site="example.com",
-            exclude_site="pinterest.com",
+            exclude="directory, archived page",
             title="profile page",
             url="admin",
             body="email address",
@@ -23,7 +37,7 @@ class QueryOperatorsTestCase(unittest.TestCase):
 
         self.assertEqual(
             query,
-            '"john doe" site:example.com -site:pinterest.com '
+            '"john doe" site:example.com -directory -"archived page" '
             'intitle:"profile page" inurl:admin inbody:"email address" filetype:pdf',
         )
 
@@ -54,7 +68,7 @@ class QueryOperatorsTestCase(unittest.TestCase):
     def test_result_matches_verifiable_filters(self):
         filters = SearchFilters(
             site="example.com",
-            exclude_site="pinterest.com",
+            exclude="archived",
             title="profile",
             url="admin",
             filetype="pdf",
@@ -68,7 +82,7 @@ class QueryOperatorsTestCase(unittest.TestCase):
         self.assertTrue(result_matches_filters(row, filters))
         self.assertFalse(result_matches_filters({**row, "title": "John Doe"}, filters))
         self.assertFalse(
-            result_matches_filters({**row, "link": "https://pinterest.com/admin/report.pdf"}, filters)
+            result_matches_filters({**row, "description": "Archived reference"}, filters)
         )
         self.assertFalse(
             result_matches_filters({**row, "link": "https://sub.example.com/admin/report.html"}, filters)

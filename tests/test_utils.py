@@ -23,6 +23,7 @@ class UtilsTestCase(unittest.TestCase):
         self.assertTrue(is_advanced_query("site:example.com python"))
         self.assertTrue(is_advanced_query("filetype:pdf python"))
         self.assertTrue(is_advanced_query("intext:email python"))
+        self.assertTrue(is_advanced_query("sandwich au jambon -fromage"))
         self.assertFalse(is_advanced_query("starvos and lynch"))
         self.assertFalse(is_advanced_query("python or cdp"))
         self.assertFalse(is_advanced_query("python asyncio tutorial"))

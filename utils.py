@@ -360,6 +360,8 @@ def is_advanced_query(query: str) -> bool:
     )
     if any(op in lowered for op in advanced_markers):
         return True
+    if re.search(r'(?:^|\s)-(?:"[^"]+"|\S+)', query):
+        return True
     return re.search(r"\b(AND|OR|NOT)\b", query) is not None
 
 

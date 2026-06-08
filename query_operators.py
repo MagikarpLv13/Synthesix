@@ -5,13 +5,13 @@ from typing import Mapping
 from urllib.parse import urlparse
 
 
-FILTER_FIELDS = ("site", "exclude_site", "title", "url", "body", "filetype")
+FILTER_FIELDS = ("site", "exclude", "title", "url", "body", "filetype")
 
 
 @dataclass(frozen=True)
 class SearchFilters:
     site: str = ""
-    exclude_site: str = ""
+    exclude: str = ""
     title: str = ""
     url: str = ""
     body: str = ""
@@ -56,10 +56,8 @@ def _operator_terms(operator: str, values: str) -> list[str]:
     return [f"{operator}:{_quote_operator_value(value)}" for value in _split_values(values)]
 
 
-def _negative_site_terms(engine_name: str, values: str) -> list[str]:
-    if engine_name in {"bing", "brave"}:
-        return [f"NOT site:{value}" for value in _split_values(values)]
-    return [f"-site:{value}" for value in _split_values(values)]
+def _negative_terms(values: str) -> list[str]:
+    return [f"-{_quote_operator_value(value)}" for value in _split_values(values)]
 
 
 def _plain_terms(values: str) -> list[str]:
@@ -70,7 +68,7 @@ def build_display_query(base_query: str, filters: SearchFilters | Mapping | None
     filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
     parts = [base_query.strip()] if base_query.strip() else []
     parts.extend(_operator_terms("site", filters.site))
-    parts.extend(_negative_site_terms("google", filters.exclude_site))
+    parts.extend(_negative_terms(filters.exclude))
     parts.extend(_operator_terms("intitle", filters.title))
     parts.extend(_operator_terms("inurl", filters.url))
     parts.extend(_operator_terms("inbody", filters.body))
@@ -88,7 +86,7 @@ def build_engine_query(
     parts = [base_query.strip()] if base_query.strip() else []
 
     parts.extend(_operator_terms("site", filters.site))
-    parts.extend(_negative_site_terms(engine, filters.exclude_site))
+    parts.extend(_negative_terms(filters.exclude))
     parts.extend(_operator_terms("intitle", filters.title))
 
     if engine in {"google", "duckduckgo"}:
@@ -139,6 +137,7 @@ def result_matches_filters(row: Mapping, filters: SearchFilters | Mapping | None
         return True
 
     title = str(row.get("title", "")).lower()
+    description = str(row.get("description", "")).lower()
     link = str(row.get("link", ""))
     lower_link = link.lower()
 
@@ -146,7 +145,8 @@ def result_matches_filters(row: Mapping, filters: SearchFilters | Mapping | None
     if include_sites and not any(_link_matches_site(link, value) for value in include_sites):
         return False
 
-    if any(_link_matches_site(link, value) for value in _split_values(filters.exclude_site)):
+    searchable_result = " ".join((title, description, lower_link))
+    if any(value.lower() in searchable_result for value in _split_values(filters.exclude)):
         return False
 
     if any(value.lower() not in title for value in _split_values(filters.title)):
