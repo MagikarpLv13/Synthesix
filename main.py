@@ -1,15 +1,19 @@
 import asyncio
 import argparse
 import hashlib
+import importlib.metadata
 from pathlib import Path
 import logging
 import json
 import os
+import shutil
 import time
 import sys
 from urllib.parse import urlsplit
+from uuid import uuid4
 from browser_manager import HeadlessBrowserManager
-from exceptions import InvestigationError, SynthesixError
+from evidence import build_evidence_manifest, capture_png, write_manifest
+from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
 from investigations.view import generate_investigation_page
@@ -26,6 +30,32 @@ from utils import (
 
 logger = logging.getLogger(__name__)
 _MISSING_HISTORY_SIGNATURE = object()
+
+
+def _tool_version() -> str:
+    try:
+        return importlib.metadata.version("synthesix")
+    except importlib.metadata.PackageNotFoundError:
+        return "development"
+
+
+def _stored_path(path: Path, base_dir: Path) -> str:
+    path = Path(path).resolve()
+    try:
+        return path.relative_to(base_dir.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _default_capture_name(captured_at: str) -> str:
+    compact = (
+        str(captured_at or "")
+        .replace("T", "_")
+        .replace(":", "-")
+        .split(".", 1)[0]
+        .replace("+00-00", "")
+    )
+    return f"screenshot_{compact or 'capture'}"
 
 
 def _normalize_tab_url(url: str | None) -> str:
@@ -237,6 +267,13 @@ async def _install_and_consume_save_overlay(
                         pointerEvents: "auto"
                     }});
                     const shadow = host.attachShadow({{ mode: "open" }});
+                    const toolbar = document.createElement("div");
+                    Object.assign(toolbar.style, {{
+                        all: "initial",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px"
+                    }});
                     const button = document.createElement("button");
                     button.type = "button";
                     Object.assign(button.style, {{
@@ -306,6 +343,23 @@ async def _install_and_consume_save_overlay(
                     label.textContent = "Save page";
                     label.style.display = "block";
                     button.append(mark, label);
+                    host.__synthesixPagePayload = () => ({{
+                        url: window.location.href,
+                        title: document.title || window.location.hostname,
+                        description: (
+                            document.querySelector(
+                                'meta[name="description" i]'
+                            )?.content || ""
+                        ),
+                        referrer: document.referrer || "",
+                        browserContext: {{
+                            viewportWidth: window.innerWidth,
+                            viewportHeight: window.innerHeight,
+                            devicePixelRatio: window.devicePixelRatio || 1,
+                            language: navigator.language || "",
+                            userAgent: navigator.userAgent || ""
+                        }}
+                    }});
 
                     const stateColors = {{
                         idle: ["#2563EB", "#1D4ED8"],
@@ -378,19 +432,384 @@ async def _install_and_consume_save_overlay(
                         window.__synthesixSavePageAction = {{
                             action: "save_page_to_investigation",
                             investigationId: host.dataset.investigationId,
-                            page: {{
-                                url: window.location.href,
-                                title: document.title || window.location.hostname,
-                                description: (
-                                    document.querySelector(
-                                        'meta[name="description" i]'
-                                    )?.content || ""
-                                ),
-                                referrer: document.referrer || ""
-                            }}
+                            page: host.__synthesixPagePayload()
                         }};
                     }});
-                    shadow.appendChild(button);
+
+                    const captureButton = document.createElement("button");
+                    captureButton.type = "button";
+                    captureButton.setAttribute(
+                        "aria-label",
+                        "Capture evidence"
+                    );
+                    Object.assign(captureButton.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "42px",
+                        height: "42px",
+                        border: "1px solid #334155",
+                        borderRadius: "6px",
+                        background: "#0F172A",
+                        color: "#FFFFFF",
+                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
+                        cursor: "pointer",
+                        transition: (
+                            "background-color 140ms ease, border-color 140ms ease, "
+                            + "box-shadow 140ms ease, transform 140ms ease"
+                        )
+                    }});
+                    const camera = document.createElementNS(
+                        svgNamespace,
+                        "svg"
+                    );
+                    camera.setAttribute("viewBox", "0 0 24 24");
+                    camera.setAttribute("aria-hidden", "true");
+                    Object.assign(camera.style, {{
+                        display: "block",
+                        width: "20px",
+                        height: "20px"
+                    }});
+                    const cameraBody = document.createElementNS(
+                        svgNamespace,
+                        "path"
+                    );
+                    cameraBody.setAttribute(
+                        "d",
+                        "M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"
+                    );
+                    cameraBody.setAttribute("fill", "none");
+                    cameraBody.setAttribute("stroke", "currentColor");
+                    cameraBody.setAttribute("stroke-width", "2");
+                    cameraBody.setAttribute("stroke-linejoin", "round");
+                    const cameraLens = document.createElementNS(
+                        svgNamespace,
+                        "circle"
+                    );
+                    cameraLens.setAttribute("cx", "12");
+                    cameraLens.setAttribute("cy", "13");
+                    cameraLens.setAttribute("r", "3");
+                    cameraLens.setAttribute("fill", "none");
+                    cameraLens.setAttribute("stroke", "currentColor");
+                    cameraLens.setAttribute("stroke-width", "2");
+                    camera.append(cameraBody, cameraLens);
+                    captureButton.appendChild(camera);
+
+                    const captureMenu = document.createElement("div");
+                    Object.assign(captureMenu.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "none",
+                        position: "absolute",
+                        right: "0",
+                        bottom: "50px",
+                        width: "180px",
+                        padding: "6px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "6px",
+                        background: "#FFFFFF",
+                        boxShadow: "0 14px 32px rgba(15, 23, 42, 0.24)",
+                        font: "600 13px Arial, sans-serif"
+                    }});
+                    const captureNameInput = document.createElement("input");
+                    captureNameInput.type = "text";
+                    captureNameInput.maxLength = 120;
+                    captureNameInput.placeholder = "Capture name (optional)";
+                    captureNameInput.setAttribute(
+                        "aria-label",
+                        "Capture name"
+                    );
+                    Object.assign(captureNameInput.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "block",
+                        width: "100%",
+                        marginBottom: "5px",
+                        padding: "8px 9px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "4px",
+                        background: "#FFFFFF",
+                        color: "#0F172A",
+                        font: "500 13px Arial, sans-serif"
+                    }});
+                    host.__synthesixDefaultCaptureName = () => {{
+                        const now = new Date();
+                        const pad = (value) => String(value).padStart(2, "0");
+                        return (
+                            `screenshot_${{now.getFullYear()}}-`
+                            + `${{pad(now.getMonth() + 1)}}-`
+                            + `${{pad(now.getDate())}}_`
+                            + `${{pad(now.getHours())}}-`
+                            + `${{pad(now.getMinutes())}}-`
+                            + `${{pad(now.getSeconds())}}`
+                        );
+                    }};
+
+                    const createCaptureChoice = (labelText, scope) => {{
+                        const choice = document.createElement("button");
+                        choice.type = "button";
+                        choice.textContent = labelText;
+                        Object.assign(choice.style, {{
+                            all: "initial",
+                            boxSizing: "border-box",
+                            display: "block",
+                            width: "100%",
+                            padding: "9px 10px",
+                            borderRadius: "4px",
+                            color: "#0F172A",
+                            font: "600 13px Arial, sans-serif",
+                            cursor: "pointer"
+                        }});
+                        choice.addEventListener("mouseenter", () => {{
+                            choice.style.background = "#EFF6FF";
+                            choice.style.color = "#1D4ED8";
+                        }});
+                        choice.addEventListener("mouseleave", () => {{
+                            choice.style.background = "transparent";
+                            choice.style.color = "#0F172A";
+                        }});
+                        choice.addEventListener("click", () => {{
+                            captureMenu.style.display = "none";
+                            if (!host.dataset.investigationId) {{
+                                window.__synthesixSavePageAction = {{
+                                    action: "focus_home"
+                                }};
+                                return;
+                            }}
+                            if (scope === "viewport") {{
+                                host.__synthesixQueueCapture("viewport", {{
+                                    x: window.scrollX,
+                                    y: window.scrollY,
+                                    width: window.innerWidth,
+                                    height: window.innerHeight
+                                }}, captureNameInput.value);
+                            }} else {{
+                                host.__synthesixStartRegionSelection(
+                                    captureNameInput.value
+                                );
+                            }}
+                        }});
+                        return choice;
+                    }};
+                    captureMenu.append(
+                        captureNameInput,
+                        createCaptureChoice("Visible area", "viewport"),
+                        createCaptureChoice("Select area", "region")
+                    );
+
+                    const captureColors = {{
+                        idle: ["#0F172A", "#334155"],
+                        idleHover: ["#334155", "#475569"],
+                        capturing: ["#475569", "#334155"],
+                        captured: ["#059669", "#047857"],
+                        capturedHover: ["#047857", "#065F46"],
+                        error: ["#DC2626", "#B91C1C"],
+                        errorHover: ["#B91C1C", "#991B1B"]
+                    }};
+                    host.__synthesixSetCaptureState = (
+                        state,
+                        tooltip = "Capture evidence",
+                        hovered = false
+                    ) => {{
+                        const key = hovered ? `${{state}}Hover` : state;
+                        const colors = captureColors[key] || captureColors[state];
+                        captureButton.dataset.state = state;
+                        captureButton.disabled = state === "capturing";
+                        captureButton.title = tooltip;
+                        captureButton.style.background = colors[0];
+                        captureButton.style.borderColor = colors[1];
+                        captureButton.style.cursor = (
+                            state === "capturing" ? "wait" : "pointer"
+                        );
+                    }};
+                    host.__synthesixQueueCapture = (
+                        scope,
+                        selection,
+                        captureName
+                    ) => {{
+                        host.__synthesixSetCaptureState(
+                            "capturing",
+                            "Capturing evidence..."
+                        );
+                        host.style.display = "none";
+                        window.requestAnimationFrame(() => {{
+                            window.requestAnimationFrame(() => {{
+                                window.__synthesixSavePageAction = {{
+                                    action: "capture_evidence_to_investigation",
+                                    investigationId: host.dataset.investigationId,
+                                    captureScope: scope,
+                                    captureName: String(captureName || "").trim(),
+                                    selection,
+                                    page: host.__synthesixPagePayload()
+                                }};
+                                captureNameInput.value = "";
+                            }});
+                        }});
+                    }};
+                    host.__synthesixStartRegionSelection = (captureName) => {{
+                        host.style.display = "none";
+                        const selectionHost = document.createElement("div");
+                        selectionHost.id = "__synthesix-evidence-selection";
+                        Object.assign(selectionHost.style, {{
+                            all: "initial",
+                            position: "fixed",
+                            inset: "0",
+                            zIndex: "2147483647",
+                            cursor: "crosshair",
+                            background: "rgba(15, 23, 42, 0.16)",
+                            userSelect: "none",
+                            touchAction: "none"
+                        }});
+                        const selectionShadow = selectionHost.attachShadow({{
+                            mode: "closed"
+                        }});
+                        const hint = document.createElement("div");
+                        hint.textContent = "Drag to select evidence · Esc to cancel";
+                        Object.assign(hint.style, {{
+                            position: "fixed",
+                            top: "16px",
+                            left: "50%",
+                            transform: "translateX(-50%)",
+                            padding: "9px 12px",
+                            borderRadius: "6px",
+                            background: "#0F172A",
+                            color: "#FFFFFF",
+                            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.3)",
+                            font: "600 13px Arial, sans-serif",
+                            pointerEvents: "none"
+                        }});
+                        const selectionBox = document.createElement("div");
+                        Object.assign(selectionBox.style, {{
+                            display: "none",
+                            position: "fixed",
+                            border: "2px solid #06B6D4",
+                            background: "rgba(6, 182, 212, 0.12)",
+                            boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.38)",
+                            pointerEvents: "none"
+                        }});
+                        selectionShadow.append(hint, selectionBox);
+
+                        let startX = 0;
+                        let startY = 0;
+                        let selecting = false;
+                        const cleanup = (restoreToolbar) => {{
+                            document.removeEventListener(
+                                "keydown",
+                                onKeyDown,
+                                true
+                            );
+                            selectionHost.remove();
+                            if (restoreToolbar) {{
+                                host.style.display = "block";
+                            }}
+                        }};
+                        const onKeyDown = (event) => {{
+                            if (event.key !== "Escape") {{
+                                return;
+                            }}
+                            event.preventDefault();
+                            cleanup(true);
+                        }};
+                        document.addEventListener("keydown", onKeyDown, true);
+                        selectionHost.addEventListener("pointerdown", (event) => {{
+                            event.preventDefault();
+                            selecting = true;
+                            startX = event.clientX;
+                            startY = event.clientY;
+                            selectionBox.style.display = "block";
+                            try {{
+                                selectionHost.setPointerCapture(event.pointerId);
+                            }} catch (_error) {{
+                                // Synthetic events and older browsers may not expose capture.
+                            }}
+                        }});
+                        selectionHost.addEventListener("pointermove", (event) => {{
+                            if (!selecting) {{
+                                return;
+                            }}
+                            const left = Math.min(startX, event.clientX);
+                            const top = Math.min(startY, event.clientY);
+                            selectionBox.style.left = `${{left}}px`;
+                            selectionBox.style.top = `${{top}}px`;
+                            selectionBox.style.width = (
+                                `${{Math.abs(event.clientX - startX)}}px`
+                            );
+                            selectionBox.style.height = (
+                                `${{Math.abs(event.clientY - startY)}}px`
+                            );
+                        }});
+                        selectionHost.addEventListener("pointerup", (event) => {{
+                            if (!selecting) {{
+                                return;
+                            }}
+                            selecting = false;
+                            const left = Math.min(startX, event.clientX);
+                            const top = Math.min(startY, event.clientY);
+                            const width = Math.abs(event.clientX - startX);
+                            const height = Math.abs(event.clientY - startY);
+                            cleanup(false);
+                            if (width < 8 || height < 8) {{
+                                host.style.display = "block";
+                                return;
+                            }}
+                            host.__synthesixQueueCapture(
+                                "region",
+                                {{
+                                    x: left + window.scrollX,
+                                    y: top + window.scrollY,
+                                    width,
+                                    height
+                                }},
+                                captureName
+                            );
+                        }});
+                        (document.documentElement || document.body).appendChild(
+                            selectionHost
+                        );
+                    }};
+
+                    captureButton.addEventListener("click", () => {{
+                        if (!host.dataset.investigationId) {{
+                            window.__synthesixSavePageAction = {{
+                                action: "focus_home"
+                            }};
+                            return;
+                        }}
+                        captureMenu.style.display = (
+                            captureMenu.style.display === "none"
+                                ? "block"
+                                : "none"
+                        );
+                        if (
+                            captureMenu.style.display === "block"
+                            && !captureNameInput.value.trim()
+                        ) {{
+                            captureNameInput.value = (
+                                host.__synthesixDefaultCaptureName()
+                            );
+                        }}
+                    }});
+                    captureButton.addEventListener("mouseenter", () => {{
+                        if (!captureButton.disabled) {{
+                            host.__synthesixSetCaptureState(
+                                captureButton.dataset.state,
+                                captureButton.title,
+                                true
+                            );
+                            captureButton.style.transform = "translateY(-1px)";
+                        }}
+                    }});
+                    captureButton.addEventListener("mouseleave", () => {{
+                        host.__synthesixSetCaptureState(
+                            captureButton.dataset.state,
+                            captureButton.title
+                        );
+                        captureButton.style.transform = "translateY(0)";
+                    }});
+                    toolbar.append(button, captureButton);
+                    shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);
                 }}
 
@@ -400,6 +819,9 @@ async def _install_and_consume_save_overlay(
                 host.dataset.pageKey = pageKey;
                 const button = host.shadowRoot.querySelector("button");
                 const statusUntil = Number(host.dataset.statusUntil || 0);
+                const captureStatusUntil = Number(
+                    host.dataset.captureStatusUntil || 0
+                );
                 if (contextChanged) {{
                     host.dataset.saved = "0";
                     host.dataset.statusUntil = "0";
@@ -417,11 +839,28 @@ async def _install_and_consume_save_overlay(
                             "Open Synthesix to select an investigation before saving this page"
                         );
                     }}
+                    host.__synthesixSetCaptureState(
+                        "idle",
+                        "Capture evidence"
+                    );
                 }} else if (
                     button.dataset.state === "error"
                     && Date.now() >= statusUntil
                 ) {{
                     host.__synthesixSetButtonState("idle", "Save page");
+                }}
+                if (
+                    ["captured", "error"].includes(
+                        host.shadowRoot.querySelector(
+                            'button[aria-label="Capture evidence"]'
+                        )?.dataset.state
+                    )
+                    && Date.now() >= captureStatusUntil
+                ) {{
+                    host.__synthesixSetCaptureState(
+                        "idle",
+                        "Capture evidence"
+                    );
                 }}
 
                 if (
@@ -481,6 +920,168 @@ async def _set_save_overlay_status(
         )
     except Exception:
         logger.debug("Unable to update the save-page overlay", exc_info=True)
+
+
+async def _set_evidence_overlay_status(
+    tab,
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    if tab is None:
+        return
+    try:
+        await tab.evaluate(
+            f"""
+            (() => {{
+                const host = document.getElementById("__synthesix-save-overlay");
+                if (!host || !host.__synthesixSetCaptureState) {{
+                    return;
+                }}
+                host.style.display = "block";
+                host.__synthesixSetCaptureState(
+                    {json.dumps("error" if is_error else "captured")},
+                    {json.dumps(message)}
+                );
+                host.dataset.captureStatusUntil = String(Date.now() + 2200);
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to update the evidence overlay", exc_info=True)
+
+
+async def _capture_evidence(
+    service: InvestigationService,
+    settings: AppSettings,
+    tab,
+    investigation_id: str,
+    payload: dict,
+):
+    investigation = service.get(investigation_id)
+    if investigation.status != "active":
+        raise EvidenceCaptureError("Archived investigations are read-only.")
+
+    page = payload.get("page", {})
+    saved = service.save_page(investigation_id, page)
+    capture_scope = str(payload.get("captureScope", "") or "").strip()
+    if capture_scope not in {"viewport", "region"}:
+        raise EvidenceCaptureError("Unsupported evidence capture scope.")
+
+    selection = payload.get("selection", {})
+    capture_id = str(uuid4())
+    captured_at = utc_now()
+    capture_name = (
+        str(payload.get("captureName", "") or "").strip()
+        or _default_capture_name(captured_at)
+    )[:120]
+    capture_dir = settings.evidence_dir / investigation_id / capture_id
+    png_path = capture_dir / "capture.png"
+    manifest_path = capture_dir / "manifest.json"
+    tool_version = _tool_version()
+
+    try:
+        captured_png = await capture_png(tab, png_path, selection)
+        artifact_id = str(uuid4())
+        stored_png_path = _stored_path(png_path, settings.base_dir)
+        artifact = {
+            "id": artifact_id,
+            "artifact_type": "png",
+            "file_path": stored_png_path,
+            "mime_type": "image/png",
+            "sha256": captured_png.sha256,
+            "byte_size": captured_png.byte_size,
+            "created_at": captured_at,
+        }
+        browser_context = page.get("browserContext", {})
+        if not isinstance(browser_context, dict):
+            browser_context = {}
+        manifest = build_evidence_manifest(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=capture_name,
+            captured_at=captured_at,
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope=capture_scope,
+            selection={
+                "x": float(selection.get("x", 0)),
+                "y": float(selection.get("y", 0)),
+                "width": captured_png.width,
+                "height": captured_png.height,
+            },
+            browser_context={
+                "viewport_width": browser_context.get("viewportWidth"),
+                "viewport_height": browser_context.get("viewportHeight"),
+                "device_pixel_ratio": browser_context.get("devicePixelRatio"),
+                "language": browser_context.get("language"),
+                "user_agent": browser_context.get("userAgent"),
+            },
+            tool_version=tool_version,
+            artifacts=[
+                {
+                    "type": "png",
+                    "path": stored_png_path,
+                    "mime_type": "image/png",
+                    "sha256": captured_png.sha256,
+                    "byte_size": captured_png.byte_size,
+                }
+            ],
+        )
+        await asyncio.to_thread(write_manifest, manifest_path, manifest)
+        capture = service.record_evidence_capture(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=capture_name,
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope=capture_scope,
+            selection=manifest["capture"]["selection_css_pixels"],
+            manifest_path=_stored_path(manifest_path, settings.base_dir),
+            captured_at=captured_at,
+            tool_version=tool_version,
+            artifacts=[artifact],
+        )
+    except Exception as exc:
+        await asyncio.to_thread(shutil.rmtree, capture_dir, True)
+        if isinstance(exc, InvestigationError):
+            raise
+        raise EvidenceCaptureError(
+            f"Evidence capture failed: {exc}"
+        ) from exc
+
+    return investigation, saved, capture
+
+
+async def _delete_evidence_capture(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    capture_id: str,
+) -> None:
+    capture = service.get_evidence_capture(investigation_id, capture_id)
+    manifest_path = Path(capture.manifest_path)
+    if not manifest_path.is_absolute():
+        manifest_path = settings.base_dir / manifest_path
+    capture_dir = manifest_path.resolve().parent
+    evidence_root = settings.evidence_dir.resolve()
+    try:
+        capture_dir.relative_to(evidence_root)
+    except ValueError as exc:
+        raise EvidenceCaptureError(
+            "Refusing to delete evidence outside the configured evidence directory."
+        ) from exc
+
+    if capture_dir.exists():
+        try:
+            await asyncio.to_thread(shutil.rmtree, capture_dir)
+        except OSError as exc:
+            raise EvidenceCaptureError(
+                f"Unable to delete evidence files: {exc}"
+            ) from exc
+    service.delete_evidence_capture(investigation_id, capture_id)
 
 
 def _generate_investigation_page(
@@ -904,6 +1505,58 @@ async def main():
                         exc_info=True,
                     )
                 continue
+            if result["action"] == "capture_evidence_to_investigation":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation, saved, capture = await _capture_evidence(
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                        result,
+                    )
+                    active_investigation = investigation
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_save_overlay_status(source_tab, "Saved")
+                    await _set_evidence_overlay_status(
+                        source_tab,
+                        "Evidence captured",
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        (
+                            f"Evidence captured for "
+                            f"{saved.title or saved.url} "
+                            f"({capture.capture_scope})."
+                        ),
+                    )
+                except InvestigationError as exc:
+                    await _set_evidence_overlay_status(
+                        source_tab,
+                        "Capture failed",
+                        is_error=True,
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        str(exc),
+                        is_error=True,
+                    )
+                continue
             if result["action"] == "save_page_to_investigation":
                 investigation_id = str(result.get("investigationId", "") or "").strip()
                 source_tab = result.get("_source_tab")
@@ -1022,6 +1675,33 @@ async def main():
                     investigation_service.remove_saved_page(
                         investigation_id,
                         result_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "delete_evidence_capture":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                capture_id = str(result.get("captureId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    await _delete_evidence_capture(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                        capture_id,
                     )
                     page_path = _generate_investigation_page(
                         investigation_service,

@@ -846,6 +846,90 @@ a:focus-visible {
     color: var(--text);
 }
 
+.result-evidence {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid #059669;
+    background: var(--surface-2);
+}
+
+.evidence-list {
+    display: grid;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.evidence-item {
+    display: grid;
+    grid-template-columns: 96px minmax(150px, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.evidence-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.evidence-name {
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-weight: 700;
+}
+
+.evidence-thumbnail {
+    display: block;
+    width: 96px;
+    height: 64px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+}
+
+.evidence-thumbnail img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.evidence-thumbnail--empty {
+    background: var(--line);
+}
+
+.evidence-scope {
+    color: var(--muted);
+}
+
+.evidence-links {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.danger-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--danger);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.danger-link:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .provenance-label {
     color: var(--secondary);
     font-weight: 700;
@@ -942,6 +1026,22 @@ a:focus-visible {
 
 .investigation-form {
     display: grid;
+}
+
+@media (max-width: 720px) {
+    .evidence-item {
+        grid-template-columns: 80px minmax(0, 1fr);
+        gap: 6px;
+    }
+
+    .evidence-thumbnail {
+        width: 72px;
+        height: 52px;
+    }
+
+    .evidence-links {
+        grid-column: 2;
+    }
 }
 
 .dialog-header {

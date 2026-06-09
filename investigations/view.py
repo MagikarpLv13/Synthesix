@@ -59,7 +59,101 @@ def _status_options(selected: str) -> str:
     return "".join(options)
 
 
-def _result_cards(results: list[Mapping], *, read_only: bool) -> str:
+def _evidence_markup(
+    captures: list[Mapping],
+    *,
+    output_dir: Path,
+    base_dir: Path,
+    read_only: bool,
+) -> str:
+    if not captures:
+        return ""
+
+    items = []
+    for capture in captures:
+        png_artifact = next(
+            (
+                artifact
+                for artifact in capture.get("artifacts", [])
+                if artifact.get("artifact_type") == "png"
+            ),
+            None,
+        )
+        png_path = _resolve_runtime_path(
+            png_artifact.get("file_path") if png_artifact else None,
+            base_dir,
+        )
+        png_href = (
+            _relative_href(png_path, output_dir)
+            if png_path is not None
+            else ""
+        )
+        scope = (
+            "Selected area"
+            if capture.get("capture_scope") == "region"
+            else "Visible area"
+        )
+        capture_name = str(capture.get("name", "") or "").strip()
+        display_name = capture_name or scope
+        scope_detail = (
+            f'<span class="evidence-scope">{_html(scope)}</span>'
+            if capture_name
+            else ""
+        )
+        disabled = " disabled" if read_only else ""
+        thumbnail = (
+            f'<a class="evidence-thumbnail" href="{_html(png_href)}" '
+            'target="_blank" rel="noopener noreferrer" '
+            f'aria-label="Open {_html(display_name)}">'
+            f'<img src="{_html(png_href)}" alt="" loading="lazy"></a>'
+            if png_href
+            else '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
+        )
+        name_markup = (
+            f'<a class="evidence-name" href="{_html(png_href)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{_html(display_name)}</a>"
+            if png_href
+            else f'<strong class="evidence-name">{_html(display_name)}</strong>'
+        )
+        items.append(
+            f"""
+            <li
+                class="evidence-item"
+                data-evidence-id="{_html(capture.get("id", ""))}"
+            >
+                {thumbnail}
+                <div class="evidence-copy">
+                    {name_markup}
+                    {scope_detail}
+                    <span>{_local_datetime(capture.get("captured_at"))}</span>
+                </div>
+                <div class="evidence-links">
+                    <button
+                        type="button"
+                        class="danger-link delete-evidence"
+                        {disabled}
+                    >Delete</button>
+                </div>
+            </li>
+            """
+        )
+    return (
+        '<div class="result-evidence">'
+        f'<span class="provenance-label">Evidence ({len(items)})</span>'
+        f'<ul class="evidence-list">{"".join(items)}</ul>'
+        "</div>"
+    )
+
+
+def _result_cards(
+    results: list[Mapping],
+    *,
+    evidence_by_result: Mapping[str, list[Mapping]],
+    output_dir: Path,
+    base_dir: Path,
+    read_only: bool,
+) -> str:
     if not results:
         return """
             <div class="investigation-empty">
@@ -104,6 +198,12 @@ def _result_cards(results: list[Mapping], *, read_only: bool) -> str:
         discovery_method = str(result.get("discovery_method", "manual_browsing"))
         discovery_query = str(result.get("discovery_query", ""))
         discovery_referrer = str(result.get("discovery_referrer", ""))
+        evidence_markup = _evidence_markup(
+            evidence_by_result.get(result_id, []),
+            output_dir=output_dir,
+            base_dir=base_dir,
+            read_only=read_only,
+        )
         discovery_observed_at = _local_datetime(
             result.get("discovery_observed_at")
         )
@@ -185,6 +285,7 @@ def _result_cards(results: list[Mapping], *, read_only: bool) -> str:
                 <div class="result-provenance">
                     {discovery_markup}
                 </div>
+                {evidence_markup}
                 <details class="analyst-details">
                     <summary>Analyst notes and tags</summary>
                     <div class="analyst-fields">
@@ -285,6 +386,7 @@ def generate_investigation_page(
 ) -> str:
     investigation = workspace["investigation"]
     results = list(workspace.get("results", []))
+    evidence = list(workspace.get("evidence", []))
     searches = list(workspace.get("searches", []))
     unassigned_searches = list(workspace.get("unassigned_searches", []))
     output_path = Path(output_path)
@@ -331,6 +433,12 @@ def generate_investigation_page(
         else ""
     )
     attach_disabled = " disabled" if read_only or not unassigned_searches else ""
+    evidence_by_result: dict[str, list[Mapping]] = {}
+    for capture in evidence:
+        evidence_by_result.setdefault(
+            str(capture.get("result_id", "")),
+            [],
+        ).append(capture)
 
     page = f"""<!DOCTYPE html>
 <html lang="en">
@@ -430,7 +538,13 @@ def generate_investigation_page(
                 <button id="clear-result-filters" type="button" class="secondary-button">Clear filters</button>
             </div>
             <div id="investigation-results" class="investigation-results">
-                {_result_cards(results, read_only=read_only)}
+                {_result_cards(
+                    results,
+                    evidence_by_result=evidence_by_result,
+                    output_dir=output_dir,
+                    base_dir=base_dir,
+                    read_only=read_only,
+                )}
             </div>
         </section>
 
@@ -598,6 +712,19 @@ def generate_investigation_page(
                         }}
                     }}
                 );
+                card.querySelectorAll(".delete-evidence").forEach((button) => {{
+                    button.addEventListener("click", () => {{
+                        const item = button.closest("[data-evidence-id]");
+                        if (
+                            item
+                            && confirm("Delete this evidence capture and its files?")
+                        ) {{
+                            queueAction("delete_evidence_capture", {{
+                                captureId: item.dataset.evidenceId
+                            }});
+                        }}
+                    }});
+                }});
             }});
 
             const normalize = (value) => String(value || "").toLowerCase().trim();

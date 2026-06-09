@@ -124,3 +124,64 @@ class InvestigationSearchRun:
             "started_at": self.started_at,
             "completed_at": self.completed_at,
         }
+
+
+@dataclass(frozen=True)
+class EvidenceArtifact:
+    id: str
+    artifact_type: str
+    file_path: str
+    mime_type: str
+    sha256: str
+    byte_size: int
+    created_at: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "artifact_type": self.artifact_type,
+            "file_path": self.file_path,
+            "mime_type": self.mime_type,
+            "sha256": self.sha256,
+            "byte_size": self.byte_size,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(frozen=True)
+class EvidenceCapture:
+    id: str
+    investigation_id: str
+    result_id: str
+    name: str
+    source_url: str
+    page_title: str
+    capture_scope: str
+    selection: dict[str, Any]
+    manifest_path: str
+    captured_at: str
+    status: str
+    error: str
+    tool_version: str
+    artifacts: tuple[EvidenceArtifact, ...]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "result_id": self.result_id,
+            "name": self.name,
+            "source_url": self.source_url,
+            "page_title": self.page_title,
+            "capture_scope": self.capture_scope,
+            "selection": self.selection,
+            "manifest_path": self.manifest_path,
+            "captured_at": self.captured_at,
+            "status": self.status,
+            "error": self.error,
+            "tool_version": self.tool_version,
+            "artifacts": [
+                artifact.to_payload()
+                for artifact in self.artifacts
+            ],
+        }

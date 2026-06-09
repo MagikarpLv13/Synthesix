@@ -79,6 +79,39 @@ def workspace_payload(*, status="active"):
                 "completed_at": "2026-06-08T10:00:01+00:00",
             }
         ],
+        "evidence": [
+            {
+                "id": "capture-123",
+                "investigation_id": "case-123",
+                "result_id": "result-123",
+                "name": "Registry header",
+                "source_url": "https://example.com/page",
+                "page_title": "Example page",
+                "capture_scope": "region",
+                "selection": {
+                    "x": 10,
+                    "y": 20,
+                    "width": 300,
+                    "height": 200,
+                },
+                "manifest_path": "data/evidence/capture-123/manifest.json",
+                "captured_at": "2026-06-10T10:00:00+00:00",
+                "status": "completed",
+                "error": "",
+                "tool_version": "test",
+                "artifacts": [
+                    {
+                        "id": "artifact-123",
+                        "artifact_type": "png",
+                        "file_path": "data/evidence/capture-123/capture.png",
+                        "mime_type": "image/png",
+                        "sha256": "a" * 64,
+                        "byte_size": 123,
+                        "created_at": "2026-06-10T10:00:00+00:00",
+                    }
+                ],
+            }
+        ],
     }
 
 
@@ -114,6 +147,16 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("data-local-datetime", content)
         self.assertIn("Intl.DateTimeFormat", content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
+        self.assertIn("Evidence (1)", content)
+        self.assertIn("Registry header", content)
+        self.assertIn("Selected area", content)
+        self.assertIn('class="evidence-thumbnail"', content)
+        self.assertIn('class="evidence-name"', content)
+        self.assertIn('loading="lazy"', content)
+        self.assertNotIn("Open PNG", content)
+        self.assertIn('queueAction("delete_evidence_capture"', content)
+        self.assertNotIn(">Manifest</a>", content)
+        self.assertNotIn("SHA-256 aaaaaaaaaaaaaaaa", content)
         self.assertIn("result-filter-status", content)
         self.assertIn("result-filter-source", content)
         self.assertIn("result-filter-tag", content)

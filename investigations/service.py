@@ -18,6 +18,7 @@ MAX_RESULT_NOTES_LENGTH = 10000
 MAX_PAGE_TITLE_LENGTH = 500
 MAX_PAGE_DESCRIPTION_LENGTH = 4000
 MAX_PAGE_URL_LENGTH = 8000
+MAX_EVIDENCE_NAME_LENGTH = 120
 
 
 def _clean_text(value, *, max_length: int) -> str:
@@ -141,6 +142,12 @@ class InvestigationService:
                 search.to_payload()
                 for search in self.repository.list_unassigned_searches()
             ],
+            "evidence": [
+                capture.to_payload()
+                for capture in self.repository.list_evidence_captures(
+                    investigation_id
+                )
+            ],
         }
 
     def update_result(
@@ -200,6 +207,29 @@ class InvestigationService:
 
     def remove_saved_page(self, investigation_id: str, result_id: str) -> None:
         self.repository.remove_saved_page(investigation_id, result_id)
+
+    def record_evidence_capture(self, **kwargs):
+        kwargs["name"] = _clean_text(
+            kwargs.get("name"),
+            max_length=MAX_EVIDENCE_NAME_LENGTH,
+        )
+        return self.repository.record_evidence_capture(**kwargs)
+
+    def get_evidence_capture(self, investigation_id: str, capture_id: str):
+        return self.repository.get_evidence_capture(
+            investigation_id,
+            capture_id,
+        )
+
+    def delete_evidence_capture(
+        self,
+        investigation_id: str,
+        capture_id: str,
+    ) -> None:
+        self.repository.delete_evidence_capture(
+            investigation_id,
+            capture_id,
+        )
 
     def clear_search_history(self) -> int:
         return self.repository.clear_search_history()

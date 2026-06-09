@@ -7,10 +7,12 @@ from pathlib import Path
 import unittest
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from main import (
     _cached_history_payload,
+    _default_capture_name,
+    _delete_evidence_capture,
     _install_and_consume_save_overlay,
     _investigation_payload,
     _is_external_web_tab,
@@ -25,6 +27,12 @@ from settings import get_settings
 
 
 class MainCliTestCase(unittest.TestCase):
+    def test_default_capture_name_uses_timestamp(self):
+        self.assertEqual(
+            _default_capture_name("2026-06-10T12:34:56.123456+00:00"),
+            "screenshot_2026-06-10_12-34-56",
+        )
+
     def test_cli_log_levels(self):
         self.assertEqual(_log_level_from_args(parse_cli_args([])), logging.INFO)
         self.assertEqual(_log_level_from_args(parse_cli_args(["--quiet"])), logging.WARNING)
@@ -111,6 +119,37 @@ class InvestigationPayloadTestCase(unittest.TestCase):
 
 
 class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_delete_evidence_removes_capture_directory_and_database_row(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            capture_dir = base_dir / "data" / "evidence" / "case-1" / "capture-1"
+            capture_dir.mkdir(parents=True)
+            manifest_path = capture_dir / "manifest.json"
+            manifest_path.write_text("{}", encoding="utf-8")
+            service = SimpleNamespace(
+                get_evidence_capture=lambda *_args: SimpleNamespace(
+                    manifest_path="data/evidence/case-1/capture-1/manifest.json"
+                ),
+                delete_evidence_capture=Mock(),
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                evidence_dir=base_dir / "data" / "evidence",
+            )
+
+            await _delete_evidence_capture(
+                service,
+                settings,
+                "case-1",
+                "capture-1",
+            )
+
+            self.assertFalse(capture_dir.exists())
+            service.delete_evidence_capture.assert_called_once_with(
+                "case-1",
+                "capture-1",
+            )
+
     async def test_open_tabs_keeps_live_targets_without_websocket(self):
         from main import _open_tabs
 
@@ -157,6 +196,14 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Save page", tab.script)
         self.assertIn("observe_saved_page", tab.script)
         self.assertIn("M58 12 69 6l9 38-12 9-9-7z", tab.script)
+        self.assertIn("Capture evidence", tab.script)
+        self.assertIn("Capture name (optional)", tab.script)
+        self.assertIn("captureName", tab.script)
+        self.assertIn("screenshot_", tab.script)
+        self.assertIn("Visible area", tab.script)
+        self.assertIn("Select area", tab.script)
+        self.assertIn("capture_evidence_to_investigation", tab.script)
+        self.assertIn("__synthesix-evidence-selection", tab.script)
         self.assertFalse(_is_external_web_tab(SimpleNamespace(url="file:///index.html")))
 
     async def test_external_page_overlay_can_focus_home_without_active_case(self):

@@ -117,4 +117,54 @@ MIGRATIONS = (
             );
         """,
     ),
+    (
+        3,
+        """
+        CREATE TABLE evidence_captures (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            result_id TEXT NOT NULL
+                REFERENCES results(id) ON DELETE CASCADE,
+            source_url TEXT NOT NULL,
+            page_title TEXT NOT NULL DEFAULT '',
+            capture_scope TEXT NOT NULL
+                CHECK (capture_scope IN ('viewport', 'region')),
+            selection_json TEXT NOT NULL DEFAULT '{}',
+            manifest_path TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'completed'
+                CHECK (status IN ('completed', 'partial', 'failed')),
+            error TEXT NOT NULL DEFAULT '',
+            tool_version TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE evidence_artifacts (
+            id TEXT PRIMARY KEY,
+            capture_id TEXT NOT NULL
+                REFERENCES evidence_captures(id) ON DELETE CASCADE,
+            artifact_type TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+            sha256 TEXT NOT NULL,
+            byte_size INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(capture_id, artifact_type)
+        );
+
+        CREATE INDEX idx_evidence_captures_investigation
+            ON evidence_captures(investigation_id, captured_at DESC);
+        CREATE INDEX idx_evidence_captures_result
+            ON evidence_captures(result_id, captured_at DESC);
+        CREATE INDEX idx_evidence_artifacts_capture
+            ON evidence_artifacts(capture_id);
+        """,
+    ),
+    (
+        4,
+        """
+        ALTER TABLE evidence_captures
+            ADD COLUMN name TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 )

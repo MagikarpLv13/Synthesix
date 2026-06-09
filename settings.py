@@ -70,6 +70,7 @@ class AppSettings:
     base_dir: Path
     database_path: Path
     investigation_pages_dir: Path
+    evidence_dir: Path
     history_dir: Path
     history_json_path: Path
     history_report_path: Path
@@ -126,6 +127,11 @@ def get_settings() -> AppSettings:
         investigation_pages_dir=_env_path(
             "SYNTHESIX_INVESTIGATION_PAGES_DIR",
             "data/investigation_pages",
+            base_dir,
+        ),
+        evidence_dir=_env_path(
+            "SYNTHESIX_EVIDENCE_DIR",
+            "data/evidence",
             base_dir,
         ),
         history_dir=history_dir,

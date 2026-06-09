@@ -123,10 +123,13 @@ For a tracked investigation:
    case is active, **Saved** when the current page is already retained, or
    **Select investigation** otherwise.
 4. Click the button only for pages that should be retained in the investigation.
-5. Click **Open** on the home page to review saved pages with analyst statuses,
+5. Use the adjacent camera button to capture either the visible viewport or a
+   rectangular area selected directly on the page.
+6. Click **Open** on the home page to review saved pages with analyst statuses,
    favorites, notes, and tags.
-6. Filter saved pages by text, status, source, tag, observation date, or favorite.
-7. Attach an earlier unassigned search when its query and observations belong to
+7. Open or delete captures directly from the saved page.
+8. Filter saved pages by text, status, source, tag, observation date, or favorite.
+9. Attach an earlier unassigned search when its query and observations belong to
    the investigation.
 
 The analyst statuses are `To verify`, `Relevant`, `Discarded`, and `Confirmed`.
@@ -148,6 +151,17 @@ home so the analyst can select one.
 Reopening a page already saved in the active investigation updates its
 **Last seen** timestamp automatically. Investigation pages display stored UTC
 timestamps in the browser's local time zone.
+
+PNG evidence captures are explicit and local. The name defaults to
+`screenshot_YYYY-MM-DD_HH-MM-SS` in the browser's local time and can be replaced
+before capture. The investigation page shows a thumbnail; both the thumbnail and
+the capture name open the PNG. For each capture, Synthesix stores the selected
+CSS-pixel coordinates, source URL, UTC capture time, browser context, PNG byte
+size, SHA-256 hash, and a versioned JSON manifest. The technical manifest and
+hash remain in the evidence files without cluttering the investigation page. A
+saved page with evidence cannot be removed until its captures are deleted.
+HTML/MHTML capture and interactive hash verification remain planned follow-up
+work.
 
 Archived investigations remain available from the selector and open in read-only
 mode. They cannot receive new searches or analyst edits.
@@ -265,6 +279,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 | --- | --- |
 | `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, and analyst metadata. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
+| `data/evidence/` | Explicit PNG evidence captures and versioned provenance manifests, grouped by investigation and capture ID. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
@@ -291,6 +306,7 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
 | `SYNTHESIX_DATABASE_PATH` | SQLite database path for investigations and normalized search history. |
 | `SYNTHESIX_INVESTIGATION_PAGES_DIR` | Directory for generated local investigation workspaces. |
+| `SYNTHESIX_EVIDENCE_DIR` | Directory for PNG evidence artifacts and JSON manifests. |
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
 | `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
@@ -369,7 +385,7 @@ venv\Scripts\python.exe -m unittest discover
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
 ```
 
 Check whitespace before committing:
@@ -414,7 +430,7 @@ Use this checklist before bumping Zendriver:
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py
+   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
    venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
@@ -442,6 +458,7 @@ Use this checklist before bumping Zendriver:
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
 | `investigations/` | Versioned SQLite schema, repositories, domain models, services, and local workspace generation. |
+| `evidence/` | Async CDP PNG capture, selection validation, SHA-256 hashing, and versioned provenance manifests. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |

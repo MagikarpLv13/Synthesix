@@ -20,6 +20,8 @@ from exceptions import (
 from investigations.migrations import MIGRATIONS
 from investigations.models import (
     ANALYST_STATUSES,
+    EvidenceArtifact,
+    EvidenceCapture,
     Investigation,
     InvestigationResult,
     InvestigationSearchRun,
@@ -744,6 +746,20 @@ class InvestigationRepository:
             )
 
         with self._connection() as connection:
+            evidence = connection.execute(
+                """
+                SELECT 1
+                FROM evidence_captures
+                WHERE investigation_id = ? AND result_id = ?
+                LIMIT 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if evidence is not None:
+                raise InvestigationValidationError(
+                    "This page has captured evidence and cannot be removed."
+                )
+
             cursor = connection.execute(
                 """
                 DELETE FROM investigation_results
@@ -1009,6 +1025,217 @@ class InvestigationRepository:
             )
         return search_count
 
+    def record_evidence_capture(
+        self,
+        *,
+        capture_id: str,
+        investigation_id: str,
+        result_id: str,
+        name: str,
+        source_url: str,
+        page_title: str,
+        capture_scope: str,
+        selection: Mapping,
+        manifest_path: str,
+        captured_at: str,
+        tool_version: str,
+        artifacts: Iterable[Mapping],
+        status: str = "completed",
+        error: str = "",
+    ) -> EvidenceCapture:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        if capture_scope not in {"viewport", "region"}:
+            raise InvestigationValidationError(
+                "Unsupported evidence capture scope."
+            )
+
+        artifact_rows = [dict(artifact) for artifact in artifacts]
+        with self._connection() as connection:
+            saved_result = connection.execute(
+                """
+                SELECT 1
+                FROM investigation_results
+                WHERE
+                    investigation_id = ?
+                    AND result_id = ?
+                    AND is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if saved_result is None:
+                raise InvestigationResultNotFoundError(
+                    investigation_id,
+                    result_id,
+                )
+
+            connection.execute(
+                """
+                INSERT INTO evidence_captures(
+                    id, investigation_id, result_id, name, source_url, page_title,
+                    capture_scope, selection_json, manifest_path, captured_at,
+                    status, error, tool_version
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    capture_id,
+                    investigation_id,
+                    result_id,
+                    name,
+                    source_url,
+                    page_title,
+                    capture_scope,
+                    _json_dump(dict(selection)),
+                    manifest_path,
+                    captured_at,
+                    status,
+                    error,
+                    tool_version,
+                ),
+            )
+            for artifact in artifact_rows:
+                connection.execute(
+                    """
+                    INSERT INTO evidence_artifacts(
+                        id, capture_id, artifact_type, file_path, mime_type,
+                        sha256, byte_size, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(artifact["id"]),
+                        capture_id,
+                        str(artifact["artifact_type"]),
+                        str(artifact["file_path"]),
+                        str(artifact["mime_type"]),
+                        str(artifact["sha256"]),
+                        int(artifact["byte_size"]),
+                        str(artifact["created_at"]),
+                    ),
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (captured_at, investigation_id),
+            )
+
+        return next(
+            capture
+            for capture in self.list_evidence_captures(investigation_id)
+            if capture.id == capture_id
+        )
+
+    def list_evidence_captures(
+        self,
+        investigation_id: str,
+    ) -> list[EvidenceCapture]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            capture_rows = connection.execute(
+                """
+                SELECT *
+                FROM evidence_captures
+                WHERE investigation_id = ?
+                ORDER BY captured_at DESC
+                """,
+                (investigation_id,),
+            ).fetchall()
+            artifact_rows = connection.execute(
+                """
+                SELECT artifact.*
+                FROM evidence_artifacts artifact
+                JOIN evidence_captures capture
+                    ON capture.id = artifact.capture_id
+                WHERE capture.investigation_id = ?
+                ORDER BY artifact.created_at, artifact.artifact_type
+                """,
+                (investigation_id,),
+            ).fetchall()
+
+        artifacts_by_capture: dict[str, list[EvidenceArtifact]] = {}
+        for row in artifact_rows:
+            artifacts_by_capture.setdefault(row["capture_id"], []).append(
+                EvidenceArtifact(
+                    id=row["id"],
+                    artifact_type=row["artifact_type"],
+                    file_path=row["file_path"],
+                    mime_type=row["mime_type"],
+                    sha256=row["sha256"],
+                    byte_size=int(row["byte_size"] or 0),
+                    created_at=row["created_at"],
+                )
+            )
+
+        return [
+            EvidenceCapture(
+                id=row["id"],
+                investigation_id=row["investigation_id"],
+                result_id=row["result_id"],
+                name=row["name"],
+                source_url=row["source_url"],
+                page_title=row["page_title"],
+                capture_scope=row["capture_scope"],
+                selection=_json_load(row["selection_json"], {}),
+                manifest_path=row["manifest_path"],
+                captured_at=row["captured_at"],
+                status=row["status"],
+                error=row["error"],
+                tool_version=row["tool_version"],
+                artifacts=tuple(artifacts_by_capture.get(row["id"], ())),
+            )
+            for row in capture_rows
+        ]
+
+    def get_evidence_capture(
+        self,
+        investigation_id: str,
+        capture_id: str,
+    ) -> EvidenceCapture:
+        return next(
+            (
+                capture
+                for capture in self.list_evidence_captures(investigation_id)
+                if capture.id == capture_id
+            ),
+            None,
+        ) or self._raise_evidence_not_found(capture_id)
+
+    @staticmethod
+    def _raise_evidence_not_found(capture_id: str):
+        raise InvestigationValidationError(
+            f"Evidence capture not found: {capture_id}"
+        )
+
+    def delete_evidence_capture(
+        self,
+        investigation_id: str,
+        capture_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM evidence_captures
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (capture_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Evidence capture not found: {capture_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (utc_now(), investigation_id),
+            )
+
     def table_count(self, table_name: str) -> int:
         allowed = {
             "investigations",
@@ -1016,6 +1243,8 @@ class InvestigationRepository:
             "results",
             "search_result_observations",
             "investigation_results",
+            "evidence_captures",
+            "evidence_artifacts",
         }
         if table_name not in allowed:
             raise ValueError("Unsupported table name")

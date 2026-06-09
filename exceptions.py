@@ -6,6 +6,10 @@ class InvestigationError(SynthesixError):
     """Base exception for investigation storage and workflow failures."""
 
 
+class EvidenceCaptureError(InvestigationError):
+    """Raised when an evidence artifact cannot be captured or persisted."""
+
+
 class InvestigationValidationError(InvestigationError):
     """Raised when investigation input does not satisfy application rules."""
 

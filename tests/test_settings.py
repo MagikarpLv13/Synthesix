@@ -19,6 +19,10 @@ class SettingsTestCase(unittest.TestCase):
                 settings.investigation_pages_dir,
                 base_dir / "data" / "investigation_pages",
             )
+            self.assertEqual(
+                settings.evidence_dir,
+                base_dir / "data" / "evidence",
+            )
             self.assertEqual(settings.history_dir, base_dir / "history")
             self.assertEqual(settings.history_json_path, base_dir / "history" / "history.json")
             self.assertEqual(settings.history_report_path, base_dir / "history" / "history.html")
@@ -59,6 +63,7 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_BASE_DIR": temp_dir,
                 "SYNTHESIX_DATABASE_PATH": "runtime/synthesix.db",
                 "SYNTHESIX_INVESTIGATION_PAGES_DIR": "runtime/cases",
+                "SYNTHESIX_EVIDENCE_DIR": "runtime/evidence",
                 "SYNTHESIX_HISTORY_DIR": "runtime/history",
                 "SYNTHESIX_HISTORY_REPORT_PATH": "runtime/history-report.html",
                 "SYNTHESIX_DEBUG_HTML": "true",
@@ -94,6 +99,10 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(
                 settings.investigation_pages_dir,
                 base_dir / "runtime" / "cases",
+            )
+            self.assertEqual(
+                settings.evidence_dir,
+                base_dir / "runtime" / "evidence",
             )
             self.assertEqual(settings.history_dir, base_dir / "runtime" / "history")
             self.assertEqual(settings.history_report_path, base_dir / "runtime" / "history-report.html")

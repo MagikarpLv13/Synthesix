@@ -28,9 +28,11 @@ Phases 0 et 1 livrees :
 
 Prochaine phase P0 :
 
-- capture de preuves PNG, HTML et MHTML ;
-- manifeste de provenance ;
-- calcul et verification SHA-256 ;
+- capture PNG de la zone visible ou d'une zone rectangulaire : realisee ;
+- manifeste de provenance PNG : realise ;
+- calcul SHA-256 du PNG : realise ;
+- capture HTML et MHTML : a faire ;
+- verification interactive SHA-256 : a faire ;
 - nettoyage des donnees sensibles avant ecriture.
 
 ## 1. Objectif

@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 2)
+        self.assertEqual(self.repository.schema_version(), 4)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 2)
+            self.assertEqual(repository.schema_version(), 4)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -452,6 +452,63 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             self.repository.list_investigation_results(investigation.id),
             [],
         )
+
+    def test_records_evidence_for_saved_page(self):
+        investigation = self.service.create({"title": "Case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+
+        capture = self.service.record_evidence_capture(
+            capture_id="capture-1",
+            investigation_id=investigation.id,
+            result_id=saved.id,
+            name="Profile header",
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope="region",
+            selection={"x": 10, "y": 20, "width": 300, "height": 200},
+            manifest_path="data/evidence/capture-1/manifest.json",
+            captured_at="2026-06-10T10:00:00.000000+00:00",
+            tool_version="test",
+            artifacts=[
+                {
+                    "id": "artifact-1",
+                    "artifact_type": "png",
+                    "file_path": "data/evidence/capture-1/capture.png",
+                    "mime_type": "image/png",
+                    "sha256": "a" * 64,
+                    "byte_size": 123,
+                    "created_at": "2026-06-10T10:00:00.000000+00:00",
+                }
+            ],
+        )
+
+        self.assertEqual(capture.capture_scope, "region")
+        self.assertEqual(capture.name, "Profile header")
+        self.assertEqual(capture.result_id, saved.id)
+        self.assertEqual(capture.selection["width"], 300)
+        self.assertEqual(capture.artifacts[0].sha256, "a" * 64)
+        workspace = self.service.workspace_payload(investigation.id)
+        self.assertEqual(workspace["evidence"][0]["id"], "capture-1")
+        self.assertEqual(self.repository.table_count("evidence_captures"), 1)
+        self.assertEqual(self.repository.table_count("evidence_artifacts"), 1)
+        with self.assertRaises(InvestigationValidationError):
+            self.service.remove_saved_page(investigation.id, saved.id)
+
+        self.service.delete_evidence_capture(
+            investigation.id,
+            capture.id,
+        )
+        self.assertEqual(self.repository.table_count("evidence_captures"), 0)
+        self.assertEqual(self.repository.table_count("evidence_artifacts"), 0)
+        self.service.remove_saved_page(investigation.id, saved.id)
 
     def test_attaches_unassigned_search_and_results(self):
         investigation = self.service.create({"title": "Case"})
