@@ -167,6 +167,25 @@ class UtilsTestCase(unittest.TestCase):
             finally:
                 os.chdir(current_dir)
 
+    def test_load_search_history_preserves_investigation_id(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                add_to_history(
+                    "company",
+                    '"company"',
+                    2,
+                    "result.html",
+                    investigation_id="case-123",
+                )
+
+                history = load_search_history(limit=10)
+
+                self.assertEqual(history[0]["investigation_id"], "case-123")
+            finally:
+                os.chdir(current_dir)
+
     def test_load_search_history_keeps_same_query_with_different_filters(self):
         current_dir = os.getcwd()
         with TemporaryDirectory() as temp_dir:

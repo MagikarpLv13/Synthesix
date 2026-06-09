@@ -12,6 +12,9 @@ history/
 history.html
 test_*.html
 
+# Local investigation database
+data/
+
 # Python
 venv/
 .venv/

@@ -24,6 +24,7 @@ class SearchRunResult:
     nb_results: int
     total_time: float
     engine_errors: dict[str, Exception] = field(default_factory=dict)
+    results: tuple[dict, ...] = ()
 
 
 def _create_google_engine():
@@ -143,6 +144,7 @@ class SearchOrchestrator:
         num_results: int,
         filters: SearchFilters | Mapping | None = None,
         base_query: str | None = None,
+        investigation_id: str | None = None,
     ) -> SearchRunResult:
         filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
         logger.info("Search in progress for: %s", parsed_query)
@@ -183,12 +185,30 @@ class SearchOrchestrator:
         if output_path:
             logger.info("Generated report: %s", output_path)
             if filters.has_filters():
+                if investigation_id:
+                    self.history_adder(
+                        original_query,
+                        parsed_query,
+                        nb_results,
+                        output_path,
+                        filters.to_payload(),
+                        investigation_id=investigation_id,
+                    )
+                else:
+                    self.history_adder(
+                        original_query,
+                        parsed_query,
+                        nb_results,
+                        output_path,
+                        filters.to_payload(),
+                    )
+            elif investigation_id:
                 self.history_adder(
                     original_query,
                     parsed_query,
                     nb_results,
                     output_path,
-                    filters.to_payload(),
+                    investigation_id=investigation_id,
                 )
             else:
                 self.history_adder(original_query, parsed_query, nb_results, output_path)
@@ -201,6 +221,7 @@ class SearchOrchestrator:
             nb_results=nb_results,
             total_time=total_time,
             engine_errors=engine_errors,
+            results=tuple(relevant_results.to_dict(orient="records")),
         )
 
     async def _run_engines(

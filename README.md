@@ -97,6 +97,8 @@ Session behavior:
 
 - Closing all Synthesix tabs stops the program.
 - Closing only the original home tab does not stop the program if other Synthesix tabs are still open.
+- Searches can optionally be attached to a local investigation from the home page.
+- Investigation folders can be created, edited, archived, and deleted while they are empty.
 - The generated history page can reopen previous searches.
 - The home page includes a default bookmark/favorite entry for returning to Synthesix.
 - **Clear Synthesix history** removes saved searches and generated result reports.
@@ -104,6 +106,51 @@ Session behavior:
 - The VPN indicator checks the public IP used by Chrome when the home page opens. Click the indicator to refresh it.
 
 Browser-data cleanup affects only `zendriver-profile/`, not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark and saved browser passwords, but clearing cookies signs out active website sessions.
+
+### Investigation workflow
+
+The investigation selector on the home page is optional. Select **No investigation**
+to keep the original standalone search behavior.
+
+For a tracked investigation:
+
+1. Create or select an investigation on the home page.
+2. Run searches normally. Search parameters, engine errors, reports, and result
+   observations are persisted for provenance, but results are not added to the
+   investigation workspace automatically.
+3. Open an external HTTP(S) page. Synthesix injects a floating button with its
+   mark in the lower-right corner through CDP. It reads **Save page** when a
+   case is active, **Saved** when the current page is already retained, or
+   **Select investigation** otherwise.
+4. Click the button only for pages that should be retained in the investigation.
+5. Click **Open** on the home page to review saved pages with analyst statuses,
+   favorites, notes, and tags.
+6. Filter saved pages by text, status, source, tag, observation date, or favorite.
+7. Attach an earlier unassigned search when its query and observations belong to
+   the investigation.
+
+The analyst statuses are `To verify`, `Relevant`, `Discarded`, and `Confirmed`.
+They describe the analyst's review state, not the factual reliability of a source.
+
+For each explicitly saved page, Synthesix records:
+
+- the current URL, page title, and meta description;
+- the save time and available referring URL;
+- the originating query, report, and search engines when the URL matches a
+  result observed in the active investigation;
+- analyst notes, tags, status, and favorite state.
+
+The floating button is not injected into Synthesix pages or non-HTTP(S) browser
+pages. It does not read cookies, authentication data, form values, or page body
+content. Without an active investigation, clicking it returns to the Synthesix
+home so the analyst can select one.
+
+Reopening a page already saved in the active investigation updates its
+**Last seen** timestamp automatically. Investigation pages display stored UTC
+timestamps in the browser's local time zone.
+
+Archived investigations remain available from the selector and open in read-only
+mode. They cannot receive new searches or analyst edits.
 
 ### VPN indicator
 
@@ -216,6 +263,8 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 
 | Path | Role |
 | --- | --- |
+| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, and analyst metadata. |
+| `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
@@ -227,6 +276,12 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 
 Do not hardcode credentials or investigation data in source files. If accounts are later configured for OSINT workflows, keep profile data and secrets outside Git.
 
+The existing `history/history.json` file is imported into SQLite once on first launch.
+Generated HTML reports remain available for compatibility. Clearing Synthesix history
+removes search runs and generated reports but preserves investigation folders and
+explicitly saved pages. Their denormalized discovery summary remains readable even
+after the original search history has been cleared.
+
 ## Configuration
 
 Runtime settings can be overridden with environment variables:
@@ -234,6 +289,8 @@ Runtime settings can be overridden with environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
+| `SYNTHESIX_DATABASE_PATH` | SQLite database path for investigations and normalized search history. |
+| `SYNTHESIX_INVESTIGATION_PAGES_DIR` | Directory for generated local investigation workspaces. |
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
 | `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
@@ -312,7 +369,7 @@ venv\Scripts\python.exe -m unittest discover
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py
 ```
 
 Check whitespace before committing:
@@ -357,7 +414,7 @@ Use this checklist before bumping Zendriver:
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py
+   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py
    venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
@@ -384,6 +441,7 @@ Use this checklist before bumping Zendriver:
 | `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
+| `investigations/` | Versioned SQLite schema, repositories, domain models, services, and local workspace generation. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |

@@ -38,6 +38,32 @@
 
         <section class="workspace" aria-label="Search workspace">
             <h2 class="search-title">Search, compare, synthesize.</h2>
+            <div class="investigation-bar" aria-label="Active investigation">
+                <div class="investigation-context">
+                    <label for="investigation-select">Investigation</label>
+                    <select id="investigation-select">
+                        <option value="">No investigation</option>
+                    </select>
+                    <span id="investigation-summary" class="investigation-summary"></span>
+                </div>
+                <div class="investigation-actions">
+                    <button id="open-investigation" class="primary-button" type="button" disabled>
+                        Open
+                    </button>
+                    <button id="new-investigation" class="secondary-button" type="button">
+                        New
+                    </button>
+                    <button id="edit-investigation" class="secondary-button" type="button" disabled>
+                        Edit
+                    </button>
+                    <button id="archive-investigation" class="secondary-button" type="button" disabled>
+                        Archive
+                    </button>
+                    <button id="delete-investigation" class="danger-button" type="button" disabled>
+                        Delete
+                    </button>
+                </div>
+            </div>
             <div class="search-form">
                 <div class="search-row">
                     <label for="search-field" class="sr-only">Search query</label>
@@ -190,6 +216,49 @@
         </section>
     </main>
 
+    <dialog id="investigation-dialog" class="investigation-dialog">
+        <form id="investigation-form" class="investigation-form">
+            <div class="dialog-header">
+                <h2 id="investigation-dialog-title">New investigation</h2>
+                <button
+                    id="close-investigation-dialog"
+                    class="icon-button"
+                    type="button"
+                    aria-label="Close"
+                    title="Close"
+                >&times;</button>
+            </div>
+            <div class="dialog-fields">
+                <label for="investigation-title">
+                    <span>Title</span>
+                    <input id="investigation-title" type="text" maxlength="120" required>
+                </label>
+                <label for="investigation-reference">
+                    <span>Reference</span>
+                    <input id="investigation-reference" type="text" maxlength="120">
+                </label>
+                <label for="investigation-description">
+                    <span>Description</span>
+                    <textarea id="investigation-description" maxlength="4000" rows="5"></textarea>
+                </label>
+                <label for="investigation-tags">
+                    <span>Tags</span>
+                    <input
+                        id="investigation-tags"
+                        type="text"
+                        placeholder="priority, person, company"
+                    >
+                </label>
+            </div>
+            <div class="dialog-actions">
+                <button id="cancel-investigation-dialog" class="secondary-button" type="button">
+                    Cancel
+                </button>
+                <button class="primary-button" type="submit">Save</button>
+            </div>
+        </form>
+    </dialog>
+
     <script>
         (() => {
             window.name = "synthesix-home";
@@ -198,11 +267,28 @@
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
             const actionStatus = document.getElementById("action-status");
+            const investigationSelect = document.getElementById("investigation-select");
+            const investigationSummary = document.getElementById("investigation-summary");
+            const openInvestigationButton = document.getElementById("open-investigation");
+            const newInvestigationButton = document.getElementById("new-investigation");
+            const editInvestigationButton = document.getElementById("edit-investigation");
+            const archiveInvestigationButton = document.getElementById("archive-investigation");
+            const deleteInvestigationButton = document.getElementById("delete-investigation");
+            const investigationDialog = document.getElementById("investigation-dialog");
+            const investigationForm = document.getElementById("investigation-form");
+            const investigationDialogTitle = document.getElementById("investigation-dialog-title");
+            const investigationTitle = document.getElementById("investigation-title");
+            const investigationReference = document.getElementById("investigation-reference");
+            const investigationDescription = document.getElementById("investigation-description");
+            const investigationTags = document.getElementById("investigation-tags");
+            const closeInvestigationDialogButton = document.getElementById("close-investigation-dialog");
+            const cancelInvestigationDialogButton = document.getElementById("cancel-investigation-dialog");
             const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
             const clearBrowserDataButton = document.getElementById("clear-browser-data");
             const vpnStatusButton = document.getElementById("vpn-status");
             const vpnStatusLabel = document.getElementById("vpn-status-label");
             const vpnCheckUrl = "https://api.ipapi.is";
+            const activeInvestigationStorageKey = "synthesix-active-investigation";
             const engineIds = ["google", "bing", "brave", "duckduckgo"];
             const filterInputIds = {
                 site: "filter-site",
@@ -220,10 +306,172 @@
                 visibleItems: [],
                 activeIndex: -1,
                 pendingAction: null,
-                vpnCheckId: 0
+                vpnCheckId: 0,
+                investigations: [],
+                requestedInvestigationId: "",
+                announcedInvestigationId: null
             };
 
             const normalize = (value) => String(value || "").toLowerCase().trim();
+
+            try {
+                state.requestedInvestigationId = String(
+                    window.localStorage.getItem(activeInvestigationStorageKey) || ""
+                );
+            } catch (_error) {
+                state.requestedInvestigationId = "";
+            }
+
+            const selectedInvestigation = () => {
+                const selectedId = investigationSelect.value;
+                return state.investigations.find((item) => item.id === selectedId) || null;
+            };
+
+            const formatCount = (value, singular, plural) => {
+                const count = Number(value || 0);
+                return `${count} ${count === 1 ? singular : plural}`;
+            };
+
+            const announceInvestigationSelection = () => {
+                const investigation = selectedInvestigation();
+                const selectedId = investigation?.status === "active"
+                    ? investigation.id
+                    : "";
+                if (state.announcedInvestigationId === selectedId) {
+                    return;
+                }
+                if (
+                    state.pendingAction
+                    && state.pendingAction.action !== "select_investigation"
+                ) {
+                    return;
+                }
+                state.announcedInvestigationId = selectedId;
+                state.pendingAction = {
+                    action: "select_investigation",
+                    investigationId: selectedId
+                };
+            };
+
+            const updateInvestigationControls = () => {
+                const investigation = selectedInvestigation();
+                const hasInvestigation = Boolean(investigation);
+                const isActive = investigation?.status === "active";
+                openInvestigationButton.disabled = !hasInvestigation;
+                editInvestigationButton.disabled = !isActive;
+                archiveInvestigationButton.disabled = !isActive;
+                deleteInvestigationButton.disabled = !hasInvestigation;
+
+                if (!investigation) {
+                    investigationSummary.textContent = "";
+                    return;
+                }
+
+                const parts = [];
+                if (investigation.reference) {
+                    parts.push(investigation.reference);
+                }
+                if (!isActive) {
+                    parts.push("Archived");
+                }
+                parts.push(formatCount(investigation.search_count, "search", "searches"));
+                parts.push(
+                    formatCount(
+                        investigation.result_count,
+                        "saved page",
+                        "saved pages"
+                    )
+                );
+                investigationSummary.textContent = parts.join(" · ");
+            };
+
+            const setSelectedInvestigation = (investigationId) => {
+                const requestedId = String(investigationId || "");
+                state.requestedInvestigationId = requestedId;
+                const exists = state.investigations.some((item) => item.id === requestedId);
+                investigationSelect.value = exists ? requestedId : "";
+                try {
+                    if (requestedId) {
+                        window.localStorage.setItem(
+                            activeInvestigationStorageKey,
+                            requestedId
+                        );
+                    } else {
+                        window.localStorage.removeItem(activeInvestigationStorageKey);
+                    }
+                } catch (_error) {
+                    // The selection still works for the current session.
+                }
+                updateInvestigationControls();
+                announceInvestigationSelection();
+            };
+
+            const setInvestigations = (investigations) => {
+                state.investigations = Array.isArray(investigations)
+                    ? investigations.filter(
+                        (item) => (
+                            item
+                            && item.id
+                            && ["active", "archived"].includes(item.status)
+                        )
+                    )
+                    : [];
+
+                investigationSelect.innerHTML = "";
+                const emptyOption = document.createElement("option");
+                emptyOption.value = "";
+                emptyOption.textContent = "No investigation";
+                investigationSelect.appendChild(emptyOption);
+
+                state.investigations.forEach((investigation) => {
+                    const option = document.createElement("option");
+                    option.value = investigation.id;
+                    const label = investigation.reference
+                        ? `${investigation.title} · ${investigation.reference}`
+                        : investigation.title;
+                    option.textContent = investigation.status === "archived"
+                        ? `${label} (archived)`
+                        : label;
+                    investigationSelect.appendChild(option);
+                });
+
+                const requestedId = state.requestedInvestigationId;
+                const exists = state.investigations.some((item) => item.id === requestedId);
+                if (!exists) {
+                    state.requestedInvestigationId = "";
+                    try {
+                        window.localStorage.removeItem(activeInvestigationStorageKey);
+                    } catch (_error) {
+                        // Ignore storage failures.
+                    }
+                }
+                investigationSelect.value = exists ? requestedId : "";
+                updateInvestigationControls();
+                announceInvestigationSelection();
+            };
+
+            const openInvestigationDialog = (mode) => {
+                const investigation = mode === "edit" ? selectedInvestigation() : null;
+                if (mode === "edit" && !investigation) {
+                    return;
+                }
+
+                investigationForm.dataset.mode = mode;
+                investigationDialogTitle.textContent = mode === "edit"
+                    ? "Edit investigation"
+                    : "New investigation";
+                investigationTitle.value = investigation ? investigation.title : "";
+                investigationReference.value = investigation ? investigation.reference : "";
+                investigationDescription.value = investigation ? investigation.description : "";
+                investigationTags.value = investigation ? (investigation.tags || []).join(", ") : "";
+                investigationDialog.showModal();
+                investigationTitle.focus();
+            };
+
+            const closeInvestigationDialog = () => {
+                investigationDialog.close();
+                investigationForm.reset();
+            };
 
             const setCaretToEnd = () => {
                 const end = searchField.value.length;
@@ -247,6 +495,9 @@
             const selectHistoryItem = (item) => {
                 searchField.value = item.query || "";
                 setFilters(item.filters || {});
+                if (item.investigation_id) {
+                    setSelectedInvestigation(item.investigation_id);
+                }
                 closeHistory();
                 searchField.focus();
                 setCaretToEnd();
@@ -330,6 +581,14 @@
                     document.getElementById("filter-after").focus();
                     return null;
                 }
+                const investigation = selectedInvestigation();
+                if (investigation && investigation.status !== "active") {
+                    setStatus(
+                        "Archived investigations are read-only. Select an active investigation.",
+                        true
+                    );
+                    return null;
+                }
 
                 const engines = {};
                 engineIds.forEach((engine) => {
@@ -337,7 +596,14 @@
                 });
 
                 const numResults = parseInt(document.getElementById("num-results").value, 10) || 20;
-                return { action: "search", value, filters, engines, numResults };
+                return {
+                    action: "search",
+                    value,
+                    filters,
+                    engines,
+                    numResults,
+                    investigationId: investigationSelect.value || ""
+                };
             };
 
             const submitSearch = () => {
@@ -349,8 +615,8 @@
                 closeHistory();
             };
 
-            const queueAction = (action) => {
-                state.pendingAction = { action };
+            const queueAction = (action, payload = {}) => {
+                state.pendingAction = { action, ...payload };
                 closeHistory();
                 setStatus("Processing...");
             };
@@ -465,8 +731,87 @@
 
             searchButton.addEventListener("click", submitSearch);
             vpnStatusButton.addEventListener("click", checkVpnStatus);
+            investigationSelect.addEventListener("change", () => {
+                setSelectedInvestigation(investigationSelect.value);
+            });
+            newInvestigationButton.addEventListener("click", () => {
+                openInvestigationDialog("create");
+            });
+            openInvestigationButton.addEventListener("click", () => {
+                const investigation = selectedInvestigation();
+                if (investigation) {
+                    queueAction("open_investigation", {
+                        investigationId: investigation.id
+                    });
+                }
+            });
+            editInvestigationButton.addEventListener("click", () => {
+                openInvestigationDialog("edit");
+            });
+            archiveInvestigationButton.addEventListener("click", () => {
+                const investigation = selectedInvestigation();
+                if (
+                    investigation &&
+                    confirm(`Archive the investigation "${investigation.title}"?`)
+                ) {
+                    queueAction("archive_investigation", {
+                        investigationId: investigation.id
+                    });
+                }
+            });
+            deleteInvestigationButton.addEventListener("click", () => {
+                const investigation = selectedInvestigation();
+                if (
+                    investigation &&
+                    confirm(
+                        `Delete the empty investigation "${investigation.title}"? `
+                        + "Investigations containing searches must be archived."
+                    )
+                ) {
+                    queueAction("delete_investigation", {
+                        investigationId: investigation.id
+                    });
+                }
+            });
+            investigationForm.addEventListener("submit", (event) => {
+                event.preventDefault();
+                const mode = investigationForm.dataset.mode || "create";
+                const investigation = selectedInvestigation();
+                const payload = {
+                    investigation: {
+                        title: investigationTitle.value.trim(),
+                        reference: investigationReference.value.trim(),
+                        description: investigationDescription.value.trim(),
+                        tags: investigationTags.value.trim()
+                    }
+                };
+                if (!payload.investigation.title) {
+                    investigationTitle.focus();
+                    return;
+                }
+                if (mode === "edit" && investigation) {
+                    payload.investigationId = investigation.id;
+                    queueAction("update_investigation", payload);
+                } else {
+                    queueAction("create_investigation", payload);
+                }
+                closeInvestigationDialog();
+            });
+            closeInvestigationDialogButton.addEventListener(
+                "click",
+                closeInvestigationDialog
+            );
+            cancelInvestigationDialogButton.addEventListener(
+                "click",
+                closeInvestigationDialog
+            );
             clearSynthesixHistoryButton.addEventListener("click", () => {
-                if (confirm("Delete all Synthesix search history and generated result reports?")) {
+                if (
+                    confirm(
+                        "Delete all Synthesix search history and generated result reports? "
+                        + "Investigation folders and explicitly saved pages are preserved."
+                    )
+                ) {
                     queueAction("clear_synthesix_history");
                 }
             });
@@ -516,6 +861,8 @@
 
             window.synthesixHome = {
                 setHistory,
+                setInvestigations,
+                setSelectedInvestigation,
                 setStatus,
                 checkVpnStatus,
                 consumeAction

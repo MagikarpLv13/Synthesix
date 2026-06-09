@@ -67,12 +67,16 @@ a:hover {
 }
 
 button,
-input {
+input,
+select,
+textarea {
     font: inherit;
 }
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
 a:focus-visible {
     outline: none;
     box-shadow: var(--focus);
@@ -200,6 +204,63 @@ a:focus-visible {
     font-size: 34px;
     line-height: 1.15;
     letter-spacing: 0;
+}
+
+.investigation-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+}
+
+.investigation-context {
+    display: grid;
+    grid-template-columns: auto minmax(180px, 1fr);
+    gap: 6px 10px;
+    align-items: center;
+    min-width: 0;
+}
+
+.investigation-context label {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.investigation-context select {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 0 34px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.investigation-summary {
+    grid-column: 2;
+    min-height: 16px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.investigation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.investigation-actions button {
+    min-height: 38px;
 }
 
 .search-form {
@@ -392,7 +453,9 @@ a:focus-visible {
 }
 
 .secondary-button,
-.danger-button {
+.danger-button,
+.primary-button,
+.icon-button {
     min-height: 36px;
     padding: 0 12px;
     border: 1px solid var(--line);
@@ -400,6 +463,32 @@ a:focus-visible {
     background: var(--surface);
     color: var(--text);
     cursor: pointer;
+}
+
+.primary-button {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--white);
+    font-weight: 700;
+}
+
+.primary-button:hover {
+    border-color: var(--accent-strong);
+    background: var(--accent-strong);
+}
+
+.icon-button {
+    width: 36px;
+    padding: 0;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.secondary-button:disabled,
+.danger-button:disabled,
+.primary-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
 }
 
 .secondary-button:hover {
@@ -477,6 +566,429 @@ a:focus-visible {
     margin: 14px 0 0;
     color: var(--muted);
     font-size: 13px;
+}
+
+.investigation-dialog {
+    width: min(560px, calc(100% - 24px));
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow);
+}
+
+.investigation-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.58);
+}
+
+.investigation-topbar {
+    margin-bottom: 34px;
+}
+
+.investigation-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 32px;
+    align-items: start;
+    padding: 0 0 28px;
+    border-bottom: 1px solid var(--line);
+}
+
+.section-eyebrow {
+    margin: 0 0 6px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.investigation-reference {
+    margin: 8px 0 0;
+    color: var(--secondary);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.investigation-description {
+    max-width: 760px;
+    margin: 14px 0;
+    color: var(--muted);
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+.archive-notice {
+    margin: 14px 0 0;
+    color: var(--warning);
+    font-weight: 700;
+}
+
+.investigation-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(100px, 1fr));
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.investigation-metrics div {
+    display: grid;
+    gap: 4px;
+    min-height: 82px;
+    padding: 14px;
+    background: var(--surface);
+}
+
+.investigation-metrics div:nth-child(odd) {
+    border-right: 1px solid var(--line);
+}
+
+.investigation-metrics div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+}
+
+.investigation-metrics strong {
+    font-size: 24px;
+}
+
+.investigation-metrics span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.investigation-section {
+    padding: 30px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.investigation-section:last-child {
+    border-bottom: 0;
+}
+
+.section-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.section-header h3 {
+    margin: 0;
+    font-size: 22px;
+}
+
+.investigation-filters {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.investigation-filters label,
+.attach-search-form label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.investigation-filters input,
+.investigation-filters select,
+.attach-search-form select {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.investigation-filters .favorite-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding-top: 18px;
+}
+
+.investigation-filters .favorite-filter input {
+    width: auto;
+    min-height: 0;
+    accent-color: var(--accent);
+}
+
+.investigation-filters > .secondary-button {
+    align-self: end;
+}
+
+.investigation-results {
+    display: grid;
+    gap: 12px;
+}
+
+.investigation-result {
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.investigation-result[hidden] {
+    display: none;
+}
+
+.result-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: start;
+}
+
+.result-title-block {
+    min-width: 0;
+}
+
+.result-title {
+    display: block;
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.result-title:hover {
+    color: var(--accent);
+}
+
+.result-url {
+    margin-top: 5px;
+    overflow: hidden;
+    color: var(--accent);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.result-review-controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.favorite-toggle,
+.status-control select {
+    min-height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.favorite-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.favorite-toggle input {
+    accent-color: var(--accent);
+}
+
+.status-control select {
+    padding: 0 28px 0 9px;
+}
+
+.result-description {
+    margin: 14px 0 10px;
+    color: var(--muted);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.result-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.result-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--secondary);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.result-provenance strong {
+    color: var(--text);
+}
+
+.provenance-label {
+    color: var(--secondary);
+    font-weight: 700;
+}
+
+.result-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.result-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 25px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.analyst-details {
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+}
+
+.analyst-details summary {
+    padding: 12px 0 0;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.analyst-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+    padding-top: 12px;
+}
+
+.analyst-fields label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.analyst-fields input,
+.analyst-fields textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+    resize: vertical;
+}
+
+.analyst-fields .primary-button {
+    min-width: 110px;
+}
+
+.investigation-empty {
+    padding: 28px 16px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.attach-search-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+    max-width: 920px;
+}
+
+.attach-search-form .primary-button {
+    min-height: 38px;
+}
+
+.investigation-table-shell {
+    overflow-x: auto;
+    box-shadow: none;
+}
+
+.investigation-form {
+    display: grid;
+}
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--line);
+}
+
+.dialog-header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.dialog-fields {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+}
+
+.dialog-fields label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dialog-fields input,
+.dialog-fields textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+    resize: vertical;
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
 }
 
 .page-header {
@@ -680,6 +1192,58 @@ table.dataTable.no-footer {
         align-items: stretch;
     }
 
+    .investigation-bar {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+
+    .investigation-context {
+        grid-template-columns: 1fr;
+    }
+
+    .investigation-summary {
+        grid-column: 1;
+    }
+
+    .investigation-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .investigation-overview {
+        grid-template-columns: 1fr;
+    }
+
+    .investigation-metrics {
+        width: 100%;
+    }
+
+    .investigation-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .investigation-filters .favorite-filter {
+        padding-top: 0;
+    }
+
+    .result-heading {
+        grid-template-columns: 1fr;
+    }
+
+    .result-review-controls {
+        justify-content: flex-start;
+    }
+
+    .analyst-fields,
+    .attach-search-form {
+        grid-template-columns: 1fr;
+    }
+
+    .analyst-fields .primary-button,
+    .attach-search-form .primary-button {
+        width: 100%;
+    }
+
     .operator-grid {
         grid-template-columns: 1fr;
     }
@@ -687,6 +1251,17 @@ table.dataTable.no-footer {
     .engine-group,
     .result-control {
         width: 100%;
+    }
+
+    .engine-group {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .engine-option {
+        width: 100%;
+        min-width: 0;
+        justify-content: center;
     }
 
     .data-actions {

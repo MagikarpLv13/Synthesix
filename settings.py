@@ -68,6 +68,8 @@ def _env_engines(name: str = "SYNTHESIX_DEFAULT_ENGINES") -> Dict[str, bool]:
 @dataclass(frozen=True)
 class AppSettings:
     base_dir: Path
+    database_path: Path
+    investigation_pages_dir: Path
     history_dir: Path
     history_json_path: Path
     history_report_path: Path
@@ -100,6 +102,9 @@ class AppSettings:
     def search_results_path(self, date_str: str) -> Path:
         return self.history_dir / f"search_results_{date_str}.html"
 
+    def investigation_page_path(self, investigation_id: str) -> Path:
+        return self.investigation_pages_dir / f"{investigation_id}.html"
+
 
 def get_settings() -> AppSettings:
     base_dir = Path(os.getenv("SYNTHESIX_BASE_DIR", ".")).resolve()
@@ -113,6 +118,16 @@ def get_settings() -> AppSettings:
 
     return AppSettings(
         base_dir=base_dir,
+        database_path=_env_path(
+            "SYNTHESIX_DATABASE_PATH",
+            "data/synthesix.db",
+            base_dir,
+        ),
+        investigation_pages_dir=_env_path(
+            "SYNTHESIX_INVESTIGATION_PAGES_DIR",
+            "data/investigation_pages",
+            base_dir,
+        ),
         history_dir=history_dir,
         history_json_path=history_dir / "history.json",
         history_report_path=history_report_path,

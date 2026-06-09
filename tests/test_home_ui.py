@@ -48,6 +48,30 @@ class HomeUiTestCase(unittest.TestCase):
             with self.subTest(color=color):
                 self.assertIn(color, theme)
 
+    def test_investigation_controls_are_wired_to_backend_actions(self):
+        self.assertEqual(
+            len(self.tree.xpath("//select[@id='investigation-select']")),
+            1,
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//dialog[@id='investigation-dialog']")),
+            1,
+        )
+        for action in (
+            "open_investigation",
+            "create_investigation",
+            "update_investigation",
+            "archive_investigation",
+            "delete_investigation",
+        ):
+            with self.subTest(action=action):
+                self.assertIn(f'queueAction("{action}"', self.content)
+
+        self.assertIn('action: "select_investigation"', self.content)
+        self.assertIn("investigationId: investigationSelect.value", self.content)
+        self.assertIn("setInvestigations", self.content)
+        self.assertIn("setSelectedInvestigation", self.content)
+
     def test_svg_brand_assets_are_valid_xml(self):
         assets_dir = Path(__file__).resolve().parents[1] / "assets"
         filenames = (

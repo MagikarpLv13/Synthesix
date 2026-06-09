@@ -124,6 +124,51 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report_capture.calls[0]["query"], '"python async"')
         self.assertEqual(history_calls, [("python async", '"python async"', 1, "/tmp/synthesix-report.html")])
         self.assertEqual(history_report_calls, [True])
+        self.assertEqual(result.results[0]["link"], "https://example.com/python-async")
+
+    async def test_search_links_history_entry_to_investigation(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "title": "Example company registry",
+                    "link": "https://example.com/company",
+                    "description": "Registry entry.",
+                    "source": "Google",
+                }
+            ]
+        )
+        history_calls = []
+        orchestrator = SearchOrchestrator(
+            engine_factories={"google": lambda: FakeEngine(frame=frame)},
+            report_generator=ReportCapture(),
+            history_adder=lambda *args, **kwargs: history_calls.append((args, kwargs)),
+            history_report_generator=lambda: None,
+        )
+
+        result = await orchestrator.search(
+            "example company",
+            '"example company"',
+            object(),
+            {"google": True},
+            5,
+            investigation_id="case-123",
+        )
+
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(
+            history_calls,
+            [
+                (
+                    (
+                        "example company",
+                        '"example company"',
+                        1,
+                        "/tmp/synthesix-report.html",
+                    ),
+                    {"investigation_id": "case-123"},
+                )
+            ],
+        )
 
     async def test_engine_failure_does_not_drop_successful_results(self):
         failing_engine = FakeEngine(exc=RuntimeError("boom"))

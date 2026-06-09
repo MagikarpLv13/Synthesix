@@ -146,6 +146,7 @@ def load_search_history(limit: int | None = None) -> List[dict]:
                 "date": str(entry.get("date", "")).strip(),
                 "nb_results": entry.get("nb_results", ""),
                 "filters": filters,
+                "investigation_id": str(entry.get("investigation_id", "") or ""),
             }
         )
         if len(searches) >= limit:
@@ -160,6 +161,7 @@ def add_to_history(
     nb_results: int,
     link: str,
     filters: dict | None = None,
+    investigation_id: str | None = None,
 ):
     """Add a search to the history
     
@@ -183,6 +185,8 @@ def add_to_history(
     }
     if filters:
         data["filters"] = filters
+    if investigation_id:
+        data["investigation_id"] = investigation_id
 
     path.parent.mkdir(parents=True, exist_ok=True)
     history = _read_history_entries(path)

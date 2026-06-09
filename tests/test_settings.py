@@ -14,6 +14,11 @@ class SettingsTestCase(unittest.TestCase):
 
             base_dir = Path(temp_dir).resolve()
             self.assertEqual(settings.base_dir, base_dir)
+            self.assertEqual(settings.database_path, base_dir / "data" / "synthesix.db")
+            self.assertEqual(
+                settings.investigation_pages_dir,
+                base_dir / "data" / "investigation_pages",
+            )
             self.assertEqual(settings.history_dir, base_dir / "history")
             self.assertEqual(settings.history_json_path, base_dir / "history" / "history.json")
             self.assertEqual(settings.history_report_path, base_dir / "history" / "history.html")
@@ -52,6 +57,8 @@ class SettingsTestCase(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             env = {
                 "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_DATABASE_PATH": "runtime/synthesix.db",
+                "SYNTHESIX_INVESTIGATION_PAGES_DIR": "runtime/cases",
                 "SYNTHESIX_HISTORY_DIR": "runtime/history",
                 "SYNTHESIX_HISTORY_REPORT_PATH": "runtime/history-report.html",
                 "SYNTHESIX_DEBUG_HTML": "true",
@@ -83,6 +90,11 @@ class SettingsTestCase(unittest.TestCase):
                 settings = get_settings()
 
             base_dir = Path(temp_dir).resolve()
+            self.assertEqual(settings.database_path, base_dir / "runtime" / "synthesix.db")
+            self.assertEqual(
+                settings.investigation_pages_dir,
+                base_dir / "runtime" / "cases",
+            )
             self.assertEqual(settings.history_dir, base_dir / "runtime" / "history")
             self.assertEqual(settings.history_report_path, base_dir / "runtime" / "history-report.html")
             self.assertTrue(settings.debug_html)

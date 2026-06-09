@@ -1,17 +1,25 @@
+import asyncio
 import json
 import logging
 from contextlib import redirect_stderr
 from io import StringIO
+from pathlib import Path
 import unittest
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from main import (
     _cached_history_payload,
+    _install_and_consume_save_overlay,
+    _investigation_payload,
+    _is_external_web_tab,
+    _open_or_refresh_investigation_page,
     _log_level_from_args,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
     parse_cli_args,
+    wait_for_home_action,
 )
 from settings import get_settings
 
@@ -75,6 +83,169 @@ class HomeHistoryCacheTestCase(unittest.TestCase):
 
         self.assertNotEqual(refreshed_version, version)
         self.assertEqual(json.loads(refreshed_json)[0]["query"], "first query")
+
+
+class InvestigationPayloadTestCase(unittest.TestCase):
+    def test_payload_is_stable_and_version_changes_with_content(self):
+        class FakeService:
+            def __init__(self):
+                self.payload = [{"id": "case-1", "title": "Case One"}]
+
+            def list_payload(self, *, include_archived=False):
+                self.include_archived = include_archived
+                return self.payload
+
+        service = FakeService()
+        payload, version = _investigation_payload(service)
+        repeated_payload, repeated_version = _investigation_payload(service)
+
+        self.assertEqual(json.loads(payload), service.payload)
+        self.assertTrue(service.include_archived)
+        self.assertEqual((payload, version), (repeated_payload, repeated_version))
+
+        service.payload = [{"id": "case-1", "title": "Renamed"}]
+        changed_payload, changed_version = _investigation_payload(service)
+
+        self.assertNotEqual(changed_payload, payload)
+        self.assertNotEqual(changed_version, version)
+
+
+class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_open_tabs_keeps_live_targets_without_websocket(self):
+        from main import _open_tabs
+
+        live_tab = SimpleNamespace(target_id="live", closed=True)
+        stale_tab = SimpleNamespace(target_id="stale", closed=False)
+        browser = SimpleNamespace(
+            tabs=[live_tab, stale_tab],
+            update_targets=AsyncMock(),
+            _get_targets=AsyncMock(
+                return_value=[
+                    SimpleNamespace(target_id="live", type_="page"),
+                    SimpleNamespace(target_id="worker", type_="service_worker"),
+                ]
+            ),
+        )
+
+        tabs = await _open_tabs(browser)
+
+        self.assertEqual(tabs, [live_tab])
+        browser.update_targets.assert_awaited_once()
+
+    async def test_external_page_overlay_returns_save_action(self):
+        class FakeTab:
+            url = "https://example.com/profile"
+
+            async def evaluate(self, script):
+                self.script = script
+                return {
+                    "action": "save_page_to_investigation",
+                    "investigationId": "case-1",
+                    "page": {"url": self.url},
+                }
+
+        tab = FakeTab()
+        action = await _install_and_consume_save_overlay(
+            tab,
+            {"id": "case-1", "title": "Case One"},
+        )
+
+        self.assertTrue(_is_external_web_tab(tab))
+        self.assertEqual(action["action"], "save_page_to_investigation")
+        self.assertIn("__synthesix-save-overlay", tab.script)
+        self.assertIn("Case One", tab.script)
+        self.assertIn("Save page", tab.script)
+        self.assertIn("observe_saved_page", tab.script)
+        self.assertIn("M58 12 69 6l9 38-12 9-9-7z", tab.script)
+        self.assertFalse(_is_external_web_tab(SimpleNamespace(url="file:///index.html")))
+
+    async def test_external_page_overlay_can_focus_home_without_active_case(self):
+        class FakeTab:
+            url = "https://example.com/profile"
+
+            async def evaluate(self, script):
+                self.script = script
+                return {"action": "focus_home"}
+
+        tab = FakeTab()
+        action = await _install_and_consume_save_overlay(tab)
+
+        self.assertEqual(action["action"], "focus_home")
+        self.assertIn("Select investigation", tab.script)
+        self.assertNotIn("shadow.innerHTML", tab.script)
+
+    async def test_external_tab_gets_overlay_without_active_case(self):
+        tab = SimpleNamespace(url="https://example.com/", closed=False)
+        settings = SimpleNamespace(
+            home_poll_interval=0,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+        install_overlay = AsyncMock(return_value={"action": "focus_home"})
+        focus_home = AsyncMock()
+        with (
+            patch("main._open_tabs", return_value=[tab]),
+            patch(
+                "main._install_and_consume_save_overlay",
+                new=install_overlay,
+            ),
+            patch("main._focus_or_open_home_tab", new=focus_home),
+        ):
+            browser = SimpleNamespace(stopped=False)
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    wait_for_home_action(
+                        browser,
+                        "file:///tmp/index.html",
+                        settings=settings,
+                    ),
+                    timeout=0.01,
+                )
+
+        install_overlay.assert_awaited()
+        focus_home.assert_awaited()
+
+    async def test_non_home_page_action_is_returned_with_source_tab(self):
+        class FakeTab:
+            url = "file:///tmp/case.html"
+            closed = False
+
+            async def evaluate(self, _script):
+                return {
+                    "action": "update_investigation_result",
+                    "investigationId": "case-1",
+                    "resultId": "result-1",
+                }
+
+        tab = FakeTab()
+        settings = SimpleNamespace(
+            home_poll_interval=0,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+        with patch("main._open_tabs", return_value=[tab]):
+            action = await wait_for_home_action(
+                SimpleNamespace(stopped=False),
+                "file:///tmp/index.html",
+                settings=settings,
+            )
+
+        self.assertEqual(action["action"], "update_investigation_result")
+        self.assertIs(action["_source_tab"], tab)
+
+    async def test_refresh_does_not_open_missing_investigation_tab(self):
+        browser = SimpleNamespace()
+        browser.get = AsyncMock()
+
+        with patch("main._open_tabs", return_value=[]):
+            await _open_or_refresh_investigation_page(
+                browser,
+                Path("missing.html"),
+                bring_to_front=False,
+                open_if_missing=False,
+            )
+
+        browser.get.assert_not_awaited()
 
 
 if __name__ == "__main__":
