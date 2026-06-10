@@ -31,11 +31,12 @@ Phase P0 - preuves et provenance :
 - capture PNG de la zone visible ou d'une zone rectangulaire : realisee ;
 - manifeste de provenance PNG : realise ;
 - calcul SHA-256 du PNG : realise ;
-- capture HTML et MHTML : realisee ;
+- archivage HTML et MHTML explicite, separe des screenshots : realise ;
 - verification interactive SHA-256 : realisee ;
 - nettoyage des donnees sensibles avant ecriture : realise ;
 - ouverture locale des artefacts et du manifeste : realisee ;
-- conservation du PNG avec statut partiel si HTML ou MHTML est indisponible :
+- capture PNG autonome sans tentative HTML : realisee ;
+- conservation d'une archive partielle si HTML ou MHTML est indisponible :
   realisee.
 
 Phase P1 - scoring explicable et consensus multi-moteur :
@@ -53,7 +54,8 @@ Prochaine phase P1 :
 - filtres dossier, moteur, date, statut et domaine : realises ;
 - reconstruction complete et synchronisation automatique : realisees ;
 - acces local aux pages sauvegardees et preuves : realise ;
-- comparaison temporelle et surveillance manuelle.
+- comparaison temporelle du contenu des pages et surveillance manuelle :
+  realisees.
 
 ## 1. Objectif
 
@@ -310,19 +312,18 @@ Objectif : identifier les changements sans relire manuellement tous les rapports
 
 Premiere version :
 
-- enregistrer une recherche comme surveillance ;
-- relance uniquement manuelle ;
-- comparer avec l'execution precedente ;
-- afficher :
-  - nouveaux resultats
-  - resultats disparus
-  - URL deja connues
-  - titres ou descriptions modifies
-- produire un rapport de difference.
+- enregistrer une page sauvegardee comme surveillance ;
+- creer les snapshots uniquement sur archivage HTML explicite ;
+- comparer le texte normalise avec l'archive precedente ;
+- distinguer contenu identique, changement mineur, changement significatif et
+  comparaison impossible ;
+- produire un rapport de difference local ;
+- ne pas comparer automatiquement les screenshots afin d'eviter les alertes
+  dues aux animations, cartes, publicites ou curseurs.
 
 Version ulterieure :
 
-- planification locale optionnelle ;
+- verification locale optionnelle et planifiee ;
 - frequence minimale configurable ;
 - limite globale de concurrence ;
 - notification locale ;
@@ -332,7 +333,7 @@ Regles :
 
 - aucune surveillance agressive ;
 - pas de boucle infinie en cas de panne ;
-- captchas et actions manuelles restent visibles ;
+- les challenges et actions manuelles restent visibles ;
 - la planification doit pouvoir etre totalement desactivee.
 
 ### P2 - Variantes de requete assistees
@@ -675,10 +676,10 @@ Livrable : classement explicable et recherche transversale locale.
 
 ### Phase 4 - Comparaison temporelle
 
-- surveillance manuelle ;
-- comparaison entre executions ;
-- rapport nouveaux/disparus/modifies ;
-- gestion des echecs partiels.
+- surveillance manuelle des pages sauvegardees ;
+- comparaison entre archives HTML explicites ;
+- rapport de changement du texte normalise ;
+- seuil anti-bruit et gestion des archives partielles.
 
 Livrable : detection de changements sans planificateur automatique.
 

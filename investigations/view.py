@@ -126,6 +126,7 @@ def _evidence_markup(
             for artifact_type, label in (
                 ("html", "HTML"),
                 ("mhtml", "MHTML"),
+                ("text", "Text"),
             )
             if (href := artifact_hrefs.get(artifact_type))
         )
@@ -134,11 +135,17 @@ def _evidence_markup(
                 f'<a class="secondary-link" href="{_html(manifest_href)}" '
                 'target="_blank" rel="noopener noreferrer">Manifest</a>'
             )
-        scope = (
-            "Selected area"
-            if capture.get("capture_scope") == "region"
-            else "Visible area"
+        capture_kind = str(
+            capture.get("capture_kind", "screenshot") or "screenshot"
         )
+        if capture_kind == "page_archive":
+            scope = "Page archive"
+        else:
+            scope = (
+                "Selected area"
+                if capture.get("capture_scope") == "region"
+                else "Visible area"
+            )
         capture_name = str(capture.get("name", "") or "").strip()
         display_name = capture_name or scope
         scope_detail = (
@@ -158,7 +165,13 @@ def _evidence_markup(
             f'aria-label="Open {_html(display_name)}">'
             f'<img src="{_html(png_href)}" alt="" loading="lazy"></a>'
             if png_href
-            else '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
+            else (
+                '<div class="evidence-thumbnail '
+                'evidence-thumbnail--empty evidence-thumbnail--archive" '
+                'aria-label="Page archive"></div>'
+                if capture_kind == "page_archive"
+                else '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
+            )
         )
         name_markup = (
             f'<a class="evidence-name" href="{_html(png_href)}" '
@@ -218,6 +231,7 @@ def _result_cards(
     results: list[Mapping],
     *,
     evidence_by_result: Mapping[str, list[Mapping]],
+    monitors_by_result: Mapping[str, Mapping],
     output_dir: Path,
     base_dir: Path,
     read_only: bool,
@@ -276,6 +290,19 @@ def _result_cards(
             base_dir=base_dir,
             read_only=read_only,
         )
+        monitor = monitors_by_result.get(result_id)
+        if monitor:
+            monitor_control = (
+                '<span class="meta-pill">Monitoring</span>'
+                '<button type="button" class="secondary-button stop-page-monitor" '
+                f'data-monitor-id="{_html(monitor.get("id", ""))}"'
+                f"{disabled}>Stop</button>"
+            )
+        else:
+            monitor_control = (
+                '<button type="button" class="secondary-button start-page-monitor"'
+                f"{disabled}>Monitor changes</button>"
+            )
         discovery_observed_at = _local_datetime(
             result.get("discovery_observed_at")
         )
@@ -323,6 +350,7 @@ def _result_cards(
                         <div class="result-url">{_html(url)}</div>
                     </div>
                     <div class="result-review-controls">
+                        {monitor_control}
                         <label
                             class="favorite-toggle"
                             title="Add or remove this page from favorites"
@@ -400,6 +428,83 @@ def _result_cards(
     return "".join(cards)
 
 
+def _page_monitor_cards(
+    monitors: list[Mapping],
+    *,
+    output_dir: Path,
+    base_dir: Path,
+    read_only: bool,
+) -> str:
+    if not monitors:
+        return """
+            <div class="investigation-empty">
+                No page is monitored. Enable monitoring from a saved page,
+                then use the HTML archive button while browsing it.
+            </div>
+        """
+
+    labels = {
+        "unchanged": "No content change",
+        "minor_change": "Minor change",
+        "changed": "Significant change",
+        "inconclusive": "Inconclusive",
+    }
+    cards = []
+    disabled = " disabled" if read_only else ""
+    for monitor in monitors:
+        report_path = _resolve_runtime_path(
+            monitor.get("comparison_report_path"),
+            base_dir,
+        )
+        report_link = (
+            f'<a class="secondary-link" '
+            f'href="{_html(_relative_href(report_path, output_dir))}" '
+            'target="_blank" rel="noopener noreferrer">Open comparison</a>'
+            if report_path is not None
+            else '<span>Archive the page twice to generate a comparison.</span>'
+        )
+        status = str(monitor.get("comparison_status", "") or "")
+        similarity = monitor.get("comparison_similarity")
+        similarity_text = (
+            f"{float(similarity) * 100:.2f}% text similarity"
+            if similarity is not None
+            else ""
+        )
+        cards.append(
+            f"""
+            <article
+                class="page-monitor-card"
+                data-page-monitor-id="{_html(monitor.get("id", ""))}"
+            >
+                <div>
+                    <a
+                        class="result-title"
+                        href="{_html(monitor.get("result_url", ""))}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >{_html(monitor.get("result_title") or monitor.get("result_url"))}</a>
+                    <div class="result-url">{_html(monitor.get("result_url", ""))}</div>
+                </div>
+                <div class="page-monitor-summary">
+                    <span class="meta-pill">
+                        {int(monitor.get("archive_count", 0) or 0)} archive(s)
+                    </span>
+                    <strong>{_html(labels.get(status, "Waiting for baseline"))}</strong>
+                    <span>{_html(similarity_text)}</span>
+                    {report_link}
+                </div>
+                <button
+                    type="button"
+                    class="danger-button stop-page-monitor"
+                    data-monitor-id="{_html(monitor.get("id", ""))}"
+                    {disabled}
+                >Stop monitoring</button>
+            </article>
+            """
+        )
+    return "".join(cards)
+
+
 def _search_rows(
     searches: list[Mapping],
     *,
@@ -467,6 +572,7 @@ def generate_investigation_page(
     results = list(workspace.get("results", []))
     evidence = list(workspace.get("evidence", []))
     searches = list(workspace.get("searches", []))
+    page_monitors = list(workspace.get("page_monitors", []))
     unassigned_searches = list(workspace.get("unassigned_searches", []))
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -521,6 +627,10 @@ def generate_investigation_page(
             str(capture.get("result_id", "")),
             [],
         ).append(capture)
+    monitors_by_result = {
+        str(monitor.get("result_id", "")): monitor
+        for monitor in page_monitors
+    }
 
     page = f"""<!DOCTYPE html>
 <html lang="en">
@@ -551,7 +661,15 @@ def generate_investigation_page(
         </header>
         <p id="investigation-action-status" class="action-status"></p>
 
-        <section class="investigation-overview">
+        <nav class="investigation-nav" aria-label="Investigation sections">
+            <a href="#overview">Overview</a>
+            <a href="#saved-pages">Saved pages</a>
+            <a href="#page-monitoring">Monitoring</a>
+            <a href="#attach-search">Attach search</a>
+            <a href="#search-runs">Search runs</a>
+        </nav>
+
+        <section id="overview" class="investigation-overview">
             <div>
                 <p class="section-eyebrow">Investigation</p>
                 <h2 class="page-title">{_html(investigation.get("title"))}</h2>
@@ -568,7 +686,11 @@ def generate_investigation_page(
             </div>
         </section>
 
-        <section class="investigation-section" aria-label="Saved investigation pages">
+        <section
+            id="saved-pages"
+            class="investigation-section"
+            aria-label="Saved investigation pages"
+        >
             <div class="section-header">
                 <div>
                     <p class="section-eyebrow">Analyst selection</p>
@@ -623,6 +745,7 @@ def generate_investigation_page(
                 {_result_cards(
                     results,
                     evidence_by_result=evidence_by_result,
+                    monitors_by_result=monitors_by_result,
                     output_dir=output_dir,
                     base_dir=base_dir,
                     read_only=read_only,
@@ -630,7 +753,39 @@ def generate_investigation_page(
             </div>
         </section>
 
-        <section class="investigation-section" aria-label="Attach existing search">
+        <section
+            id="page-monitoring"
+            class="investigation-section"
+            aria-label="Page monitoring"
+        >
+            <div class="section-header">
+                <div>
+                    <p class="section-eyebrow">Temporal comparison</p>
+                    <h3>Page monitoring</h3>
+                </div>
+                <span class="meta-pill">{len(page_monitors)} monitored</span>
+            </div>
+            <p class="session-note">
+                Monitoring compares normalized text from explicit HTML archives.
+                Screenshots are not compared automatically to avoid noisy alerts
+                from animations, maps, ads, or cursor changes. Open a monitored
+                page and use the HTML archive button to create the next snapshot.
+            </p>
+            <div class="page-monitor-list">
+                {_page_monitor_cards(
+                    page_monitors,
+                    output_dir=output_dir,
+                    base_dir=base_dir,
+                    read_only=read_only,
+                )}
+            </div>
+        </section>
+
+        <section
+            id="attach-search"
+            class="investigation-section"
+            aria-label="Attach existing search"
+        >
             <div class="section-header">
                 <div>
                     <p class="section-eyebrow">Existing collection</p>
@@ -652,7 +807,11 @@ def generate_investigation_page(
             </p>
         </section>
 
-        <section class="investigation-section" aria-label="Investigation searches">
+        <section
+            id="search-runs"
+            class="investigation-section"
+            aria-label="Investigation searches"
+        >
             <div class="section-header">
                 <div>
                     <p class="section-eyebrow">Provenance</p>
@@ -779,6 +938,12 @@ def generate_investigation_page(
                     "click",
                     () => saveResult(card)
                 );
+                card.querySelector(".start-page-monitor")?.addEventListener(
+                    "click",
+                    () => queueAction("create_page_monitor", {{
+                        resultId: card.dataset.resultId
+                    }})
+                );
                 card.querySelector(".remove-saved-page")?.addEventListener(
                     "click",
                     () => {{
@@ -822,6 +987,16 @@ def generate_investigation_page(
                             captureId: item.dataset.evidenceId
                         }});
                     }});
+                }});
+            }});
+
+            document.querySelectorAll(".stop-page-monitor").forEach((button) => {{
+                button.addEventListener("click", () => {{
+                    if (confirm("Stop monitoring this page?")) {{
+                        queueAction("delete_page_monitor", {{
+                            monitorId: button.dataset.monitorId
+                        }});
+                    }}
                 }});
             }});
 

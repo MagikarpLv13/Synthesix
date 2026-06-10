@@ -11,9 +11,11 @@ from evidence.capture import (
     capture_mhtml,
     capture_png,
     normalize_selection,
+    normalize_html_text,
     sanitize_html,
     sanitize_mhtml,
 )
+from evidence.changes import compare_page_text
 from evidence.hashing import sha256_file
 from evidence.manifest import build_evidence_manifest, write_manifest
 
@@ -122,6 +124,14 @@ class EvidenceSanitizationTestCase(unittest.TestCase):
         self.assertIn('viewBox="0 0 10 10"', sanitized)
         self.assertIn("<linearGradient", sanitized)
 
+    def test_normalizes_visible_text_without_script_noise(self):
+        normalized = normalize_html_text(
+            "<html><style>hidden</style><body><h1>Hello</h1>"
+            "<script>noise()</script><p>world</p></body></html>"
+        )
+
+        self.assertEqual(normalized, "Hello world")
+
     def test_removes_sensitive_mhtml_headers(self):
         content = (
             "Content-Type: text/html\n"
@@ -169,7 +179,8 @@ class EvidenceManifestTestCase(unittest.TestCase):
             write_manifest(output_path, manifest)
             loaded = json.loads(output_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(loaded["schema_version"], 2)
+        self.assertEqual(loaded["schema_version"], 3)
+        self.assertEqual(loaded["capture"]["kind"], "screenshot")
         self.assertEqual(loaded["name"], "Profile header")
         self.assertEqual(loaded["capture"]["scope"], "region")
         self.assertEqual(loaded["status"], "partial")
@@ -186,6 +197,20 @@ class EvidenceManifestTestCase(unittest.TestCase):
             digest,
             hashlib.sha256(b"evidence").hexdigest(),
         )
+
+
+class PageChangeTestCase(unittest.TestCase):
+    def test_separates_minor_and_significant_text_changes(self):
+        base = " ".join(f"word-{index}" for index in range(500))
+
+        minor = compare_page_text(base, base + " updated")
+        changed = compare_page_text(base, "Completely different page content")
+        unchanged = compare_page_text(base, base)
+
+        self.assertEqual(minor.status, "minor_change")
+        self.assertEqual(changed.status, "changed")
+        self.assertEqual(unchanged.status, "unchanged")
+        self.assertEqual(unchanged.similarity, 1.0)
 
 
 if __name__ == "__main__":

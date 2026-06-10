@@ -219,6 +219,7 @@ class EvidenceCapture:
     error: str
     tool_version: str
     artifacts: tuple[EvidenceArtifact, ...]
+    capture_kind: str = "screenshot"
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -235,8 +236,75 @@ class EvidenceCapture:
             "status": self.status,
             "error": self.error,
             "tool_version": self.tool_version,
+            "capture_kind": self.capture_kind,
             "artifacts": [
                 artifact.to_payload()
                 for artifact in self.artifacts
             ],
+        }
+
+
+@dataclass(frozen=True)
+class PageMonitor:
+    id: str
+    investigation_id: str
+    result_id: str
+    result_title: str
+    result_url: str
+    baseline_capture_id: str | None
+    last_capture_id: str | None
+    created_at: str
+    updated_at: str
+    archive_count: int = 0
+    comparison_id: str | None = None
+    comparison_status: str | None = None
+    comparison_similarity: float | None = None
+    comparison_report_path: str | None = None
+    comparison_generated_at: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "result_id": self.result_id,
+            "result_title": self.result_title,
+            "result_url": self.result_url,
+            "baseline_capture_id": self.baseline_capture_id,
+            "last_capture_id": self.last_capture_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "archive_count": self.archive_count,
+            "comparison_id": self.comparison_id,
+            "comparison_status": self.comparison_status,
+            "comparison_similarity": self.comparison_similarity,
+            "comparison_report_path": self.comparison_report_path,
+            "comparison_generated_at": self.comparison_generated_at,
+        }
+
+
+@dataclass(frozen=True)
+class PageComparison:
+    id: str
+    monitor_id: str
+    previous_capture_id: str | None
+    current_capture_id: str
+    status: str
+    similarity: float | None
+    previous_sha256: str
+    current_sha256: str
+    report_path: str | None
+    generated_at: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "monitor_id": self.monitor_id,
+            "previous_capture_id": self.previous_capture_id,
+            "current_capture_id": self.current_capture_id,
+            "status": self.status,
+            "similarity": self.similarity,
+            "previous_sha256": self.previous_sha256,
+            "current_sha256": self.current_sha256,
+            "report_path": self.report_path,
+            "generated_at": self.generated_at,
         }

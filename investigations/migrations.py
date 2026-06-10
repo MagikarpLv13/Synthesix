@@ -258,4 +258,59 @@ MIGRATIONS = (
             );
         """,
     ),
+    (
+        7,
+        """
+        ALTER TABLE evidence_captures
+            ADD COLUMN capture_kind TEXT NOT NULL DEFAULT 'screenshot'
+            CHECK (capture_kind IN ('screenshot', 'page_archive'));
+
+        CREATE TABLE page_monitors (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            result_id TEXT NOT NULL
+                REFERENCES results(id) ON DELETE CASCADE,
+            baseline_capture_id TEXT
+                REFERENCES evidence_captures(id) ON DELETE SET NULL,
+            last_capture_id TEXT
+                REFERENCES evidence_captures(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(investigation_id, result_id)
+        );
+
+        CREATE TABLE page_comparisons (
+            id TEXT PRIMARY KEY,
+            monitor_id TEXT NOT NULL
+                REFERENCES page_monitors(id) ON DELETE CASCADE,
+            previous_capture_id TEXT
+                REFERENCES evidence_captures(id) ON DELETE SET NULL,
+            current_capture_id TEXT NOT NULL
+                REFERENCES evidence_captures(id) ON DELETE CASCADE,
+            status TEXT NOT NULL
+                CHECK (
+                    status IN (
+                        'unchanged',
+                        'minor_change',
+                        'changed',
+                        'inconclusive'
+                    )
+                ),
+            similarity REAL,
+            previous_sha256 TEXT NOT NULL DEFAULT '',
+            current_sha256 TEXT NOT NULL DEFAULT '',
+            report_path TEXT,
+            generated_at TEXT NOT NULL,
+            UNIQUE(current_capture_id)
+        );
+
+        CREATE INDEX idx_page_monitors_investigation
+            ON page_monitors(investigation_id, updated_at DESC);
+        CREATE INDEX idx_page_comparisons_monitor
+            ON page_comparisons(monitor_id, generated_at DESC);
+        CREATE INDEX idx_evidence_captures_kind
+            ON evidence_captures(result_id, capture_kind, captured_at DESC);
+        """,
+    ),
 )

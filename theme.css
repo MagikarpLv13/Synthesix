@@ -595,6 +595,38 @@ a:focus-visible {
     margin-bottom: 34px;
 }
 
+.investigation-nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    margin: 0 0 28px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(10px);
+}
+
+.investigation-nav a {
+    flex: 0 0 auto;
+    padding: 8px 11px;
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.investigation-nav a:hover,
+.investigation-nav a:focus-visible {
+    background: var(--surface-2);
+    color: var(--accent);
+}
+
 .investigation-overview {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -670,6 +702,11 @@ a:focus-visible {
 .investigation-section {
     padding: 30px 0;
     border-bottom: 1px solid var(--line);
+    scroll-margin-top: 76px;
+}
+
+.investigation-overview {
+    scroll-margin-top: 76px;
 }
 
 .investigation-section:last-child {
@@ -961,6 +998,20 @@ a:focus-visible {
     background: var(--line);
 }
 
+.evidence-thumbnail--archive {
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+}
+
+.evidence-thumbnail--archive::after {
+    content: "HTML";
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
 .evidence-scope {
     color: var(--muted);
 }
@@ -994,6 +1045,37 @@ a:focus-visible {
 
 .evidence-verification.is-error {
     color: var(--danger);
+}
+
+.page-monitor-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.page-monitor-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 18px;
+    align-items: center;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.page-monitor-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.page-monitor-summary strong {
+    color: var(--text);
 }
 
 .danger-link {
@@ -1110,6 +1192,15 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
+    .page-monitor-card {
+        grid-template-columns: 1fr;
+        align-items: start;
+    }
+
+    .page-monitor-summary {
+        justify-content: flex-start;
+    }
+
     .evidence-item {
         grid-template-columns: 80px minmax(0, 1fr);
         gap: 6px;

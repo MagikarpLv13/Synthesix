@@ -17,12 +17,16 @@ from evidence import (
     capture_html,
     capture_mhtml,
     capture_png,
+    compare_page_text,
+    normalize_html_text,
+    write_text_document,
     write_manifest,
 )
 from evidence.hashing import sha256_file
 from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
+from investigations.monitoring_view import generate_page_comparison_report
 from investigations.search_view import generate_local_search_page
 from investigations.view import generate_investigation_page
 from query_operators import SearchFilters, build_display_query
@@ -64,6 +68,14 @@ def _default_capture_name(captured_at: str) -> str:
         .replace("+00-00", "")
     )
     return f"screenshot_{compact or 'capture'}"
+
+
+def _default_archive_name(captured_at: str) -> str:
+    return _default_capture_name(captured_at).replace(
+        "screenshot_",
+        "page_archive_",
+        1,
+    )
 
 
 def _normalize_tab_url(url: str | None) -> str:
@@ -454,11 +466,122 @@ async def _install_and_consume_save_overlay(
                         }};
                     }});
 
+                    const archiveButton = document.createElement("button");
+                    archiveButton.type = "button";
+                    archiveButton.setAttribute(
+                        "aria-label",
+                        "Save page with HTML archive"
+                    );
+                    Object.assign(archiveButton.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "42px",
+                        height: "42px",
+                        border: "1px solid #0E7490",
+                        borderRadius: "6px",
+                        background: "#0891B2",
+                        color: "#FFFFFF",
+                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
+                        cursor: "pointer",
+                        transition: (
+                            "background-color 140ms ease, border-color 140ms ease, "
+                            + "box-shadow 140ms ease, transform 140ms ease"
+                        )
+                    }});
+                    const archiveIcon = document.createElementNS(
+                        svgNamespace,
+                        "svg"
+                    );
+                    archiveIcon.setAttribute("viewBox", "0 0 24 24");
+                    archiveIcon.setAttribute("aria-hidden", "true");
+                    Object.assign(archiveIcon.style, {{
+                        display: "block",
+                        width: "20px",
+                        height: "20px"
+                    }});
+                    const archivePath = document.createElementNS(
+                        svgNamespace,
+                        "path"
+                    );
+                    archivePath.setAttribute(
+                        "d",
+                        "M5 3h11l3 3v15H5zM8 3v6h8V3M8 14h8M8 18h6"
+                    );
+                    archivePath.setAttribute("fill", "none");
+                    archivePath.setAttribute("stroke", "currentColor");
+                    archivePath.setAttribute("stroke-width", "2");
+                    archivePath.setAttribute("stroke-linejoin", "round");
+                    archiveIcon.appendChild(archivePath);
+                    archiveButton.appendChild(archiveIcon);
+
+                    const archiveColors = {{
+                        idle: ["#0891B2", "#0E7490"],
+                        idleHover: ["#0E7490", "#155E75"],
+                        archiving: ["#475569", "#334155"],
+                        archived: ["#059669", "#047857"],
+                        archivedHover: ["#047857", "#065F46"],
+                        error: ["#DC2626", "#B91C1C"],
+                        errorHover: ["#B91C1C", "#991B1B"]
+                    }};
+                    host.__synthesixSetArchiveState = (
+                        state,
+                        tooltip = "Save page with HTML archive",
+                        hovered = false
+                    ) => {{
+                        const key = hovered ? `${{state}}Hover` : state;
+                        const colors = archiveColors[key] || archiveColors[state];
+                        archiveButton.dataset.state = state;
+                        archiveButton.disabled = state === "archiving";
+                        archiveButton.title = tooltip;
+                        archiveButton.style.background = colors[0];
+                        archiveButton.style.borderColor = colors[1];
+                        archiveButton.style.cursor = (
+                            state === "archiving" ? "wait" : "pointer"
+                        );
+                    }};
+                    archiveButton.addEventListener("click", () => {{
+                        if (!host.dataset.investigationId) {{
+                            window.__synthesixSavePageAction = {{
+                                action: "focus_home"
+                            }};
+                            return;
+                        }}
+                        host.__synthesixSetArchiveState(
+                            "archiving",
+                            "Saving HTML archive..."
+                        );
+                        window.__synthesixSavePageAction = {{
+                            action: "archive_page_to_investigation",
+                            investigationId: host.dataset.investigationId,
+                            page: host.__synthesixPagePayload()
+                        }};
+                    }});
+                    archiveButton.addEventListener("mouseenter", () => {{
+                        if (!archiveButton.disabled) {{
+                            host.__synthesixSetArchiveState(
+                                archiveButton.dataset.state,
+                                archiveButton.title,
+                                true
+                            );
+                            archiveButton.style.transform = "translateY(-1px)";
+                        }}
+                    }});
+                    archiveButton.addEventListener("mouseleave", () => {{
+                        host.__synthesixSetArchiveState(
+                            archiveButton.dataset.state,
+                            archiveButton.title
+                        );
+                        archiveButton.style.transform = "translateY(0)";
+                    }});
+
                     const captureButton = document.createElement("button");
                     captureButton.type = "button";
                     captureButton.setAttribute(
                         "aria-label",
-                        "Capture evidence"
+                        "Capture screenshot"
                     );
                     Object.assign(captureButton.style, {{
                         all: "initial",
@@ -628,7 +751,7 @@ async def _install_and_consume_save_overlay(
                     }};
                     host.__synthesixSetCaptureState = (
                         state,
-                        tooltip = "Capture evidence",
+                        tooltip = "Capture screenshot",
                         hovered = false
                     ) => {{
                         const key = hovered ? `${{state}}Hover` : state;
@@ -826,7 +949,7 @@ async def _install_and_consume_save_overlay(
                         );
                         captureButton.style.transform = "translateY(0)";
                     }});
-                    toolbar.append(button, captureButton);
+                    toolbar.append(button, archiveButton, captureButton);
                     shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);
                 }}
@@ -839,6 +962,9 @@ async def _install_and_consume_save_overlay(
                 const statusUntil = Number(host.dataset.statusUntil || 0);
                 const captureStatusUntil = Number(
                     host.dataset.captureStatusUntil || 0
+                );
+                const archiveStatusUntil = Number(
+                    host.dataset.archiveStatusUntil || 0
                 );
                 if (contextChanged) {{
                     host.dataset.saved = "0";
@@ -859,7 +985,11 @@ async def _install_and_consume_save_overlay(
                     }}
                     host.__synthesixSetCaptureState(
                         "idle",
-                        "Capture evidence"
+                        "Capture screenshot"
+                    );
+                    host.__synthesixSetArchiveState(
+                        "idle",
+                        "Save page with HTML archive"
                     );
                 }} else if (
                     button.dataset.state === "error"
@@ -870,14 +1000,27 @@ async def _install_and_consume_save_overlay(
                 if (
                     ["captured", "error"].includes(
                         host.shadowRoot.querySelector(
-                            'button[aria-label="Capture evidence"]'
+                            'button[aria-label="Capture screenshot"]'
                         )?.dataset.state
                     )
                     && Date.now() >= captureStatusUntil
                 ) {{
                     host.__synthesixSetCaptureState(
                         "idle",
-                        "Capture evidence"
+                        "Capture screenshot"
+                    );
+                }}
+                if (
+                    ["archived", "error"].includes(
+                        host.shadowRoot.querySelector(
+                            'button[aria-label="Save page with HTML archive"]'
+                        )?.dataset.state
+                    )
+                    && Date.now() >= archiveStatusUntil
+                ) {{
+                    host.__synthesixSetArchiveState(
+                        "idle",
+                        "Save page with HTML archive"
                     );
                 }}
 
@@ -969,6 +1112,34 @@ async def _set_evidence_overlay_status(
         logger.debug("Unable to update the evidence overlay", exc_info=True)
 
 
+async def _set_archive_overlay_status(
+    tab,
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    if tab is None:
+        return
+    try:
+        await tab.evaluate(
+            f"""
+            (() => {{
+                const host = document.getElementById("__synthesix-save-overlay");
+                if (!host || !host.__synthesixSetArchiveState) {{
+                    return;
+                }}
+                host.__synthesixSetArchiveState(
+                    {json.dumps("error" if is_error else "archived")},
+                    {json.dumps(message)}
+                );
+                host.dataset.archiveStatusUntil = String(Date.now() + 2200);
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to update the page archive overlay", exc_info=True)
+
+
 async def _capture_evidence(
     service: InvestigationService,
     settings: AppSettings,
@@ -995,8 +1166,6 @@ async def _capture_evidence(
     )[:120]
     capture_dir = settings.evidence_dir / investigation_id / capture_id
     png_path = capture_dir / "capture.png"
-    html_path = capture_dir / "page.html"
-    mhtml_path = capture_dir / "page.mhtml"
     manifest_path = capture_dir / "manifest.json"
     tool_version = _tool_version()
 
@@ -1023,49 +1192,6 @@ async def _capture_evidence(
                 "byte_size": captured_png.byte_size,
             }
         ]
-        capture_errors = []
-        document_captures = (
-            ("html", html_path, "text/html; charset=utf-8", capture_html),
-            ("mhtml", mhtml_path, "multipart/related", capture_mhtml),
-        )
-        for artifact_type, output_path, mime_type, capture_document in (
-            document_captures
-        ):
-            try:
-                captured_document = await capture_document(tab, output_path)
-            except Exception as exc:
-                label = artifact_type.upper()
-                capture_errors.append(
-                    f"{label} capture unavailable ({type(exc).__name__})."
-                )
-                logger.debug(
-                    "%s evidence capture unavailable",
-                    label,
-                    exc_info=True,
-                )
-                continue
-            stored_path = _stored_path(output_path, settings.base_dir)
-            artifacts.append(
-                {
-                    "id": str(uuid4()),
-                    "artifact_type": artifact_type,
-                    "file_path": stored_path,
-                    "mime_type": mime_type,
-                    "sha256": captured_document.sha256,
-                    "byte_size": captured_document.byte_size,
-                    "created_at": captured_at,
-                }
-            )
-            manifest_artifacts.append(
-                {
-                    "type": artifact_type,
-                    "path": stored_path,
-                    "mime_type": mime_type,
-                    "sha256": captured_document.sha256,
-                    "byte_size": captured_document.byte_size,
-                }
-            )
-        capture_status = "partial" if capture_errors else "completed"
         browser_context = page.get("browserContext", {})
         if not isinstance(browser_context, dict):
             browser_context = {}
@@ -1077,6 +1203,7 @@ async def _capture_evidence(
             captured_at=captured_at,
             source_url=saved.url,
             page_title=saved.title,
+            capture_kind="screenshot",
             capture_scope=capture_scope,
             selection={
                 "x": float(selection.get("x", 0)),
@@ -1084,6 +1211,264 @@ async def _capture_evidence(
                 "width": captured_png.width,
                 "height": captured_png.height,
             },
+            browser_context={
+                "viewport_width": browser_context.get("viewportWidth"),
+                "viewport_height": browser_context.get("viewportHeight"),
+                "device_pixel_ratio": browser_context.get("devicePixelRatio"),
+                "language": browser_context.get("language"),
+                "user_agent": browser_context.get("userAgent"),
+            },
+            tool_version=tool_version,
+            artifacts=manifest_artifacts,
+        )
+        await asyncio.to_thread(write_manifest, manifest_path, manifest)
+        capture = service.record_evidence_capture(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=capture_name,
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope=capture_scope,
+            selection=manifest["capture"]["selection_css_pixels"],
+            manifest_path=_stored_path(manifest_path, settings.base_dir),
+            captured_at=captured_at,
+            tool_version=tool_version,
+            artifacts=artifacts,
+            capture_kind="screenshot",
+        )
+    except Exception as exc:
+        await asyncio.to_thread(shutil.rmtree, capture_dir, True)
+        if isinstance(exc, InvestigationError):
+            raise
+        raise EvidenceCaptureError(
+            f"Evidence capture failed: {exc}"
+        ) from exc
+
+    return investigation, saved, capture
+
+
+def _artifact_file_path(
+    capture,
+    artifact_type: str,
+    settings: AppSettings,
+) -> Path | None:
+    for artifact in capture.artifacts:
+        if artifact.artifact_type != artifact_type:
+            continue
+        path = Path(artifact.file_path)
+        return path if path.is_absolute() else settings.base_dir / path
+    return None
+
+
+async def _compare_page_archive(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    capture,
+    current_text: str,
+):
+    monitor = service.get_page_monitor_for_result(
+        investigation_id,
+        capture.result_id,
+    )
+    if monitor is None:
+        return None
+    if not monitor.last_capture_id:
+        service.advance_page_monitor(
+            investigation_id,
+            monitor.id,
+            capture.id,
+        )
+        return None
+
+    previous_capture = service.get_evidence_capture(
+        investigation_id,
+        monitor.last_capture_id,
+    )
+    previous_text_path = _artifact_file_path(
+        previous_capture,
+        "text",
+        settings,
+    )
+    try:
+        previous_text = (
+            await asyncio.to_thread(
+                previous_text_path.read_text,
+                encoding="utf-8",
+            )
+            if previous_text_path is not None
+            else ""
+        )
+    except OSError:
+        previous_text = ""
+
+    change = compare_page_text(previous_text, current_text)
+    report_path = (
+        settings.evidence_dir
+        / investigation_id
+        / capture.id
+        / "comparison.html"
+    )
+    await asyncio.to_thread(
+        generate_page_comparison_report,
+        output_path=report_path,
+        page_title=capture.page_title,
+        page_url=capture.source_url,
+        previous_captured_at=previous_capture.captured_at,
+        current_captured_at=capture.captured_at,
+        previous_text=previous_text,
+        current_text=current_text,
+        change=change,
+    )
+    return service.record_page_comparison(
+        investigation_id=investigation_id,
+        monitor_id=monitor.id,
+        previous_capture_id=previous_capture.id,
+        current_capture_id=capture.id,
+        status=change.status,
+        similarity=change.similarity,
+        previous_sha256=change.previous_sha256,
+        current_sha256=change.current_sha256,
+        report_path=_stored_path(report_path, settings.base_dir),
+        generated_at=capture.captured_at,
+    )
+
+
+async def _archive_page(
+    service: InvestigationService,
+    settings: AppSettings,
+    tab,
+    investigation_id: str,
+    payload: dict,
+):
+    investigation = service.get(investigation_id)
+    if investigation.status != "active":
+        raise EvidenceCaptureError("Archived investigations are read-only.")
+
+    page = payload.get("page", {})
+    saved = service.save_page(investigation_id, page)
+    capture_id = str(uuid4())
+    captured_at = utc_now()
+    archive_name = (
+        str(payload.get("archiveName", "") or "").strip()
+        or _default_archive_name(captured_at)
+    )[:120]
+    capture_dir = settings.evidence_dir / investigation_id / capture_id
+    html_path = capture_dir / "page.html"
+    mhtml_path = capture_dir / "page.mhtml"
+    text_path = capture_dir / "page.txt"
+    manifest_path = capture_dir / "manifest.json"
+    tool_version = _tool_version()
+    artifacts = []
+    manifest_artifacts = []
+    capture_errors = []
+    normalized_text = ""
+
+    try:
+        try:
+            captured_html = await capture_html(tab, html_path)
+            normalized_text = normalize_html_text(
+                await asyncio.to_thread(
+                    html_path.read_text,
+                    encoding="utf-8",
+                )
+            )
+            captured_text = await write_text_document(
+                text_path,
+                normalized_text,
+            )
+            for artifact_type, path, mime_type, document in (
+                (
+                    "html",
+                    html_path,
+                    "text/html; charset=utf-8",
+                    captured_html,
+                ),
+                (
+                    "text",
+                    text_path,
+                    "text/plain; charset=utf-8",
+                    captured_text,
+                ),
+            ):
+                stored_path = _stored_path(path, settings.base_dir)
+                artifact = {
+                    "id": str(uuid4()),
+                    "artifact_type": artifact_type,
+                    "file_path": stored_path,
+                    "mime_type": mime_type,
+                    "sha256": document.sha256,
+                    "byte_size": document.byte_size,
+                    "created_at": captured_at,
+                }
+                artifacts.append(artifact)
+                manifest_artifacts.append(
+                    {
+                        "type": artifact_type,
+                        "path": stored_path,
+                        "mime_type": mime_type,
+                        "sha256": document.sha256,
+                        "byte_size": document.byte_size,
+                    }
+                )
+        except Exception as exc:
+            capture_errors.append(
+                f"HTML archive unavailable ({type(exc).__name__})."
+            )
+            logger.debug("HTML page archive unavailable", exc_info=True)
+
+        try:
+            captured_mhtml = await capture_mhtml(tab, mhtml_path)
+            stored_mhtml_path = _stored_path(
+                mhtml_path,
+                settings.base_dir,
+            )
+            artifacts.append(
+                {
+                    "id": str(uuid4()),
+                    "artifact_type": "mhtml",
+                    "file_path": stored_mhtml_path,
+                    "mime_type": "multipart/related",
+                    "sha256": captured_mhtml.sha256,
+                    "byte_size": captured_mhtml.byte_size,
+                    "created_at": captured_at,
+                }
+            )
+            manifest_artifacts.append(
+                {
+                    "type": "mhtml",
+                    "path": stored_mhtml_path,
+                    "mime_type": "multipart/related",
+                    "sha256": captured_mhtml.sha256,
+                    "byte_size": captured_mhtml.byte_size,
+                }
+            )
+        except Exception as exc:
+            capture_errors.append(
+                f"MHTML archive unavailable ({type(exc).__name__})."
+            )
+            logger.debug("MHTML page archive unavailable", exc_info=True)
+
+        if not artifacts:
+            raise EvidenceCaptureError(
+                "Page archive failed: HTML and MHTML are unavailable."
+            )
+        browser_context = page.get("browserContext", {})
+        if not isinstance(browser_context, dict):
+            browser_context = {}
+        capture_status = "partial" if capture_errors else "completed"
+        manifest = build_evidence_manifest(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=archive_name,
+            captured_at=captured_at,
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_kind="page_archive",
+            capture_scope="viewport",
+            selection={},
             browser_context={
                 "viewport_width": browser_context.get("viewportWidth"),
                 "viewport_height": browser_context.get("viewportHeight"),
@@ -1101,15 +1486,16 @@ async def _capture_evidence(
             capture_id=capture_id,
             investigation_id=investigation_id,
             result_id=saved.id,
-            name=capture_name,
+            name=archive_name,
             source_url=saved.url,
             page_title=saved.title,
-            capture_scope=capture_scope,
-            selection=manifest["capture"]["selection_css_pixels"],
+            capture_scope="viewport",
+            selection={},
             manifest_path=_stored_path(manifest_path, settings.base_dir),
             captured_at=captured_at,
             tool_version=tool_version,
             artifacts=artifacts,
+            capture_kind="page_archive",
             status=capture_status,
             error=" ".join(capture_errors),
         )
@@ -1117,11 +1503,24 @@ async def _capture_evidence(
         await asyncio.to_thread(shutil.rmtree, capture_dir, True)
         if isinstance(exc, InvestigationError):
             raise
-        raise EvidenceCaptureError(
-            f"Evidence capture failed: {exc}"
-        ) from exc
+        raise EvidenceCaptureError(f"Page archive failed: {exc}") from exc
 
-    return investigation, saved, capture
+    try:
+        comparison = await _compare_page_archive(
+            service,
+            settings,
+            investigation_id,
+            capture,
+            normalized_text,
+        )
+    except Exception:
+        comparison = None
+        logger.error(
+            "Page archive was saved but its monitoring comparison failed.",
+            exc_info=True,
+        )
+
+    return investigation, saved, capture, comparison
 
 
 async def _delete_evidence_capture(
@@ -1705,6 +2104,72 @@ async def main():
                         exc_info=True,
                     )
                 continue
+            if result["action"] == "archive_page_to_investigation":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    (
+                        investigation,
+                        saved,
+                        capture,
+                        comparison,
+                    ) = await _archive_page(
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                        result,
+                    )
+                    active_investigation = investigation
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_save_overlay_status(source_tab, "Saved")
+                    archive_message = (
+                        "Archived and compared"
+                        if comparison is not None
+                        else "Page archived"
+                    )
+                    await _set_archive_overlay_status(
+                        source_tab,
+                        archive_message,
+                    )
+                    comparison_detail = (
+                        f", comparison: {comparison.status.replace('_', ' ')}"
+                        if comparison is not None
+                        else ""
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        (
+                            f"Page archived for {saved.title or saved.url}"
+                            f"{comparison_detail}."
+                        ),
+                    )
+                except InvestigationError as exc:
+                    await _set_archive_overlay_status(
+                        source_tab,
+                        "Archive failed",
+                        is_error=True,
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        str(exc),
+                        is_error=True,
+                    )
+                continue
             if result["action"] == "capture_evidence_to_investigation":
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -1731,14 +2196,9 @@ async def main():
                         open_if_missing=False,
                     )
                     await _set_save_overlay_status(source_tab, "Saved")
-                    capture_message = (
-                        "Evidence captured (partial)"
-                        if capture.status == "partial"
-                        else "Evidence captured"
-                    )
                     await _set_evidence_overlay_status(
                         source_tab,
-                        capture_message,
+                        "Screenshot captured",
                     )
                     await _set_home_status(
                         browser,
@@ -1746,8 +2206,7 @@ async def main():
                         (
                             f"Evidence captured for "
                             f"{saved.title or saved.url} "
-                            f"({capture.capture_scope}"
-                            f"{', partial' if capture.status == 'partial' else ''})."
+                            f"({capture.capture_scope})."
                         ),
                     )
                 except InvestigationError as exc:
@@ -1949,6 +2408,58 @@ async def main():
                         str(exc),
                         is_error=True,
                     )
+                continue
+            if result["action"] == "create_page_monitor":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                result_id = str(result.get("resultId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.create_page_monitor(
+                        investigation_id,
+                        result_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "delete_page_monitor":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                monitor_id = str(
+                    result.get("monitorId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.delete_page_monitor(
+                        investigation_id,
+                        monitor_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
             if result["action"] == "attach_investigation_search":
                 investigation_id = str(result.get("investigationId", "") or "").strip()

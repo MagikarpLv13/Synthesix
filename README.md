@@ -167,18 +167,27 @@ Reopening a page already saved in the active investigation updates its
 **Last seen** timestamp automatically. Investigation pages display stored UTC
 timestamps in the browser's local time zone.
 
-Evidence captures are explicit and local. The name defaults to
+Evidence captures are explicit and local. The camera action records only a PNG
+of the visible area or selected region, so screenshot-only workflows do not
+attempt to retrieve HTML. Its name defaults to
 `screenshot_YYYY-MM-DD_HH-MM-SS` in the browser's local time and can be replaced
-before capture. The investigation page shows a thumbnail; both the thumbnail and
-the capture name open the PNG. The **HTML**, **MHTML**, and **Manifest** links
-open the other local artifacts when available. For each capture, Synthesix stores
-the selected CSS-pixel coordinates, source URL, UTC capture time, browser
-context, byte size, SHA-256 hash of every artifact, and a versioned JSON
-manifest. Known password, token, session, and credential form values are
-redacted from HTML. Cookie and authentication headers are removed from MHTML
-before it is written. If an optional HTML or MHTML CDP operation is unavailable,
-the valid PNG is retained and the capture is marked partial. A saved page with
-evidence cannot be removed until its captures are deleted. The **Verify** action
+before capture.
+
+The separate archive button saves the page and explicitly records sanitized
+HTML, normalized visible text, and MHTML when CDP supports it. Known password,
+token, session, and credential form values are redacted from HTML. Cookie and
+authentication headers are removed from MHTML before it is written. Each
+artifact has a SHA-256 hash and a versioned provenance manifest. A partial
+archive remains visible when either HTML or MHTML is unavailable.
+
+Saved pages can be monitored manually. Monitoring never reruns a search: each
+new explicit page archive is compared with the previous archive's normalized
+text. Exact matches, minor changes above the similarity threshold, significant
+changes, and inconclusive comparisons are reported separately to reduce noisy
+alerts from dynamic page details. Screenshots are not compared automatically.
+The investigation page includes a section navbar, monitor controls, archive
+history, and links to local comparison reports. A saved page with evidence
+cannot be removed until its captures are deleted. The **Verify** action
 recalculates every recorded artifact hash locally.
 
 Archived investigations remain available from the selector and open in read-only
@@ -302,7 +311,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 | --- | --- |
 | `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, explainable score components, analyst metadata, and the rebuildable FTS5 archive index. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
-| `data/evidence/` | Explicit PNG, sanitized HTML/MHTML evidence artifacts, and versioned provenance manifests, grouped by investigation and capture ID. |
+| `data/evidence/` | Explicit PNG screenshots, sanitized page archives, normalized text, comparison reports, and provenance manifests. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
@@ -329,7 +338,7 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
 | `SYNTHESIX_DATABASE_PATH` | SQLite database path for investigations and normalized search history. |
 | `SYNTHESIX_INVESTIGATION_PAGES_DIR` | Directory for generated local investigation workspaces. |
-| `SYNTHESIX_EVIDENCE_DIR` | Directory for PNG, HTML, MHTML evidence artifacts and JSON manifests. |
+| `SYNTHESIX_EVIDENCE_DIR` | Directory for screenshots, page archives, comparison reports, and JSON manifests. |
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
 | `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
@@ -470,8 +479,10 @@ Use this checklist before bumping Zendriver:
    - start `python main.py`;
    - launch one exact search;
    - open history and one result report;
-   - select an active investigation and capture visible-page evidence;
-   - verify the PNG, HTML, MHTML, and manifest links from the investigation page;
+   - select an active investigation and capture a PNG screenshot;
+   - explicitly archive a saved page with HTML/MHTML when required;
+   - enable page monitoring, archive the page again, and open the comparison;
+   - verify the PNG, archive, and manifest links from the investigation page;
    - run **Verify** and confirm every recorded artifact hash matches;
    - close the first tab while another Synthesix tab remains;
    - close all tabs and verify the process exits cleanly;
@@ -492,7 +503,7 @@ Use this checklist before bumping Zendriver:
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
 | `investigations/` | Versioned SQLite/FTS5 schema, repositories, domain models, services, local archive reports, and workspace generation. |
-| `evidence/` | Async CDP PNG/HTML/MHTML capture, sensitive-data cleaning, SHA-256 hashing, and versioned provenance manifests. |
+| `evidence/` | Async CDP screenshot/archive capture, text normalization and comparison, sensitive-data cleaning, hashing, and manifests. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |

@@ -91,6 +91,25 @@ def workspace_payload(*, status="active"):
                 "completed_at": "2026-06-08T10:00:01+00:00",
             }
         ],
+        "page_monitors": [
+            {
+                "id": "monitor-123",
+                "investigation_id": "case-123",
+                "result_id": "result-123",
+                "result_title": "Example page",
+                "result_url": "https://example.com/page",
+                "baseline_capture_id": "capture-100",
+                "last_capture_id": "capture-123",
+                "archive_count": 2,
+                "comparison_id": "comparison-123",
+                "comparison_status": "changed",
+                "comparison_similarity": 0.75,
+                "comparison_report_path": (
+                    "data/evidence/capture-123/comparison.html"
+                ),
+                "comparison_generated_at": "2026-06-10T10:00:00+00:00",
+            }
+        ],
         "evidence": [
             {
                 "id": "capture-123",
@@ -111,6 +130,7 @@ def workspace_payload(*, status="active"):
                 "status": "completed",
                 "error": "",
                 "tool_version": "test",
+                "capture_kind": "screenshot",
                 "artifacts": [
                     {
                         "id": "artifact-123",
@@ -172,6 +192,19 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("update_investigation_result"', content)
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
+        self.assertIn('queueAction("delete_page_monitor"', content)
+        self.assertIn("Significant change", content)
+        self.assertIn("75.00% text similarity", content)
+        self.assertEqual(
+            tree.xpath("//nav[contains(@class, 'investigation-nav')]/a/@href"),
+            [
+                "#overview",
+                "#saved-pages",
+                "#page-monitoring",
+                "#attach-search",
+                "#search-runs",
+            ],
+        )
         self.assertIn("Found through search", content)
         self.assertIn("example company", content)
         self.assertIn("Exact query term in title", content)
@@ -263,6 +296,24 @@ class InvestigationViewTestCase(unittest.TestCase):
             content,
         )
 
+    def test_page_monitor_can_be_enabled_from_saved_page(self):
+        workspace = workspace_payload()
+        workspace["page_monitors"] = []
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("Monitor changes", content)
+        self.assertIn('queueAction("create_page_monitor"', content)
+        self.assertIn("Screenshots are not compared automatically", content)
+
     def test_archived_workspace_disables_analyst_mutations(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -283,6 +334,11 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertEqual(
             tree.xpath("//button[contains(@class, 'save-result-metadata')]/@disabled"),
             ["disabled"],
+        )
+        self.assertTrue(
+            tree.xpath(
+                "//button[contains(@class, 'stop-page-monitor')]/@disabled"
+            )
         )
         self.assertEqual(len(tree.xpath("//*[contains(@class, 'archive-notice')]")), 1)
 

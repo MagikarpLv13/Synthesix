@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from lxml import html as lxml_html
 from zendriver import cdp
 
 from evidence.hashing import sha256_bytes
@@ -184,6 +185,23 @@ def sanitize_mhtml(content: str) -> str:
     return "".join(sanitized)
 
 
+def normalize_html_text(content: str) -> str:
+    try:
+        document = lxml_html.fromstring(content)
+    except (TypeError, ValueError):
+        return " ".join(str(content or "").split())
+
+    for element in document.xpath(
+        "//script|//style|//noscript|//template|//svg|//canvas"
+    ):
+        element.drop_tree()
+    return " ".join(
+        text
+        for fragment in document.itertext()
+        if (text := " ".join(fragment.split()))
+    )
+
+
 def normalize_selection(selection: Mapping) -> dict[str, float]:
     try:
         x = max(0.0, float(selection.get("x", 0)))
@@ -228,6 +246,13 @@ async def _write_document(
         sha256=sha256_bytes(encoded),
         byte_size=len(encoded),
     )
+
+
+async def write_text_document(
+    output_path: Path,
+    content: str,
+) -> CapturedDocument:
+    return await _write_document(output_path, content)
 
 
 async def capture_png(

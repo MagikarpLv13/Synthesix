@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from exceptions import InvestigationValidationError
-from investigations.models import ANALYST_STATUSES, Investigation, LocalSearchFilters
+from investigations.models import (
+    ANALYST_STATUSES,
+    Investigation,
+    LocalSearchFilters,
+    PageComparison,
+    PageMonitor,
+)
 from investigations.repository import InvestigationRepository
 
 
@@ -208,6 +214,12 @@ class InvestigationService:
                 search.to_payload()
                 for search in self.repository.list_unassigned_searches()
             ],
+            "page_monitors": [
+                monitor.to_payload()
+                for monitor in self.repository.list_page_monitors(
+                    investigation_id
+                )
+            ],
             "evidence": [
                 capture.to_payload()
                 for capture in self.repository.list_evidence_captures(
@@ -273,6 +285,61 @@ class InvestigationService:
 
     def remove_saved_page(self, investigation_id: str, result_id: str) -> None:
         self.repository.remove_saved_page(investigation_id, result_id)
+
+    def create_page_monitor(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> PageMonitor:
+        return self.repository.create_page_monitor(
+            investigation_id,
+            result_id,
+        )
+
+    def get_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> PageMonitor:
+        return self.repository.get_page_monitor(
+            investigation_id,
+            monitor_id,
+        )
+
+    def get_page_monitor_for_result(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> PageMonitor | None:
+        return self.repository.get_page_monitor_for_result(
+            investigation_id,
+            result_id,
+        )
+
+    def delete_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> None:
+        self.repository.delete_page_monitor(
+            investigation_id,
+            monitor_id,
+        )
+
+    def advance_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        capture_id: str,
+    ) -> PageMonitor:
+        return self.repository.advance_page_monitor(
+            investigation_id,
+            monitor_id,
+            capture_id,
+        )
+
+    def record_page_comparison(self, **kwargs) -> PageComparison:
+        return self.repository.record_page_comparison(**kwargs)
 
     def record_evidence_capture(self, **kwargs):
         kwargs["name"] = _clean_text(

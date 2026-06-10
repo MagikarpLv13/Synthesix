@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Mapping
 
 
-EVIDENCE_MANIFEST_SCHEMA_VERSION = 2
+EVIDENCE_MANIFEST_SCHEMA_VERSION = 3
 
 
 def build_evidence_manifest(
@@ -23,6 +23,7 @@ def build_evidence_manifest(
     browser_context: Mapping,
     tool_version: str,
     artifacts: list[Mapping],
+    capture_kind: str = "screenshot",
     status: str = "completed",
     errors: list[str] | None = None,
 ) -> dict:
@@ -38,6 +39,7 @@ def build_evidence_manifest(
             "title": page_title,
         },
         "capture": {
+            "kind": capture_kind,
             "scope": capture_scope,
             "selection_css_pixels": dict(selection),
             "browser_context": dict(browser_context),

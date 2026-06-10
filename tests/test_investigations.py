@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 6)
+        self.assertEqual(self.repository.schema_version(), 7)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 6)
+            self.assertEqual(repository.schema_version(), 7)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,10 +194,60 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 6)
+            self.assertEqual(service.repository.schema_version(), 7)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
+
+    def test_repairs_pre_release_v7_without_page_monitor_tables(self):
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "pre-release-v7.db"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TEXT NOT NULL
+                    )
+                    """
+                )
+                for version, sql in MIGRATIONS[:6]:
+                    connection.executescript(sql)
+                    connection.execute(
+                        """
+                        INSERT INTO schema_migrations(version, applied_at)
+                        VALUES (?, ?)
+                        """,
+                        (version, "2026-06-10T00:00:00+00:00"),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO schema_migrations(version, applied_at)
+                    VALUES (7, ?)
+                    """,
+                    ("2026-06-10T01:00:00+00:00",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            repository = InvestigationRepository(database_path)
+            repository.initialize()
+
+            self.assertEqual(repository.schema_version(), 7)
+            self.assertEqual(repository.table_count("page_monitors"), 0)
+            repaired = sqlite3.connect(database_path)
+            try:
+                columns = {
+                    row[1]
+                    for row in repaired.execute(
+                        "PRAGMA table_info(evidence_captures)"
+                    )
+                }
+            finally:
+                repaired.close()
+            self.assertIn("capture_kind", columns)
 
     def test_creates_updates_and_archives_investigation(self):
         created = self.service.create(
@@ -757,6 +807,91 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         indexed = self.service.search_local_archive({"query": "profile"})
         self.assertEqual(indexed[0]["evidence_count"], 0)
         self.service.remove_saved_page(investigation.id, saved.id)
+
+    def test_page_monitor_tracks_archive_comparisons(self):
+        investigation = self.service.create({"title": "Watch page"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/watch",
+                "title": "Watched page",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        monitor = self.service.create_page_monitor(
+            investigation.id,
+            saved.id,
+        )
+        self.assertIsNone(monitor.last_capture_id)
+
+        def record_archive(capture_id: str, captured_at: str):
+            return self.service.record_evidence_capture(
+                capture_id=capture_id,
+                investigation_id=investigation.id,
+                result_id=saved.id,
+                name=capture_id,
+                source_url=saved.url,
+                page_title=saved.title,
+                capture_scope="viewport",
+                selection={},
+                manifest_path=f"data/evidence/{capture_id}/manifest.json",
+                captured_at=captured_at,
+                tool_version="test",
+                capture_kind="page_archive",
+                artifacts=[
+                    {
+                        "id": f"artifact-{capture_id}",
+                        "artifact_type": "text",
+                        "file_path": f"data/evidence/{capture_id}/page.txt",
+                        "mime_type": "text/plain; charset=utf-8",
+                        "sha256": "a" * 64,
+                        "byte_size": 10,
+                        "created_at": captured_at,
+                    }
+                ],
+            )
+
+        first = record_archive(
+            "archive-1",
+            "2026-06-10T10:00:00.000000+00:00",
+        )
+        self.service.advance_page_monitor(
+            investigation.id,
+            monitor.id,
+            first.id,
+        )
+        second = record_archive(
+            "archive-2",
+            "2026-06-11T10:00:00.000000+00:00",
+        )
+        comparison = self.service.record_page_comparison(
+            investigation_id=investigation.id,
+            monitor_id=monitor.id,
+            previous_capture_id=first.id,
+            current_capture_id=second.id,
+            status="changed",
+            similarity=0.5,
+            previous_sha256="a" * 64,
+            current_sha256="b" * 64,
+            report_path="data/evidence/archive-2/comparison.html",
+            generated_at="2026-06-11T10:00:00.000000+00:00",
+        )
+
+        workspace = self.service.workspace_payload(investigation.id)
+        refreshed = workspace["page_monitors"][0]
+        self.assertEqual(refreshed["archive_count"], 2)
+        self.assertEqual(refreshed["last_capture_id"], second.id)
+        self.assertEqual(refreshed["comparison_status"], "changed")
+        self.assertEqual(
+            self.repository.table_count("page_comparisons"),
+            1,
+        )
+        self.assertEqual(comparison.current_capture_id, second.id)
+
+        self.service.delete_page_monitor(investigation.id, monitor.id)
+        self.assertEqual(self.repository.table_count("page_monitors"), 0)
+        self.assertEqual(self.repository.table_count("page_comparisons"), 0)
 
     def test_attaches_unassigned_search_and_results(self):
         investigation = self.service.create({"title": "Case"})

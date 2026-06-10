@@ -28,6 +28,8 @@ from investigations.models import (
     InvestigationSearchRun,
     LocalSearchFilters,
     LocalSearchResult,
+    PageComparison,
+    PageMonitor,
 )
 
 
@@ -132,6 +134,19 @@ class InvestigationRepository:
                 int(row["version"])
                 for row in connection.execute("SELECT version FROM schema_migrations")
             }
+            if 7 in applied:
+                has_page_monitors = connection.execute(
+                    """
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'page_monitors'
+                    """
+                ).fetchone()
+                if has_page_monitors is None:
+                    connection.execute(
+                        "DELETE FROM schema_migrations WHERE version = 7"
+                    )
+                    applied.remove(7)
 
         for version, sql in MIGRATIONS:
             if version in applied:
@@ -1118,6 +1133,19 @@ class InvestigationRepository:
             )
 
         with self._connection() as connection:
+            monitor = connection.execute(
+                """
+                SELECT 1
+                FROM page_monitors
+                WHERE investigation_id = ? AND result_id = ?
+                LIMIT 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if monitor is not None:
+                raise InvestigationValidationError(
+                    "Stop monitoring this page before removing it."
+                )
             evidence = connection.execute(
                 """
                 SELECT 1
@@ -1411,6 +1439,358 @@ class InvestigationRepository:
             self._refresh_local_search_documents(connection)
         return search_count
 
+    def _row_to_page_monitor(self, row: sqlite3.Row) -> PageMonitor:
+        similarity = row["comparison_similarity"]
+        return PageMonitor(
+            id=row["id"],
+            investigation_id=row["investigation_id"],
+            result_id=row["result_id"],
+            result_title=row["result_title"],
+            result_url=row["result_url"],
+            baseline_capture_id=row["baseline_capture_id"],
+            last_capture_id=row["last_capture_id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            archive_count=int(row["archive_count"] or 0),
+            comparison_id=row["comparison_id"],
+            comparison_status=row["comparison_status"],
+            comparison_similarity=(
+                float(similarity) if similarity is not None else None
+            ),
+            comparison_report_path=row["comparison_report_path"],
+            comparison_generated_at=row["comparison_generated_at"],
+        )
+
+    def list_page_monitors(
+        self,
+        investigation_id: str,
+    ) -> list[PageMonitor]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    monitor.*,
+                    result.title AS result_title,
+                    result.url AS result_url,
+                    (
+                        SELECT COUNT(*)
+                        FROM evidence_captures capture
+                        WHERE
+                            capture.investigation_id = monitor.investigation_id
+                            AND capture.result_id = monitor.result_id
+                            AND capture.capture_kind = 'page_archive'
+                    ) AS archive_count,
+                    comparison.id AS comparison_id,
+                    comparison.status AS comparison_status,
+                    comparison.similarity AS comparison_similarity,
+                    comparison.report_path AS comparison_report_path,
+                    comparison.generated_at AS comparison_generated_at
+                FROM page_monitors monitor
+                JOIN results result ON result.id = monitor.result_id
+                LEFT JOIN page_comparisons comparison
+                    ON comparison.id = (
+                        SELECT candidate.id
+                        FROM page_comparisons candidate
+                        WHERE candidate.monitor_id = monitor.id
+                        ORDER BY candidate.generated_at DESC
+                        LIMIT 1
+                    )
+                WHERE monitor.investigation_id = ?
+                ORDER BY monitor.updated_at DESC, result.title COLLATE NOCASE
+                """,
+                (investigation_id,),
+            ).fetchall()
+        return [self._row_to_page_monitor(row) for row in rows]
+
+    def get_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> PageMonitor:
+        return next(
+            (
+                monitor
+                for monitor in self.list_page_monitors(investigation_id)
+                if monitor.id == monitor_id
+            ),
+            None,
+        ) or self._raise_page_monitor_not_found(monitor_id)
+
+    def get_page_monitor_for_result(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> PageMonitor | None:
+        return next(
+            (
+                monitor
+                for monitor in self.list_page_monitors(investigation_id)
+                if monitor.result_id == result_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _raise_page_monitor_not_found(monitor_id: str):
+        raise InvestigationValidationError(
+            f"Page monitor not found: {monitor_id}"
+        )
+
+    def create_page_monitor(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> PageMonitor:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        existing = self.get_page_monitor_for_result(
+            investigation_id,
+            result_id,
+        )
+        if existing is not None:
+            return existing
+
+        now = utc_now()
+        monitor_id = str(uuid4())
+        with self._connection() as connection:
+            saved = connection.execute(
+                """
+                SELECT 1
+                FROM investigation_results
+                WHERE
+                    investigation_id = ?
+                    AND result_id = ?
+                    AND is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if saved is None:
+                raise InvestigationResultNotFoundError(
+                    investigation_id,
+                    result_id,
+                )
+            latest_archive = connection.execute(
+                """
+                SELECT id
+                FROM evidence_captures
+                WHERE
+                    investigation_id = ?
+                    AND result_id = ?
+                    AND capture_kind = 'page_archive'
+                ORDER BY captured_at DESC
+                LIMIT 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            baseline_id = (
+                latest_archive["id"] if latest_archive is not None else None
+            )
+            connection.execute(
+                """
+                INSERT INTO page_monitors(
+                    id, investigation_id, result_id, baseline_capture_id,
+                    last_capture_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    monitor_id,
+                    investigation_id,
+                    result_id,
+                    baseline_id,
+                    baseline_id,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_page_monitor(investigation_id, monitor_id)
+
+    def delete_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM page_monitors
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (monitor_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                self._raise_page_monitor_not_found(monitor_id)
+
+    def advance_page_monitor(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        capture_id: str,
+    ) -> PageMonitor:
+        monitor = self.get_page_monitor(investigation_id, monitor_id)
+        with self._connection() as connection:
+            capture = connection.execute(
+                """
+                SELECT 1
+                FROM evidence_captures
+                WHERE
+                    id = ?
+                    AND investigation_id = ?
+                    AND result_id = ?
+                    AND capture_kind = 'page_archive'
+                """,
+                (capture_id, investigation_id, monitor.result_id),
+            ).fetchone()
+            if capture is None:
+                raise InvestigationValidationError(
+                    "The page monitor can only use a page archive."
+                )
+            now = utc_now()
+            connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    baseline_capture_id = COALESCE(
+                        baseline_capture_id,
+                        ?
+                    ),
+                    last_capture_id = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (capture_id, capture_id, now, monitor_id),
+            )
+        return self.get_page_monitor(investigation_id, monitor_id)
+
+    def record_page_comparison(
+        self,
+        *,
+        investigation_id: str,
+        monitor_id: str,
+        previous_capture_id: str | None,
+        current_capture_id: str,
+        status: str,
+        similarity: float | None,
+        previous_sha256: str,
+        current_sha256: str,
+        report_path: str | None,
+        generated_at: str,
+    ) -> PageComparison:
+        if status not in {
+            "unchanged",
+            "minor_change",
+            "changed",
+            "inconclusive",
+        }:
+            raise InvestigationValidationError(
+                "Unsupported page comparison status."
+            )
+        monitor = self.get_page_monitor(investigation_id, monitor_id)
+        current_capture = self.get_evidence_capture(
+            investigation_id,
+            current_capture_id,
+        )
+        if (
+            current_capture.result_id != monitor.result_id
+            or current_capture.capture_kind != "page_archive"
+        ):
+            raise InvestigationValidationError(
+                "The current snapshot does not belong to this page monitor."
+            )
+        if previous_capture_id:
+            previous_capture = self.get_evidence_capture(
+                investigation_id,
+                previous_capture_id,
+            )
+            if (
+                previous_capture.result_id != monitor.result_id
+                or previous_capture.capture_kind != "page_archive"
+            ):
+                raise InvestigationValidationError(
+                    "The previous snapshot does not belong to this page monitor."
+                )
+        comparison_id = str(uuid4())
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO page_comparisons(
+                    id, monitor_id, previous_capture_id, current_capture_id,
+                    status, similarity, previous_sha256, current_sha256,
+                    report_path, generated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    comparison_id,
+                    monitor_id,
+                    previous_capture_id,
+                    current_capture_id,
+                    status,
+                    similarity,
+                    previous_sha256,
+                    current_sha256,
+                    report_path,
+                    generated_at,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    baseline_capture_id = COALESCE(
+                        baseline_capture_id,
+                        ?
+                    ),
+                    last_capture_id = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    current_capture_id,
+                    current_capture_id,
+                    generated_at,
+                    monitor_id,
+                ),
+            )
+        return self.get_page_comparison(comparison_id)
+
+    def get_page_comparison(self, comparison_id: str) -> PageComparison:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM page_comparisons
+                WHERE id = ?
+                """,
+                (comparison_id,),
+            ).fetchone()
+        if row is None:
+            raise InvestigationValidationError(
+                f"Page comparison not found: {comparison_id}"
+            )
+        similarity = row["similarity"]
+        return PageComparison(
+            id=row["id"],
+            monitor_id=row["monitor_id"],
+            previous_capture_id=row["previous_capture_id"],
+            current_capture_id=row["current_capture_id"],
+            status=row["status"],
+            similarity=float(similarity) if similarity is not None else None,
+            previous_sha256=row["previous_sha256"],
+            current_sha256=row["current_sha256"],
+            report_path=row["report_path"],
+            generated_at=row["generated_at"],
+        )
+
     def record_evidence_capture(
         self,
         *,
@@ -1426,6 +1806,7 @@ class InvestigationRepository:
         captured_at: str,
         tool_version: str,
         artifacts: Iterable[Mapping],
+        capture_kind: str = "screenshot",
         status: str = "completed",
         error: str = "",
     ) -> EvidenceCapture:
@@ -1437,6 +1818,10 @@ class InvestigationRepository:
         if capture_scope not in {"viewport", "region"}:
             raise InvestigationValidationError(
                 "Unsupported evidence capture scope."
+            )
+        if capture_kind not in {"screenshot", "page_archive"}:
+            raise InvestigationValidationError(
+                "Unsupported evidence capture kind."
             )
 
         artifact_rows = [dict(artifact) for artifact in artifacts]
@@ -1463,9 +1848,9 @@ class InvestigationRepository:
                 INSERT INTO evidence_captures(
                     id, investigation_id, result_id, name, source_url, page_title,
                     capture_scope, selection_json, manifest_path, captured_at,
-                    status, error, tool_version
+                    status, error, tool_version, capture_kind
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     capture_id,
@@ -1481,6 +1866,7 @@ class InvestigationRepository:
                     status,
                     error,
                     tool_version,
+                    capture_kind,
                 ),
             )
             for artifact in artifact_rows:
@@ -1572,6 +1958,7 @@ class InvestigationRepository:
                 error=row["error"],
                 tool_version=row["tool_version"],
                 artifacts=tuple(artifacts_by_capture.get(row["id"], ())),
+                capture_kind=row["capture_kind"],
             )
             for row in capture_rows
         ]
@@ -1646,6 +2033,8 @@ class InvestigationRepository:
             "evidence_artifacts",
             "local_search_documents",
             "local_search_fts",
+            "page_monitors",
+            "page_comparisons",
         }
         if table_name not in allowed:
             raise ValueError("Unsupported table name")

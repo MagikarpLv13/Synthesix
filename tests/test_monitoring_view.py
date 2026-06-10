@@ -1,0 +1,33 @@
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from evidence.changes import compare_page_text
+from investigations.monitoring_view import generate_page_comparison_report
+
+
+class PageMonitoringViewTestCase(unittest.TestCase):
+    def test_generates_page_comparison_report(self):
+        change = compare_page_text(
+            "Original company address.",
+            "Updated company address.",
+        )
+        with TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "comparison.html"
+            generated = generate_page_comparison_report(
+                output_path=output_path,
+                page_title="Company profile",
+                page_url="https://example.com/profile",
+                previous_captured_at="2026-06-09T10:00:00+00:00",
+                current_captured_at="2026-06-10T10:00:00+00:00",
+                previous_text="Original company address.",
+                current_text="Updated company address.",
+                change=change,
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(generated, str(output_path))
+        self.assertIn("Significant content change", content)
+        self.assertIn("Company profile", content)
+        self.assertIn("Original company address.", content)
+        self.assertIn("Updated company address.", content)
