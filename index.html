@@ -129,6 +129,15 @@
                         <input type="date" id="filter-before">
                     </label>
                 </div>
+                <div class="dialog-actions">
+                    <button
+                        id="clear-search-filters"
+                        class="secondary-button"
+                        type="button"
+                    >
+                        Clear filters
+                    </button>
+                </div>
                 <datalist id="country-options">
                     <option value="Argentina">AR</option>
                     <option value="Australia">AU</option>
@@ -197,6 +206,10 @@
                     <label class="engine-option"><input type="checkbox" id="engine-brave" checked> Brave</label>
                     <label class="engine-option"><input type="checkbox" id="engine-duckduckgo" checked> DuckDuckGo</label>
                 </div>
+                <label class="engine-option" title="Quote simple searches automatically for exact matching">
+                    <input type="checkbox" id="automatic-dorks" checked>
+                    Automatic dorks
+                </label>
                 <label for="num-results" class="result-control">
                     Results
                     <input type="number" id="num-results" min="1" max="100" value="20">
@@ -285,6 +298,8 @@
             const cancelInvestigationDialogButton = document.getElementById("cancel-investigation-dialog");
             const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
             const clearBrowserDataButton = document.getElementById("clear-browser-data");
+            const clearSearchFiltersButton = document.getElementById("clear-search-filters");
+            const automaticDorksInput = document.getElementById("automatic-dorks");
             const vpnStatusButton = document.getElementById("vpn-status");
             const vpnStatusLabel = document.getElementById("vpn-status-label");
             const vpnCheckUrl = "https://api.ipapi.is";
@@ -602,6 +617,7 @@
                     filters,
                     engines,
                     numResults,
+                    automaticDorks: automaticDorksInput.checked,
                     investigationId: investigationSelect.value || ""
                 };
             };
@@ -730,6 +746,10 @@
             };
 
             searchButton.addEventListener("click", submitSearch);
+            clearSearchFiltersButton.addEventListener("click", () => {
+                setFilters({});
+                document.getElementById("filter-site").focus();
+            });
             vpnStatusButton.addEventListener("click", checkVpnStatus);
             investigationSelect.addEventListener("change", () => {
                 setSelectedInvestigation(investigationSelect.value);

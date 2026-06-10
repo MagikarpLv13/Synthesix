@@ -338,7 +338,9 @@ class InvestigationRepository:
                     AND o.search_run_id IN (
                         SELECT id
                         FROM search_runs
-                        WHERE investigation_id = ?
+                        WHERE
+                            investigation_id = ?
+                            OR investigation_id IS NULL
                     )
                 WHERE ir.investigation_id = ? AND ir.is_saved = 1
                 GROUP BY r.id, ir.investigation_id
@@ -609,11 +611,20 @@ class InvestigationRepository:
                 JOIN search_runs sr ON sr.id = o.search_run_id
                 WHERE
                     o.result_id = ?
-                    AND sr.investigation_id = ?
-                ORDER BY o.observed_at DESC, sr.started_at DESC
+                    AND (
+                        sr.investigation_id = ?
+                        OR sr.investigation_id IS NULL
+                    )
+                ORDER BY
+                    CASE
+                        WHEN sr.investigation_id = ? THEN 0
+                        ELSE 1
+                    END,
+                    o.observed_at DESC,
+                    sr.started_at DESC
                 LIMIT 1
                 """,
-                (result_id, investigation_id),
+                (result_id, investigation_id, investigation_id),
             ).fetchone()
 
             if discovery is None:

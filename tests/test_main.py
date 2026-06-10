@@ -12,12 +12,14 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from main import (
     _cached_history_payload,
+    _capture_evidence,
     _default_capture_name,
     _delete_evidence_capture,
     _install_and_consume_save_overlay,
     _investigation_payload,
     _is_external_web_tab,
     _open_or_refresh_investigation_page,
+    _prepare_base_query,
     _log_level_from_args,
     _verify_evidence_capture,
     apply_cli_runtime_overrides,
@@ -29,6 +31,20 @@ from settings import get_settings
 
 
 class MainCliTestCase(unittest.TestCase):
+    def test_automatic_dorks_can_be_disabled(self):
+        self.assertEqual(
+            _prepare_base_query("john doe", automatic_dorks=True),
+            '"john doe"',
+        )
+        self.assertEqual(
+            _prepare_base_query("john doe", automatic_dorks=False),
+            "john doe",
+        )
+        self.assertEqual(
+            _prepare_base_query('"john doe" site:example.com'),
+            '"john doe" site:example.com',
+        )
+
     def test_default_capture_name_uses_timestamp(self):
         self.assertEqual(
             _default_capture_name("2026-06-10T12:34:56.123456+00:00"),
@@ -121,14 +137,98 @@ class InvestigationPayloadTestCase(unittest.TestCase):
 
 
 class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
-    async def test_verify_evidence_detects_file_change(self):
+    async def test_capture_evidence_records_documents_and_partial_failure(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            service = SimpleNamespace(
+                get=Mock(return_value=SimpleNamespace(status="active")),
+                save_page=Mock(
+                    return_value=SimpleNamespace(
+                        id="result-1",
+                        url="https://example.com/",
+                        title="Example",
+                    )
+                ),
+                record_evidence_capture=Mock(
+                    return_value=SimpleNamespace(capture_scope="viewport")
+                ),
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                evidence_dir=base_dir / "data" / "evidence",
+            )
+            png = SimpleNamespace(
+                sha256="a" * 64,
+                byte_size=100,
+                width=800,
+                height=600,
+            )
+            captured_html = SimpleNamespace(
+                sha256="b" * 64,
+                byte_size=200,
+            )
+
+            with (
+                patch("main.capture_png", AsyncMock(return_value=png)),
+                patch(
+                    "main.capture_html",
+                    AsyncMock(return_value=captured_html),
+                ),
+                patch(
+                    "main.capture_mhtml",
+                    AsyncMock(side_effect=RuntimeError("unsupported")),
+                ),
+            ):
+                await _capture_evidence(
+                    service,
+                    settings,
+                    object(),
+                    "case-1",
+                    {
+                        "captureScope": "viewport",
+                        "captureName": "Homepage",
+                        "selection": {
+                            "x": 0,
+                            "y": 0,
+                            "width": 800,
+                            "height": 600,
+                        },
+                        "page": {"browserContext": {}},
+                    },
+                )
+
+            recorded = service.record_evidence_capture.call_args.kwargs
+            artifact_types = {
+                artifact["artifact_type"]
+                for artifact in recorded["artifacts"]
+            }
+            manifest = json.loads(
+                (
+                    base_dir
+                    / recorded["manifest_path"]
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(artifact_types, {"png", "html"})
+        self.assertEqual(recorded["status"], "partial")
+        self.assertIn("MHTML capture unavailable", recorded["error"])
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["status"], "partial")
+        self.assertEqual(
+            {artifact["type"] for artifact in manifest["artifacts"]},
+            {"png", "html"},
+        )
+
+    async def test_verify_evidence_checks_every_artifact(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
             evidence_dir = base_dir / "data" / "evidence"
-            png_path = evidence_dir / "case-1" / "capture-1" / "capture.png"
-            png_path.parent.mkdir(parents=True)
+            capture_dir = evidence_dir / "case-1" / "capture-1"
+            capture_dir.mkdir(parents=True)
+            png_path = capture_dir / "capture.png"
+            html_path = capture_dir / "page.html"
             png_path.write_bytes(b"original")
-            expected_hash = hashlib.sha256(b"original").hexdigest()
+            html_path.write_bytes(b"<html>original</html>")
             service = SimpleNamespace(
                 get_evidence_capture=lambda *_args: SimpleNamespace(
                     artifacts=(
@@ -137,7 +237,16 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                             file_path=(
                                 "data/evidence/case-1/capture-1/capture.png"
                             ),
-                            sha256=expected_hash,
+                            sha256=hashlib.sha256(b"original").hexdigest(),
+                        ),
+                        SimpleNamespace(
+                            artifact_type="html",
+                            file_path=(
+                                "data/evidence/case-1/capture-1/page.html"
+                            ),
+                            sha256=hashlib.sha256(
+                                b"<html>original</html>"
+                            ).hexdigest(),
                         ),
                     )
                 )
@@ -155,7 +264,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                     "capture-1",
                 )
             )
-            png_path.write_bytes(b"modified")
+            html_path.write_bytes(b"<html>modified</html>")
             self.assertFalse(
                 await _verify_evidence_capture(
                     service,

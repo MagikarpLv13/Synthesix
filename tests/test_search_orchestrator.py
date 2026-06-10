@@ -374,6 +374,34 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tracker["max_active"], 1)
         self.assertEqual(result.nb_results, 1)
 
+    async def test_enabled_engines_run_concurrently_by_default(self):
+        tracker = {"active": 0, "max_active": 0}
+
+        with patch.dict(
+            "os.environ",
+            {"SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0"},
+            clear=True,
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "google": lambda: ConcurrencyTrackingEngine(tracker),
+                    "bing": lambda: ConcurrencyTrackingEngine(tracker),
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            await orchestrator.search(
+                "python async",
+                '"python async"',
+                object(),
+                {"google": True, "bing": True},
+                5,
+            )
+
+        self.assertEqual(tracker["max_active"], 2)
+
     async def test_engine_specific_queries_are_used_for_filters(self):
         google_engine = FakeEngine()
         bing_engine = FakeEngine()

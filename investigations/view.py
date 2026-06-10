@@ -71,23 +71,43 @@ def _evidence_markup(
 
     items = []
     for capture in captures:
-        png_artifact = next(
-            (
-                artifact
-                for artifact in capture.get("artifacts", [])
-                if artifact.get("artifact_type") == "png"
-            ),
-            None,
-        )
-        png_path = _resolve_runtime_path(
-            png_artifact.get("file_path") if png_artifact else None,
+        artifact_hrefs = {}
+        for artifact in capture.get("artifacts", []):
+            artifact_type = str(artifact.get("artifact_type", "") or "")
+            artifact_path = _resolve_runtime_path(
+                artifact.get("file_path"),
+                base_dir,
+            )
+            if artifact_type and artifact_path is not None:
+                artifact_hrefs[artifact_type] = _relative_href(
+                    artifact_path,
+                    output_dir,
+                )
+        png_href = artifact_hrefs.get("png", "")
+        manifest_path = _resolve_runtime_path(
+            capture.get("manifest_path"),
             base_dir,
         )
-        png_href = (
-            _relative_href(png_path, output_dir)
-            if png_path is not None
+        manifest_href = (
+            _relative_href(manifest_path, output_dir)
+            if manifest_path is not None
             else ""
         )
+        artifact_links = "".join(
+            f'<a class="secondary-link" href="{_html(href)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            f"{_html(label)}</a>"
+            for artifact_type, label in (
+                ("html", "HTML"),
+                ("mhtml", "MHTML"),
+            )
+            if (href := artifact_hrefs.get(artifact_type))
+        )
+        if manifest_href:
+            artifact_links += (
+                f'<a class="secondary-link" href="{_html(manifest_href)}" '
+                'target="_blank" rel="noopener noreferrer">Manifest</a>'
+            )
         scope = (
             "Selected area"
             if capture.get("capture_scope") == "region"
@@ -98,6 +118,11 @@ def _evidence_markup(
         scope_detail = (
             f'<span class="evidence-scope">{_html(scope)}</span>'
             if capture_name
+            else ""
+        )
+        status_detail = (
+            '<span class="evidence-scope">Partial capture</span>'
+            if capture.get("status") == "partial"
             else ""
         )
         disabled = " disabled" if read_only else ""
@@ -116,6 +141,10 @@ def _evidence_markup(
             if png_href
             else f'<strong class="evidence-name">{_html(display_name)}</strong>'
         )
+        verify_title = (
+            "Recalculate every artifact hash and compare it with the "
+            "recorded SHA-256"
+        )
         items.append(
             f"""
             <li
@@ -126,13 +155,15 @@ def _evidence_markup(
                 <div class="evidence-copy">
                     {name_markup}
                     {scope_detail}
+                    {status_detail}
                     <span>{_local_datetime(capture.get("captured_at"))}</span>
                 </div>
                 <div class="evidence-links">
+                    {artifact_links}
                     <button
                         type="button"
                         class="secondary-link verify-evidence"
-                        title="Recalculate the PNG hash and compare it with the recorded SHA-256"
+                        title="{verify_title}"
                     >Verify</button>
                     <button
                         type="button"
@@ -205,7 +236,11 @@ def _result_cards(
         tag_markup = "".join(
             f'<span class="result-tag">{_html(tag)}</span>' for tag in tags
         )
-        source_markup = ", ".join(_html(source) for source in sources) or "Unknown source"
+        displayed_sources = sources or discovery_sources
+        source_markup = (
+            ", ".join(_html(source) for source in displayed_sources)
+            or "Unknown source"
+        )
         discovery_method = str(result.get("discovery_method", "manual_browsing"))
         discovery_query = str(result.get("discovery_query", ""))
         discovery_referrer = str(result.get("discovery_referrer", ""))
@@ -418,7 +453,10 @@ def generate_investigation_page(
         {
             str(source)
             for result in results
-            for source in result.get("sources", [])
+            for source in (
+                *result.get("sources", []),
+                *result.get("discovery_sources", []),
+            )
             if str(source).strip()
         },
         key=str.casefold,

@@ -22,6 +22,24 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertEqual(len(sweden_options), 1)
         self.assertIn('country: "filter-country"', self.content)
 
+    def test_filters_can_be_cleared_without_resetting_search_controls(self):
+        buttons = self.tree.xpath("//button[@id='clear-search-filters']")
+
+        self.assertEqual(len(buttons), 1)
+        self.assertIn('clearSearchFiltersButton.addEventListener("click"', self.content)
+        self.assertIn("setFilters({});", self.content)
+
+    def test_automatic_dorks_are_enabled_by_default_and_wired_to_payload(self):
+        inputs = self.tree.xpath("//input[@id='automatic-dorks']")
+
+        self.assertEqual(len(inputs), 1)
+        self.assertEqual(inputs[0].get("type"), "checkbox")
+        self.assertEqual(inputs[0].get("checked"), "checked")
+        self.assertIn(
+            "automaticDorks: automaticDorksInput.checked",
+            self.content,
+        )
+
     def test_vpn_status_uses_browser_public_ip_and_exposes_all_states(self):
         status_buttons = self.tree.xpath("//button[@id='vpn-status']")
 

@@ -49,6 +49,7 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.brave_results_timeout, 45.0)
             self.assertEqual(settings.brave_results_interval, 0.25)
             self.assertEqual(settings.brave_robot_find_timeout, 0.2)
+            self.assertEqual(settings.duckduckgo_results_timeout, 10.0)
             self.assertEqual(settings.duckduckgo_robot_timeout, 75.0)
             self.assertEqual(settings.duckduckgo_robot_interval, 0.5)
             self.assertEqual(settings.engine_search_timeout, 90.0)
@@ -83,6 +84,7 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_BRAVE_RESULTS_TIMEOUT": "60",
                 "SYNTHESIX_BRAVE_RESULTS_INTERVAL": "0.75",
                 "SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT": "0.4",
+                "SYNTHESIX_DUCKDUCKGO_RESULTS_TIMEOUT": "12",
                 "SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT": "70",
                 "SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL": "0.6",
                 "SYNTHESIX_ENGINE_SEARCH_TIMEOUT": "30",
@@ -128,6 +130,7 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.brave_results_timeout, 60.0)
             self.assertEqual(settings.brave_results_interval, 0.75)
             self.assertEqual(settings.brave_robot_find_timeout, 0.4)
+            self.assertEqual(settings.duckduckgo_results_timeout, 12.0)
             self.assertEqual(settings.duckduckgo_robot_timeout, 70.0)
             self.assertEqual(settings.duckduckgo_robot_interval, 0.6)
             self.assertEqual(settings.engine_search_timeout, 30.0)

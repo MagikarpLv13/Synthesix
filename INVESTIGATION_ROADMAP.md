@@ -26,14 +26,24 @@ Phases 0 et 1 livrees :
 - dossiers archives consultables en lecture seule ;
 - provenance des resultats jusqu'aux executions et rapports d'origine.
 
-Prochaine phase P0 :
+Phase P0 - preuves et provenance :
 
 - capture PNG de la zone visible ou d'une zone rectangulaire : realisee ;
 - manifeste de provenance PNG : realise ;
 - calcul SHA-256 du PNG : realise ;
-- capture HTML et MHTML : a faire ;
+- capture HTML et MHTML : realisee ;
 - verification interactive SHA-256 : realisee ;
-- nettoyage des donnees sensibles avant ecriture.
+- nettoyage des donnees sensibles avant ecriture : realise ;
+- ouverture locale des artefacts et du manifeste : realisee ;
+- conservation du PNG avec statut partiel si HTML ou MHTML est indisponible :
+  realisee.
+
+Prochaine phase P0 :
+
+- decomposition explicable du score ;
+- consensus multi-moteur ;
+- index local SQLite FTS5 ;
+- premiere et derniere observation.
 
 ## 1. Objectif
 

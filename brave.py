@@ -6,7 +6,7 @@ import time
 import unicodedata
 from datetime import datetime
 from html import unescape
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import quote_plus, urlencode, urlparse
 
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
@@ -27,6 +27,11 @@ BRAVE_ROBOT_CHALLENGE_PATTERNS = (
     "verify you are human",
     "verifiez que vous etes humain",
     "checking if the site connection is secure",
+    "performing security verification",
+    "please wait while we verify",
+    "please verify your identity",
+    "verify your identity",
+    "human verification",
     "complete the security check",
     "security check",
     "verifier",
@@ -53,6 +58,10 @@ BRAVE_ROBOT_RAW_MARKERS = (
     r"[\"']page[\"']\s*:\s*[\"']/captcha[\"']",
     r"blockRobots\s*:\s*true",
     r"[\"']blockRobots[\"']\s*:\s*true",
+    r"turnstile",
+    r"cf-chl-",
+    r"hcaptcha",
+    r"recaptcha",
 )
 
 BRAVE_ROBOT_FIND_PATTERNS = (
@@ -91,6 +100,14 @@ def looks_like_brave_robot_challenge(raw_html: str) -> bool:
         return True
     text = _normalize_challenge_text(_html_to_visible_text(raw_html))
     return any(pattern in text for pattern in BRAVE_ROBOT_CHALLENGE_PATTERNS)
+
+
+def looks_like_brave_challenge_url(url: str | None) -> bool:
+    path = urlparse(str(url or "")).path.casefold()
+    return any(
+        marker in path
+        for marker in ("/captcha", "/challenge", "/verify")
+    )
 
 
 def _challenge_excerpt(raw_html: str, max_length: int = 2000) -> str:
@@ -352,41 +369,48 @@ class BraveSearchEngine(SearchEngine):
         return await self._click_robot_button_with_js()
 
     async def robot_check(self):
-        # We need to focus the tab to be able to click on the button
-        await self.tab.bring_to_front()
-
         try:
             raw_content = await self.read_page_content("robot_check")
         except Exception:
             raw_content = ""
 
-        challenge_detected = looks_like_brave_robot_challenge(raw_content)
+        challenge_detected = (
+            looks_like_brave_robot_challenge(raw_content)
+            or looks_like_brave_challenge_url(
+                getattr(self.tab, "url", None) or self.current_url
+            )
+        )
+        if not challenge_detected:
+            return False
+
+        try:
+            await self.tab.bring_to_front()
+        except Exception:
+            logger.debug(
+                "Unable to focus the Brave challenge tab",
+                exc_info=True,
+            )
+
         clicked = await self._click_robot_button() if challenge_detected else None
-        captured = {}
-        if challenge_detected or clicked:
-            captured = await self.capture_robot_challenge(raw_content)
-            logger.warning("Brave anti-robot challenge captured: %s", captured)
+        captured = await self.capture_robot_challenge(raw_content)
+        logger.warning("Brave anti-robot challenge captured: %s", captured)
 
         if clicked:
             logger.info("Brave anti-robot control clicked: %s", clicked)
-            if await self._wait_for_results_container():
-                return True
-            raise RobotChallengeError(
-                self.name,
-                "Brave anti-robot challenge was clicked but results did not load.",
-                query=self.query,
-                url=self.current_url,
-                captured_artifacts=captured,
+        else:
+            logger.warning(
+                "Resolve the Brave challenge manually in the foreground tab; "
+                "Synthesix will resume automatically."
             )
 
-        if challenge_detected:
-            raise RobotChallengeError(
-                self.name,
-                "Brave anti-robot challenge detected, but no known control was clickable.",
-                query=self.query,
-                url=self.current_url,
-                captured_artifacts=captured,
-            )
+        if await self._wait_for_results_container():
+            logger.info("Brave anti-robot challenge resolved.")
+            return True
 
-        # If the button is not found, we can assume that we are not a robot
-        return False
+        raise RobotChallengeError(
+            self.name,
+            "Brave anti-robot challenge was not resolved before the timeout.",
+            query=self.query,
+            url=self.current_url,
+            captured_artifacts=captured,
+        )

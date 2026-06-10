@@ -108,7 +108,25 @@ def workspace_payload(*, status="active"):
                         "sha256": "a" * 64,
                         "byte_size": 123,
                         "created_at": "2026-06-10T10:00:00+00:00",
-                    }
+                    },
+                    {
+                        "id": "artifact-456",
+                        "artifact_type": "html",
+                        "file_path": "data/evidence/capture-123/page.html",
+                        "mime_type": "text/html; charset=utf-8",
+                        "sha256": "b" * 64,
+                        "byte_size": 456,
+                        "created_at": "2026-06-10T10:00:00+00:00",
+                    },
+                    {
+                        "id": "artifact-789",
+                        "artifact_type": "mhtml",
+                        "file_path": "data/evidence/capture-123/page.mhtml",
+                        "mime_type": "multipart/related",
+                        "sha256": "c" * 64,
+                        "byte_size": 789,
+                        "created_at": "2026-06-10T10:00:00+00:00",
+                    },
                 ],
             }
         ],
@@ -157,9 +175,15 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("delete_evidence_capture"', content)
         self.assertIn('queueAction("verify_evidence_capture"', content)
         self.assertIn("data-evidence-verification", content)
+        self.assertIn(">HTML</a>", content)
+        self.assertIn(">MHTML</a>", content)
+        self.assertIn(">Manifest</a>", content)
         self.assertEqual(
             tree.xpath("//button[contains(@class, 'verify-evidence')]/@title"),
-            ["Recalculate the PNG hash and compare it with the recorded SHA-256"],
+            [
+                "Recalculate every artifact hash and compare it with the "
+                "recorded SHA-256"
+            ],
         )
         self.assertEqual(
             tree.xpath("//button[contains(@class, 'delete-evidence')]/@title"),
@@ -181,7 +205,6 @@ class InvestigationViewTestCase(unittest.TestCase):
             len(tree.xpath("//*[contains(@class, 'favorite-star')]")),
             1,
         )
-        self.assertNotIn(">Manifest</a>", content)
         self.assertNotIn("SHA-256 aaaaaaaaaaaaaaaa", content)
         self.assertIn("result-filter-status", content)
         self.assertIn("result-filter-source", content)
@@ -196,7 +219,34 @@ class InvestigationViewTestCase(unittest.TestCase):
             r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",
             content,
         )
-        self.assertEqual(len([script for script in inline_scripts if script.strip()]), 1)
+        self.assertEqual(
+            len([script for script in inline_scripts if script.strip()]),
+            1,
+        )
+
+    def test_uses_discovery_source_when_observation_sources_are_empty(self):
+        workspace = workspace_payload()
+        result = workspace["results"][0]
+        result["sources"] = []
+        result["discovery_sources"] = ["DuckDuckGo"]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("DuckDuckGo", content)
+        self.assertNotIn("Unknown source", content)
+        self.assertIn(
+            '<option value="duckduckgo">DuckDuckGo</option>',
+            content,
+        )
 
     def test_archived_workspace_disables_analyst_mutations(self):
         with TemporaryDirectory() as temp_dir:

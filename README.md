@@ -91,7 +91,10 @@ python main.py --debug-html
 python main.py --debug-html --verbose
 ```
 
-Synthesix opens a Chrome/Chromium window on the local home page. Enter a query and click **Search**. Results are written to `history/` and opened in browser tabs.
+Synthesix opens a Chrome/Chromium window on the local home page. Enter a query
+and click **Search**. Results are written to `history/` and opened in browser
+tabs. Enabled engines run concurrently through asyncio; the final report waits
+for the slowest enabled engine or its timeout.
 
 Session behavior:
 
@@ -152,17 +155,19 @@ Reopening a page already saved in the active investigation updates its
 **Last seen** timestamp automatically. Investigation pages display stored UTC
 timestamps in the browser's local time zone.
 
-PNG evidence captures are explicit and local. The name defaults to
+Evidence captures are explicit and local. The name defaults to
 `screenshot_YYYY-MM-DD_HH-MM-SS` in the browser's local time and can be replaced
 before capture. The investigation page shows a thumbnail; both the thumbnail and
-the capture name open the PNG. For each capture, Synthesix stores the selected
-CSS-pixel coordinates, source URL, UTC capture time, browser context, PNG byte
-size, SHA-256 hash, and a versioned JSON manifest. The technical manifest and
-hash remain in the evidence files without cluttering the investigation page. A
-saved page with evidence cannot be removed until its captures are deleted.
-The **Verify** action recalculates the PNG SHA-256 locally and reports whether it
-still matches the value recorded at capture time. HTML/MHTML capture remains
-planned follow-up work.
+the capture name open the PNG. The **HTML**, **MHTML**, and **Manifest** links
+open the other local artifacts when available. For each capture, Synthesix stores
+the selected CSS-pixel coordinates, source URL, UTC capture time, browser
+context, byte size, SHA-256 hash of every artifact, and a versioned JSON
+manifest. Known password, token, session, and credential form values are
+redacted from HTML. Cookie and authentication headers are removed from MHTML
+before it is written. If an optional HTML or MHTML CDP operation is unavailable,
+the valid PNG is retained and the capture is marked partial. A saved page with
+evidence cannot be removed until its captures are deleted. The **Verify** action
+recalculates every recorded artifact hash locally.
 
 Archived investigations remain available from the selector and open in read-only
 mode. They cannot receive new searches or analyst edits.
@@ -187,7 +192,8 @@ residential, corporate, or self-hosted VPN exits can remain undetected.
 
 ## Search Behavior
 
-Simple queries are intentionally protected as exact phrases. For example:
+Simple queries are intentionally protected as exact phrases when **Automatic
+dorks** is enabled, which is the default. For example:
 
 ```text
 recette de pesto
@@ -200,6 +206,8 @@ is searched as:
 ```
 
 Advanced queries with explicit operators and quoted phrases are preserved by the parser.
+Uncheck **Automatic dorks** to send the main query text unchanged. OSINT filters
+remain active independently of this option.
 
 ## OSINT Filters
 
@@ -218,6 +226,8 @@ The home page includes an **OSINT filters** panel for common search operators wi
 | Before | Keep results up to a selected date. | Uses each compatible engine's native date-range format. |
 
 Multiple values can be separated with commas in a filter field. Values containing spaces are quoted automatically.
+Use **Clear filters** to empty all OSINT filter fields without changing the
+query, selected engines, result limit, investigation, or Automatic dorks option.
 
 `After` and `Before` use native date pickers and store dates as `YYYY-MM-DD`. Synthesix converts the selected range per engine:
 
@@ -267,7 +277,7 @@ engines and leave DuckDuckGo on its worldwide region.
 | --- | --- | --- |
 | Google | Available | Result parsing depends on Google's current HTML structure. |
 | Bing | Available | Result parsing depends on Bing's current HTML structure. |
-| Brave | Available | Anti-robot challenges are detected and captured in `history/robot_challenges/` for debugging/resolution. |
+| Brave | Available | Anti-robot challenges are captured and brought to the foreground. Synthesix waits for manual resolution when no known control can complete them. |
 | DuckDuckGo | Available | Uses the main Web search for a fuller result set, parses only organic Web results, and loads additional result pages when requested. The HTML endpoint remains a fallback. |
 
 Search engines can change their markup or anti-bot behavior at any time. When a parser starts returning poor results, update only the affected engine and add or adjust a focused test.
@@ -280,7 +290,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 | --- | --- |
 | `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, and analyst metadata. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
-| `data/evidence/` | Explicit PNG evidence captures and versioned provenance manifests, grouped by investigation and capture ID. |
+| `data/evidence/` | Explicit PNG, sanitized HTML/MHTML evidence artifacts, and versioned provenance manifests, grouped by investigation and capture ID. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
@@ -307,7 +317,7 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
 | `SYNTHESIX_DATABASE_PATH` | SQLite database path for investigations and normalized search history. |
 | `SYNTHESIX_INVESTIGATION_PAGES_DIR` | Directory for generated local investigation workspaces. |
-| `SYNTHESIX_EVIDENCE_DIR` | Directory for PNG evidence artifacts and JSON manifests. |
+| `SYNTHESIX_EVIDENCE_DIR` | Directory for PNG, HTML, MHTML evidence artifacts and JSON manifests. |
 | `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
 | `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
 | `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
@@ -327,6 +337,7 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_BRAVE_RESULTS_TIMEOUT` | Brave-specific result wait timeout. |
 | `SYNTHESIX_BRAVE_RESULTS_INTERVAL` | Brave-specific result polling interval. |
 | `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT` | Brave anti-robot detection timeout. |
+| `SYNTHESIX_DUCKDUCKGO_RESULTS_TIMEOUT` | DuckDuckGo-specific result wait timeout before the HTML endpoint fallback. |
 | `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT` | Maximum time allowed for manual DuckDuckGo challenge resolution. |
 | `SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL` | Polling interval while waiting for DuckDuckGo results after manual resolution. |
 | `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` | Global timeout for one engine search. |
@@ -343,7 +354,14 @@ $env:SYNTHESIX_ENGINE_SEARCH_TIMEOUT = "45"
 python main.py
 ```
 
-DuckDuckGo's visual challenge requires manual resolution. Synthesix brings the challenge tab to the foreground, captures it in `history/robot_challenges/`, waits up to 75 seconds by default, and resumes as soon as the normal result container appears. If DuckDuckGo displays an intermediate `Forbidden` page after submission, Synthesix captures it, reloads the original query, then tries the standard HTML endpoint as a fallback. Keep `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` greater than `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT`.
+DuckDuckGo results wait up to 10 seconds by default. Synthesix accepts either
+the expected DOM container or HTML that its parser can already read, then tries
+the standard HTML endpoint before reporting a load timeout. Its visual challenge
+still requires manual resolution: Synthesix brings the challenge tab to the
+foreground, captures it in `history/robot_challenges/`, waits up to 75 seconds by
+default, and resumes when results become available. Keep
+`SYNTHESIX_ENGINE_SEARCH_TIMEOUT` greater than
+`SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT`.
 
 ### Linux Browser Detection
 
@@ -440,6 +458,9 @@ Use this checklist before bumping Zendriver:
    - start `python main.py`;
    - launch one exact search;
    - open history and one result report;
+   - select an active investigation and capture visible-page evidence;
+   - verify the PNG, HTML, MHTML, and manifest links from the investigation page;
+   - run **Verify** and confirm every recorded artifact hash matches;
    - close the first tab while another Synthesix tab remains;
    - close all tabs and verify the process exits cleanly;
    - relaunch and verify Chrome does not show the unclean shutdown message.
@@ -459,7 +480,7 @@ Use this checklist before bumping Zendriver:
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
 | `investigations/` | Versioned SQLite schema, repositories, domain models, services, and local workspace generation. |
-| `evidence/` | Async CDP PNG capture, selection validation, SHA-256 hashing, and versioned provenance manifests. |
+| `evidence/` | Async CDP PNG/HTML/MHTML capture, sensitive-data cleaning, SHA-256 hashing, and versioned provenance manifests. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
 | `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |

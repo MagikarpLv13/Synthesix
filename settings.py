@@ -92,6 +92,7 @@ class AppSettings:
     brave_results_timeout: float
     brave_results_interval: float
     brave_robot_find_timeout: float
+    duckduckgo_results_timeout: float
     duckduckgo_robot_timeout: float
     duckduckgo_robot_interval: float
     engine_search_timeout: float
@@ -159,6 +160,10 @@ def get_settings() -> AppSettings:
         brave_results_timeout=_env_float("SYNTHESIX_BRAVE_RESULTS_TIMEOUT", 45.0),
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
+        duckduckgo_results_timeout=_env_float(
+            "SYNTHESIX_DUCKDUCKGO_RESULTS_TIMEOUT",
+            10.0,
+        ),
         duckduckgo_robot_timeout=_env_float("SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT", 75.0),
         duckduckgo_robot_interval=_env_float("SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL", 0.5),
         engine_search_timeout=_env_float("SYNTHESIX_ENGINE_SEARCH_TIMEOUT", 90.0),

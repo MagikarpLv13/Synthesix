@@ -265,6 +265,94 @@ class DuckDuckGoSearchEngine(SearchEngine):
     def set_selector(self):
         self.selector = "[data-testid='result'], .result__body, .web-result, .result-link, #links"
 
+    async def _wait_for_result_content(
+        self,
+        *,
+        timeout: float,
+        interval: float,
+    ) -> bool:
+        start = time.monotonic()
+        next_content_check = start
+        content_interval = max(0.5, interval)
+        while time.monotonic() - start < max(0.0, timeout):
+            try:
+                if await self.tab.query_selector(self.selector):
+                    return True
+            except Exception:
+                logger.debug(
+                    "Unable to inspect DuckDuckGo result selectors",
+                    exc_info=True,
+                )
+
+            raw_content = ""
+            now = time.monotonic()
+            if now >= next_content_check:
+                next_content_check = now + content_interval
+                try:
+                    raw_content = await self.read_page_content("results_wait")
+                except Exception:
+                    raw_content = ""
+
+            if raw_content:
+                if (
+                    looks_like_duckduckgo_robot_challenge(raw_content)
+                    or looks_like_duckduckgo_forbidden(raw_content)
+                ):
+                    return False
+                try:
+                    if self.parse_results(raw_content):
+                        return True
+                except Exception:
+                    logger.debug(
+                        "Unable to parse DuckDuckGo while waiting for results",
+                        exc_info=True,
+                    )
+
+            await asyncio.sleep(max(0.01, interval))
+        return False
+
+    async def wait_for_page_load(
+        self,
+        timeout: float | None = None,
+        interval: float | None = None,
+    ) -> bool:
+        settings = get_settings()
+        timeout = (
+            settings.duckduckgo_results_timeout
+            if timeout is None
+            else timeout
+        )
+        interval = (
+            settings.page_load_interval
+            if interval is None
+            else interval
+        )
+        if await self._wait_for_result_content(
+            timeout=timeout,
+            interval=interval,
+        ):
+            return True
+
+        try:
+            if await self.robot_check():
+                return True
+        except RobotChallengeError:
+            raise
+
+        fallback_url = self.construct_url(self.fallback_base_url)
+        if self.current_url != fallback_url:
+            logger.info(
+                "DuckDuckGo results were not ready; trying the HTML endpoint."
+            )
+            if await self._navigate_after_challenge(fallback_url):
+                if await self._wait_for_result_content(
+                    timeout=timeout,
+                    interval=interval,
+                ):
+                    return True
+                return bool(await self.robot_check())
+        return False
+
     async def capture_robot_challenge(
         self,
         raw_content: str = "",

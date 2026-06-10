@@ -418,7 +418,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
         with patch(
             "investigations.repository.utc_now",
-            return_value="2026-06-10T12:30:00.000000+00:00",
+            return_value="2027-06-10T12:30:00.000000+00:00",
         ):
             observed = self.service.observe_saved_page(
                 investigation.id,
@@ -432,11 +432,11 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(refreshed.id, saved.id)
         self.assertEqual(
             refreshed.last_observed_at,
-            "2026-06-10T12:30:00.000000+00:00",
+            "2027-06-10T12:30:00.000000+00:00",
         )
         self.assertEqual(
             refreshed.latest_observed_at,
-            "2026-06-10T12:30:00.000000+00:00",
+            "2027-06-10T12:30:00.000000+00:00",
         )
 
     def test_visiting_unsaved_page_does_not_create_case_result(self):
@@ -556,6 +556,46 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         )
         self.assertEqual(saved.discovery_query, "unassigned query")
         self.assertEqual(saved.discovery_sources, ("Google",))
+
+    def test_saved_page_uses_unassigned_search_provenance_and_observations(self):
+        investigation = self.service.create({"title": "Case"})
+        self.service.record_search(
+            investigation_id=None,
+            original_query="salmon pasta",
+            parsed_query='"salmon pasta"',
+            filters={},
+            engines={"duckduckgo": True},
+            requested_results=10,
+            report_path="unassigned.html",
+            total_time=0.25,
+            engine_errors={},
+            results=[
+                {
+                    "title": "Salmon pasta",
+                    "link": "https://example.com/salmon-pasta",
+                    "description": "Recipe collection",
+                    "source": "DuckDuckGo",
+                    "relevance_score": 7,
+                }
+            ],
+        )
+
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.com/salmon-pasta",
+                "title": "Salmon pasta",
+                "description": "Recipe collection",
+                "referrer": "",
+            },
+        )
+
+        self.assertEqual(saved.sources, ("DuckDuckGo",))
+        self.assertEqual(saved.discovery_method, "search_result")
+        self.assertEqual(saved.discovery_query, "salmon pasta")
+        self.assertEqual(saved.discovery_sources, ("DuckDuckGo",))
+        self.assertEqual(saved.observation_count, 1)
+        self.assertEqual(saved.relevance_score, 7)
 
     def test_imports_legacy_history_only_once(self):
         second_temp = TemporaryDirectory()

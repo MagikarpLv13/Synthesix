@@ -12,7 +12,13 @@ import sys
 from urllib.parse import urlsplit
 from uuid import uuid4
 from browser_manager import HeadlessBrowserManager
-from evidence import build_evidence_manifest, capture_png, write_manifest
+from evidence import (
+    build_evidence_manifest,
+    capture_html,
+    capture_mhtml,
+    capture_png,
+    write_manifest,
+)
 from evidence.hashing import sha256_file
 from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
 from investigations import InvestigationRepository, InvestigationService
@@ -61,6 +67,16 @@ def _default_capture_name(captured_at: str) -> str:
 
 def _normalize_tab_url(url: str | None) -> str:
     return (url or "").split("#", 1)[0]
+
+
+def _prepare_base_query(
+    original_query: str,
+    *,
+    automatic_dorks: bool = True,
+) -> str:
+    if automatic_dorks and not is_advanced_query(original_query):
+        return smart_parse(original_query)
+    return original_query
 
 
 async def _open_tabs(browser: uc.Browser):
@@ -978,22 +994,77 @@ async def _capture_evidence(
     )[:120]
     capture_dir = settings.evidence_dir / investigation_id / capture_id
     png_path = capture_dir / "capture.png"
+    html_path = capture_dir / "page.html"
+    mhtml_path = capture_dir / "page.mhtml"
     manifest_path = capture_dir / "manifest.json"
     tool_version = _tool_version()
 
     try:
         captured_png = await capture_png(tab, png_path, selection)
-        artifact_id = str(uuid4())
         stored_png_path = _stored_path(png_path, settings.base_dir)
-        artifact = {
-            "id": artifact_id,
-            "artifact_type": "png",
-            "file_path": stored_png_path,
-            "mime_type": "image/png",
-            "sha256": captured_png.sha256,
-            "byte_size": captured_png.byte_size,
-            "created_at": captured_at,
-        }
+        artifacts = [
+            {
+                "id": str(uuid4()),
+                "artifact_type": "png",
+                "file_path": stored_png_path,
+                "mime_type": "image/png",
+                "sha256": captured_png.sha256,
+                "byte_size": captured_png.byte_size,
+                "created_at": captured_at,
+            }
+        ]
+        manifest_artifacts = [
+            {
+                "type": "png",
+                "path": stored_png_path,
+                "mime_type": "image/png",
+                "sha256": captured_png.sha256,
+                "byte_size": captured_png.byte_size,
+            }
+        ]
+        capture_errors = []
+        document_captures = (
+            ("html", html_path, "text/html; charset=utf-8", capture_html),
+            ("mhtml", mhtml_path, "multipart/related", capture_mhtml),
+        )
+        for artifact_type, output_path, mime_type, capture_document in (
+            document_captures
+        ):
+            try:
+                captured_document = await capture_document(tab, output_path)
+            except Exception as exc:
+                label = artifact_type.upper()
+                capture_errors.append(
+                    f"{label} capture unavailable ({type(exc).__name__})."
+                )
+                logger.debug(
+                    "%s evidence capture unavailable",
+                    label,
+                    exc_info=True,
+                )
+                continue
+            stored_path = _stored_path(output_path, settings.base_dir)
+            artifacts.append(
+                {
+                    "id": str(uuid4()),
+                    "artifact_type": artifact_type,
+                    "file_path": stored_path,
+                    "mime_type": mime_type,
+                    "sha256": captured_document.sha256,
+                    "byte_size": captured_document.byte_size,
+                    "created_at": captured_at,
+                }
+            )
+            manifest_artifacts.append(
+                {
+                    "type": artifact_type,
+                    "path": stored_path,
+                    "mime_type": mime_type,
+                    "sha256": captured_document.sha256,
+                    "byte_size": captured_document.byte_size,
+                }
+            )
+        capture_status = "partial" if capture_errors else "completed"
         browser_context = page.get("browserContext", {})
         if not isinstance(browser_context, dict):
             browser_context = {}
@@ -1020,15 +1091,9 @@ async def _capture_evidence(
                 "user_agent": browser_context.get("userAgent"),
             },
             tool_version=tool_version,
-            artifacts=[
-                {
-                    "type": "png",
-                    "path": stored_png_path,
-                    "mime_type": "image/png",
-                    "sha256": captured_png.sha256,
-                    "byte_size": captured_png.byte_size,
-                }
-            ],
+            artifacts=manifest_artifacts,
+            status=capture_status,
+            errors=capture_errors,
         )
         await asyncio.to_thread(write_manifest, manifest_path, manifest)
         capture = service.record_evidence_capture(
@@ -1043,7 +1108,9 @@ async def _capture_evidence(
             manifest_path=_stored_path(manifest_path, settings.base_dir),
             captured_at=captured_at,
             tool_version=tool_version,
-            artifacts=[artifact],
+            artifacts=artifacts,
+            status=capture_status,
+            error=" ".join(capture_errors),
         )
     except Exception as exc:
         await asyncio.to_thread(shutil.rmtree, capture_dir, True)
@@ -1092,33 +1159,30 @@ async def _verify_evidence_capture(
     capture_id: str,
 ) -> bool:
     capture = service.get_evidence_capture(investigation_id, capture_id)
-    artifact = next(
-        (
-            item
-            for item in capture.artifacts
-            if item.artifact_type == "png"
-        ),
-        None,
-    )
-    if artifact is None:
-        raise EvidenceCaptureError("This capture has no PNG artifact.")
+    if not capture.artifacts:
+        raise EvidenceCaptureError("This capture has no artifact.")
 
-    artifact_path = Path(artifact.file_path)
-    if not artifact_path.is_absolute():
-        artifact_path = settings.base_dir / artifact_path
-    artifact_path = artifact_path.resolve()
     evidence_root = settings.evidence_dir.resolve()
-    try:
-        artifact_path.relative_to(evidence_root)
-    except ValueError as exc:
-        raise EvidenceCaptureError(
-            "Refusing to verify evidence outside the configured directory."
-        ) from exc
-    if not artifact_path.is_file():
-        raise EvidenceCaptureError("Evidence PNG is missing.")
+    for artifact in capture.artifacts:
+        artifact_path = Path(artifact.file_path)
+        if not artifact_path.is_absolute():
+            artifact_path = settings.base_dir / artifact_path
+        artifact_path = artifact_path.resolve()
+        try:
+            artifact_path.relative_to(evidence_root)
+        except ValueError as exc:
+            raise EvidenceCaptureError(
+                "Refusing to verify evidence outside the configured directory."
+            ) from exc
+        if not artifact_path.is_file():
+            raise EvidenceCaptureError(
+                f"Evidence {artifact.artifact_type.upper()} is missing."
+            )
 
-    actual_hash = await asyncio.to_thread(sha256_file, artifact_path)
-    return actual_hash == artifact.sha256
+        actual_hash = await asyncio.to_thread(sha256_file, artifact_path)
+        if actual_hash != artifact.sha256:
+            return False
+    return True
 
 
 async def _set_evidence_verification_status(
@@ -1598,9 +1662,14 @@ async def main():
                         open_if_missing=False,
                     )
                     await _set_save_overlay_status(source_tab, "Saved")
+                    capture_message = (
+                        "Evidence captured (partial)"
+                        if capture.status == "partial"
+                        else "Evidence captured"
+                    )
                     await _set_evidence_overlay_status(
                         source_tab,
-                        "Evidence captured",
+                        capture_message,
                     )
                     await _set_home_status(
                         browser,
@@ -1608,7 +1677,8 @@ async def main():
                         (
                             f"Evidence captured for "
                             f"{saved.title or saved.url} "
-                            f"({capture.capture_scope})."
+                            f"({capture.capture_scope}"
+                            f"{', partial' if capture.status == 'partial' else ''})."
                         ),
                     )
                 except InvestigationError as exc:
@@ -1904,12 +1974,15 @@ async def main():
                     )
                     continue
 
-            if not is_advanced_query(original_query):
+            automatic_dorks = bool(result.get("automaticDorks", True))
+            if automatic_dorks and not is_advanced_query(original_query):
                 logger.info("Parsing query to a smart query: %s", original_query)
-                parsed_base_query = smart_parse(original_query)
+            parsed_base_query = _prepare_base_query(
+                original_query,
+                automatic_dorks=automatic_dorks,
+            )
+            if parsed_base_query != original_query:
                 logger.info("Smart query: %s", parsed_base_query)
-            else:
-                parsed_base_query = original_query
 
             parsed_query = build_display_query(parsed_base_query, filters)
             engines = result.get("engines", settings.default_engines)

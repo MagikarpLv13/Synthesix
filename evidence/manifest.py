@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Mapping
 
 
-EVIDENCE_MANIFEST_SCHEMA_VERSION = 1
+EVIDENCE_MANIFEST_SCHEMA_VERSION = 2
 
 
 def build_evidence_manifest(
@@ -23,6 +23,8 @@ def build_evidence_manifest(
     browser_context: Mapping,
     tool_version: str,
     artifacts: list[Mapping],
+    status: str = "completed",
+    errors: list[str] | None = None,
 ) -> dict:
     return {
         "schema_version": EVIDENCE_MANIFEST_SCHEMA_VERSION,
@@ -44,6 +46,8 @@ def build_evidence_manifest(
             "name": "Synthesix",
             "version": tool_version,
         },
+        "status": status,
+        "errors": list(errors or ()),
         "artifacts": [dict(artifact) for artifact in artifacts],
     }
 

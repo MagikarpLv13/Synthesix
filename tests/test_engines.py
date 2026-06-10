@@ -3,7 +3,11 @@ import unittest
 from urllib.parse import parse_qs, urlparse
 
 from bing import BingSearchEngine
-from brave import BraveSearchEngine, looks_like_brave_robot_challenge
+from brave import (
+    BraveSearchEngine,
+    looks_like_brave_challenge_url,
+    looks_like_brave_robot_challenge,
+)
 from duckduckgo import (
     DuckDuckGoSearchEngine,
     looks_like_duckduckgo_forbidden,
@@ -155,6 +159,23 @@ class BraveRobotChallengeTestCase(unittest.TestCase):
         self.assertFalse(
             looks_like_brave_robot_challenge(
                 "<main><div id='results'>Search results for python asyncio</div></main>"
+            )
+        )
+
+    def test_detects_new_challenge_markers_and_urls(self):
+        self.assertTrue(
+            looks_like_brave_robot_challenge(
+                "<main>Performing security verification</main>"
+            )
+        )
+        self.assertTrue(
+            looks_like_brave_robot_challenge(
+                '<div class="cf-chl-widget">Please wait</div>'
+            )
+        )
+        self.assertTrue(
+            looks_like_brave_challenge_url(
+                "https://search.brave.com/challenge?q=test"
             )
         )
 
