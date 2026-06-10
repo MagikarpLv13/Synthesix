@@ -160,8 +160,9 @@ CSS-pixel coordinates, source URL, UTC capture time, browser context, PNG byte
 size, SHA-256 hash, and a versioned JSON manifest. The technical manifest and
 hash remain in the evidence files without cluttering the investigation page. A
 saved page with evidence cannot be removed until its captures are deleted.
-HTML/MHTML capture and interactive hash verification remain planned follow-up
-work.
+The **Verify** action recalculates the PNG SHA-256 locally and reports whether it
+still matches the value recorded at capture time. HTML/MHTML capture remains
+planned follow-up work.
 
 Archived investigations remain available from the selector and open in read-only
 mode. They cannot receive new searches or analyst edits.

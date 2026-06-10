@@ -32,7 +32,7 @@ Prochaine phase P0 :
 - manifeste de provenance PNG : realise ;
 - calcul SHA-256 du PNG : realise ;
 - capture HTML et MHTML : a faire ;
-- verification interactive SHA-256 : a faire ;
+- verification interactive SHA-256 : realisee ;
 - nettoyage des donnees sensibles avant ecriture.
 
 ## 1. Objectif

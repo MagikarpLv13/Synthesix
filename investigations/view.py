@@ -131,10 +131,21 @@ def _evidence_markup(
                 <div class="evidence-links">
                     <button
                         type="button"
+                        class="secondary-link verify-evidence"
+                        title="Recalculate the PNG hash and compare it with the recorded SHA-256"
+                    >Verify</button>
+                    <button
+                        type="button"
                         class="danger-link delete-evidence"
+                        title="Delete this capture and its local evidence files"
                         {disabled}
                     >Delete</button>
                 </div>
+                <span
+                    class="evidence-verification"
+                    data-evidence-verification
+                    aria-live="polite"
+                ></span>
             </li>
             """
         )
@@ -250,13 +261,18 @@ def _result_cards(
                         <div class="result-url">{_html(url)}</div>
                     </div>
                     <div class="result-review-controls">
-                        <label class="favorite-toggle">
+                        <label
+                            class="favorite-toggle"
+                            title="Add or remove this page from favorites"
+                        >
                             <input
+                                class="sr-only"
                                 type="checkbox"
                                 data-result-favorite
+                                aria-label="Favorite"
                                 {favorite_checked}{disabled}
                             >
-                            Favorite
+                            <span class="favorite-star" aria-hidden="true"></span>
                         </label>
                         <label class="status-control">
                             <span class="sr-only">Analyst status</span>
@@ -267,6 +283,7 @@ def _result_cards(
                         <button
                             type="button"
                             class="danger-button remove-saved-page"
+                            title="Remove this saved page from the investigation"
                             {disabled}
                         >Remove</button>
                     </div>
@@ -723,6 +740,22 @@ def generate_investigation_page(
                                 captureId: item.dataset.evidenceId
                             }});
                         }}
+                    }});
+                }});
+                card.querySelectorAll(".verify-evidence").forEach((button) => {{
+                    button.addEventListener("click", () => {{
+                        const item = button.closest("[data-evidence-id]");
+                        if (!item) {{
+                            return;
+                        }}
+                        const status = item.querySelector(
+                            "[data-evidence-verification]"
+                        );
+                        status.textContent = "Checking...";
+                        status.className = "evidence-verification";
+                        queueAction("verify_evidence_capture", {{
+                            captureId: item.dataset.evidenceId
+                        }});
                     }});
                 }});
             }});

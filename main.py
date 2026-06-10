@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 from browser_manager import HeadlessBrowserManager
 from evidence import build_evidence_manifest, capture_png, write_manifest
+from evidence.hashing import sha256_file
 from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
@@ -1084,6 +1085,72 @@ async def _delete_evidence_capture(
     service.delete_evidence_capture(investigation_id, capture_id)
 
 
+async def _verify_evidence_capture(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    capture_id: str,
+) -> bool:
+    capture = service.get_evidence_capture(investigation_id, capture_id)
+    artifact = next(
+        (
+            item
+            for item in capture.artifacts
+            if item.artifact_type == "png"
+        ),
+        None,
+    )
+    if artifact is None:
+        raise EvidenceCaptureError("This capture has no PNG artifact.")
+
+    artifact_path = Path(artifact.file_path)
+    if not artifact_path.is_absolute():
+        artifact_path = settings.base_dir / artifact_path
+    artifact_path = artifact_path.resolve()
+    evidence_root = settings.evidence_dir.resolve()
+    try:
+        artifact_path.relative_to(evidence_root)
+    except ValueError as exc:
+        raise EvidenceCaptureError(
+            "Refusing to verify evidence outside the configured directory."
+        ) from exc
+    if not artifact_path.is_file():
+        raise EvidenceCaptureError("Evidence PNG is missing.")
+
+    actual_hash = await asyncio.to_thread(sha256_file, artifact_path)
+    return actual_hash == artifact.sha256
+
+
+async def _set_evidence_verification_status(
+    tab,
+    capture_id: str,
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    if tab is None:
+        return
+    try:
+        await tab.evaluate(
+            f"""
+            (() => {{
+                const item = document.querySelector(
+                    `[data-evidence-id="${{CSS.escape({json.dumps(capture_id)})}}"]`
+                );
+                const status = item?.querySelector("[data-evidence-verification]");
+                if (!status) {{
+                    return;
+                }}
+                status.textContent = {json.dumps(message)};
+                status.classList.toggle("is-error", {json.dumps(is_error)});
+                status.classList.toggle("is-verified", {json.dumps(not is_error)});
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to update evidence verification status", exc_info=True)
+
+
 def _generate_investigation_page(
     service: InvestigationService,
     settings: AppSettings,
@@ -1716,6 +1783,33 @@ async def main():
                     )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "verify_evidence_capture":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                capture_id = str(result.get("captureId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    verified = await _verify_evidence_capture(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                        capture_id,
+                    )
+                    await _set_evidence_verification_status(
+                        source_tab,
+                        capture_id,
+                        "Verified" if verified else "Hash mismatch",
+                        is_error=not verified,
+                    )
+                except InvestigationError as exc:
+                    await _set_evidence_verification_status(
+                        source_tab,
+                        capture_id,
+                        str(exc),
+                        is_error=True,
+                    )
                 continue
             if result["action"] == "attach_investigation_search":
                 investigation_id = str(result.get("investigationId", "") or "").strip()

@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from evidence.capture import capture_png, normalize_selection
+from evidence.hashing import sha256_file
 from evidence.manifest import build_evidence_manifest, write_manifest
 
 
@@ -73,6 +74,17 @@ class EvidenceManifestTestCase(unittest.TestCase):
         self.assertEqual(loaded["name"], "Profile header")
         self.assertEqual(loaded["capture"]["scope"], "region")
         self.assertEqual(loaded["artifacts"][0]["sha256"], "a" * 64)
+
+    def test_hashes_file_content(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "capture.png"
+            path.write_bytes(b"evidence")
+            digest = sha256_file(path)
+
+        self.assertEqual(
+            digest,
+            hashlib.sha256(b"evidence").hexdigest(),
+        )
 
 
 if __name__ == "__main__":

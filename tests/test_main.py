@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 from contextlib import redirect_stderr
@@ -18,6 +19,7 @@ from main import (
     _is_external_web_tab,
     _open_or_refresh_investigation_page,
     _log_level_from_args,
+    _verify_evidence_capture,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
     parse_cli_args,
@@ -119,6 +121,50 @@ class InvestigationPayloadTestCase(unittest.TestCase):
 
 
 class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_verify_evidence_detects_file_change(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            evidence_dir = base_dir / "data" / "evidence"
+            png_path = evidence_dir / "case-1" / "capture-1" / "capture.png"
+            png_path.parent.mkdir(parents=True)
+            png_path.write_bytes(b"original")
+            expected_hash = hashlib.sha256(b"original").hexdigest()
+            service = SimpleNamespace(
+                get_evidence_capture=lambda *_args: SimpleNamespace(
+                    artifacts=(
+                        SimpleNamespace(
+                            artifact_type="png",
+                            file_path=(
+                                "data/evidence/case-1/capture-1/capture.png"
+                            ),
+                            sha256=expected_hash,
+                        ),
+                    )
+                )
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                evidence_dir=evidence_dir,
+            )
+
+            self.assertTrue(
+                await _verify_evidence_capture(
+                    service,
+                    settings,
+                    "case-1",
+                    "capture-1",
+                )
+            )
+            png_path.write_bytes(b"modified")
+            self.assertFalse(
+                await _verify_evidence_capture(
+                    service,
+                    settings,
+                    "case-1",
+                    "capture-1",
+                )
+            )
+
     async def test_delete_evidence_removes_capture_directory_and_database_row(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)

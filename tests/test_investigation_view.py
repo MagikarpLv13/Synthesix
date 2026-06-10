@@ -155,6 +155,32 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('loading="lazy"', content)
         self.assertNotIn("Open PNG", content)
         self.assertIn('queueAction("delete_evidence_capture"', content)
+        self.assertIn('queueAction("verify_evidence_capture"', content)
+        self.assertIn("data-evidence-verification", content)
+        self.assertEqual(
+            tree.xpath("//button[contains(@class, 'verify-evidence')]/@title"),
+            ["Recalculate the PNG hash and compare it with the recorded SHA-256"],
+        )
+        self.assertEqual(
+            tree.xpath("//button[contains(@class, 'delete-evidence')]/@title"),
+            ["Delete this capture and its local evidence files"],
+        )
+        self.assertEqual(
+            tree.xpath("//button[contains(@class, 'remove-saved-page')]/@title"),
+            ["Remove this saved page from the investigation"],
+        )
+        self.assertEqual(
+            tree.xpath("//input[@data-result-favorite]/@type"),
+            ["checkbox"],
+        )
+        self.assertEqual(
+            tree.xpath("//input[@data-result-favorite]/@checked"),
+            ["checked"],
+        )
+        self.assertEqual(
+            len(tree.xpath("//*[contains(@class, 'favorite-star')]")),
+            1,
+        )
         self.assertNotIn(">Manifest</a>", content)
         self.assertNotIn("SHA-256 aaaaaaaaaaaaaaaa", content)
         self.assertIn("result-filter-status", content)
