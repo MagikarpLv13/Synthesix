@@ -215,6 +215,77 @@
                     <input type="number" id="num-results" min="1" max="100" value="20">
                 </label>
             </div>
+            <details class="osint-panel local-search-panel">
+                <summary>Search local archive</summary>
+                <div class="operator-grid" aria-label="Local archive filters">
+                    <label class="operator-field operator-field-wide" for="local-search-query">
+                        <span>Stored content</span>
+                        <input
+                            type="search"
+                            id="local-search-query"
+                            placeholder="Title, description, URL, notes, tags..."
+                        >
+                    </label>
+                    <label class="operator-field" for="local-search-investigation">
+                        <span>Investigation</span>
+                        <select id="local-search-investigation">
+                            <option value="">All investigations</option>
+                            <option value="__unassigned__">Unassigned searches</option>
+                        </select>
+                    </label>
+                    <label class="operator-field" for="local-search-source">
+                        <span>Engine</span>
+                        <select id="local-search-source">
+                            <option value="">All engines</option>
+                            <option value="Google">Google</option>
+                            <option value="Bing">Bing</option>
+                            <option value="Brave">Brave</option>
+                            <option value="DuckDuckGo">DuckDuckGo</option>
+                        </select>
+                    </label>
+                    <label class="operator-field" for="local-search-status">
+                        <span>Analyst status</span>
+                        <select id="local-search-status">
+                            <option value="">All statuses</option>
+                            <option value="a_verifier">To verify</option>
+                            <option value="pertinent">Relevant</option>
+                            <option value="confirme">Confirmed</option>
+                            <option value="ecarte">Discarded</option>
+                        </select>
+                    </label>
+                    <label class="operator-field" for="local-search-domain">
+                        <span>Domain</span>
+                        <input
+                            type="text"
+                            id="local-search-domain"
+                            placeholder="example.com"
+                        >
+                    </label>
+                    <label class="operator-field" for="local-search-after">
+                        <span>Observed after</span>
+                        <input type="date" id="local-search-after">
+                    </label>
+                    <label class="operator-field" for="local-search-before">
+                        <span>Observed before</span>
+                        <input type="date" id="local-search-before">
+                    </label>
+                </div>
+                <div class="dialog-actions">
+                    <button id="local-search-button" class="primary-button" type="button">
+                        Search locally
+                    </button>
+                    <button id="clear-local-search" class="secondary-button" type="button">
+                        Clear filters
+                    </button>
+                    <button id="rebuild-local-index" class="secondary-button" type="button">
+                        Rebuild index
+                    </button>
+                </div>
+                <p class="session-note">
+                    Local archive search reads only the SQLite database and never
+                    launches an external search engine.
+                </p>
+            </details>
             <div class="data-actions" aria-label="Data management">
                 <span class="data-actions__label">Data</span>
                 <button id="clear-synthesix-history" class="secondary-button" type="button">
@@ -299,6 +370,13 @@
             const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
             const clearBrowserDataButton = document.getElementById("clear-browser-data");
             const clearSearchFiltersButton = document.getElementById("clear-search-filters");
+            const localSearchButton = document.getElementById("local-search-button");
+            const clearLocalSearchButton = document.getElementById("clear-local-search");
+            const rebuildLocalIndexButton = document.getElementById("rebuild-local-index");
+            const localSearchQuery = document.getElementById("local-search-query");
+            const localSearchInvestigation = document.getElementById(
+                "local-search-investigation"
+            );
             const automaticDorksInput = document.getElementById("automatic-dorks");
             const vpnStatusButton = document.getElementById("vpn-status");
             const vpnStatusLabel = document.getElementById("vpn-status-label");
@@ -449,6 +527,31 @@
                         : label;
                     investigationSelect.appendChild(option);
                 });
+
+                const localSelection = localSearchInvestigation.value;
+                localSearchInvestigation.innerHTML = "";
+                [
+                    ["", "All investigations"],
+                    ["__unassigned__", "Unassigned searches"]
+                ].forEach(([value, label]) => {
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.textContent = label;
+                    localSearchInvestigation.appendChild(option);
+                });
+                state.investigations.forEach((investigation) => {
+                    const option = document.createElement("option");
+                    option.value = investigation.id;
+                    option.textContent = investigation.status === "archived"
+                        ? `${investigation.title} (archived)`
+                        : investigation.title;
+                    localSearchInvestigation.appendChild(option);
+                });
+                localSearchInvestigation.value = Array.from(
+                    localSearchInvestigation.options
+                ).some((option) => option.value === localSelection)
+                    ? localSelection
+                    : "";
 
                 const requestedId = state.requestedInvestigationId;
                 const exists = state.investigations.some((item) => item.id === requestedId);
@@ -631,6 +734,39 @@
                 closeHistory();
             };
 
+            const localSearchPayload = () => {
+                const payload = {
+                    query: localSearchQuery.value.trim(),
+                    investigation_id: localSearchInvestigation.value,
+                    source: document.getElementById("local-search-source").value,
+                    analyst_status: document.getElementById("local-search-status").value,
+                    domain: document.getElementById("local-search-domain").value.trim(),
+                    observed_after: document.getElementById("local-search-after").value,
+                    observed_before: document.getElementById("local-search-before").value,
+                    limit: 200
+                };
+                if (
+                    payload.observed_after
+                    && payload.observed_before
+                    && payload.observed_after > payload.observed_before
+                ) {
+                    setStatus(
+                        "Observed after must be earlier than or equal to observed before.",
+                        true
+                    );
+                    return null;
+                }
+                return payload;
+            };
+
+            const submitLocalSearch = () => {
+                const filters = localSearchPayload();
+                if (!filters) {
+                    return;
+                }
+                queueAction("local_archive_search", { filters });
+            };
+
             const queueAction = (action, payload = {}) => {
                 state.pendingAction = { action, ...payload };
                 closeHistory();
@@ -749,6 +885,26 @@
             clearSearchFiltersButton.addEventListener("click", () => {
                 setFilters({});
                 document.getElementById("filter-site").focus();
+            });
+            localSearchButton.addEventListener("click", submitLocalSearch);
+            localSearchQuery.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitLocalSearch();
+                }
+            });
+            clearLocalSearchButton.addEventListener("click", () => {
+                localSearchQuery.value = "";
+                localSearchInvestigation.value = "";
+                document.getElementById("local-search-source").value = "";
+                document.getElementById("local-search-status").value = "";
+                document.getElementById("local-search-domain").value = "";
+                document.getElementById("local-search-after").value = "";
+                document.getElementById("local-search-before").value = "";
+                localSearchQuery.focus();
+            });
+            rebuildLocalIndexButton.addEventListener("click", () => {
+                queueAction("rebuild_local_search_index");
             });
             vpnStatusButton.addEventListener("click", checkVpnStatus);
             investigationSelect.addEventListener("change", () => {

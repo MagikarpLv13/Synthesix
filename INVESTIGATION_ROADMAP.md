@@ -48,7 +48,11 @@ Phase P1 - scoring explicable et consensus multi-moteur :
 
 Prochaine phase P1 :
 
-- index local SQLite FTS5 ;
+- index local SQLite FTS5 : realise ;
+- recherche titres, descriptions, URL, notes et tags : realisee ;
+- filtres dossier, moteur, date, statut et domaine : realises ;
+- reconstruction complete et synchronisation automatique : realisees ;
+- acces local aux pages sauvegardees et preuves : realise ;
 - comparaison temporelle et surveillance manuelle.
 
 ## 1. Objectif

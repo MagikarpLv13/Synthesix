@@ -302,6 +302,7 @@ def _result_cards(
         cards.append(
             f"""
             <article
+                id="result-{_html(result_id)}"
                 class="investigation-result"
                 data-result-id="{_html(result_id)}"
                 data-search="{_html(search_text)}"

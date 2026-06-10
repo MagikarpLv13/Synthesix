@@ -174,4 +174,88 @@ MIGRATIONS = (
             ADD COLUMN score_breakdown_json TEXT NOT NULL DEFAULT '[]';
         """,
     ),
+    (
+        6,
+        """
+        CREATE TABLE local_search_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_key TEXT NOT NULL UNIQUE,
+            result_id TEXT NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+            investigation_id TEXT REFERENCES investigations(id) ON DELETE CASCADE,
+            investigation_title TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '',
+            sources TEXT NOT NULL DEFAULT '',
+            analyst_status TEXT NOT NULL DEFAULT '',
+            domain TEXT NOT NULL DEFAULT '',
+            first_observed_at TEXT NOT NULL DEFAULT '',
+            last_observed_at TEXT NOT NULL DEFAULT '',
+            is_saved INTEGER NOT NULL DEFAULT 0 CHECK (is_saved IN (0, 1)),
+            evidence_count INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE VIRTUAL TABLE local_search_fts USING fts5(
+            title,
+            description,
+            url,
+            notes,
+            tags,
+            content='local_search_documents',
+            content_rowid='id',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER local_search_documents_ai
+        AFTER INSERT ON local_search_documents BEGIN
+            INSERT INTO local_search_fts(
+                rowid, title, description, url, notes, tags
+            )
+            VALUES (
+                new.id, new.title, new.description, new.url, new.notes, new.tags
+            );
+        END;
+
+        CREATE TRIGGER local_search_documents_ad
+        AFTER DELETE ON local_search_documents BEGIN
+            INSERT INTO local_search_fts(
+                local_search_fts, rowid, title, description, url, notes, tags
+            )
+            VALUES (
+                'delete', old.id, old.title, old.description, old.url,
+                old.notes, old.tags
+            );
+        END;
+
+        CREATE TRIGGER local_search_documents_au
+        AFTER UPDATE ON local_search_documents BEGIN
+            INSERT INTO local_search_fts(
+                local_search_fts, rowid, title, description, url, notes, tags
+            )
+            VALUES (
+                'delete', old.id, old.title, old.description, old.url,
+                old.notes, old.tags
+            );
+            INSERT INTO local_search_fts(
+                rowid, title, description, url, notes, tags
+            )
+            VALUES (
+                new.id, new.title, new.description, new.url, new.notes, new.tags
+            );
+        END;
+
+        CREATE INDEX idx_local_search_documents_result
+            ON local_search_documents(result_id);
+        CREATE INDEX idx_local_search_documents_investigation
+            ON local_search_documents(investigation_id, last_observed_at DESC);
+        CREATE INDEX idx_local_search_documents_filters
+            ON local_search_documents(
+                analyst_status,
+                domain,
+                last_observed_at DESC
+            );
+        """,
+    ),
 )

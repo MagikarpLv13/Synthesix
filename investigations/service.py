@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Iterable, Mapping
 
 from exceptions import InvestigationValidationError
-from investigations.models import Investigation
+from investigations.models import ANALYST_STATUSES, Investigation, LocalSearchFilters
 from investigations.repository import InvestigationRepository
 
 
@@ -19,6 +20,8 @@ MAX_PAGE_TITLE_LENGTH = 500
 MAX_PAGE_DESCRIPTION_LENGTH = 4000
 MAX_PAGE_URL_LENGTH = 8000
 MAX_EVIDENCE_NAME_LENGTH = 120
+MAX_LOCAL_SEARCH_QUERY_LENGTH = 500
+MAX_LOCAL_SEARCH_DOMAIN_LENGTH = 253
 
 
 def _clean_text(value, *, max_length: int) -> str:
@@ -121,6 +124,69 @@ class InvestigationService:
 
     def record_search(self, **kwargs) -> str:
         return self.repository.record_search(**kwargs)
+
+    def search_local_archive(self, payload: Mapping) -> list[dict]:
+        observed_after = _clean_text(
+            payload.get("observed_after"),
+            max_length=10,
+        )
+        observed_before = _clean_text(
+            payload.get("observed_before"),
+            max_length=10,
+        )
+        for value in (observed_after, observed_before):
+            if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                raise InvestigationValidationError(
+                    "Observation dates must use YYYY-MM-DD."
+                )
+        if observed_after and observed_before and observed_after > observed_before:
+            raise InvestigationValidationError(
+                "Observed after must be earlier than or equal to observed before."
+            )
+
+        analyst_status = _clean_text(
+            payload.get("analyst_status"),
+            max_length=30,
+        )
+        if analyst_status and analyst_status not in ANALYST_STATUSES:
+            raise InvestigationValidationError(
+                f"Unsupported analyst status: {analyst_status}"
+            )
+
+        investigation_id = _clean_text(
+            payload.get("investigation_id"),
+            max_length=100,
+        )
+        if investigation_id and investigation_id != "__unassigned__":
+            self.get(investigation_id)
+
+        try:
+            limit = int(payload.get("limit", 100) or 100)
+        except (TypeError, ValueError):
+            limit = 100
+        filters = LocalSearchFilters(
+            query=_clean_text(
+                payload.get("query"),
+                max_length=MAX_LOCAL_SEARCH_QUERY_LENGTH,
+            ),
+            investigation_id=investigation_id,
+            source=_clean_text(payload.get("source"), max_length=50),
+            analyst_status=analyst_status,
+            domain=_clean_text(
+                payload.get("domain"),
+                max_length=MAX_LOCAL_SEARCH_DOMAIN_LENGTH,
+            ).lower(),
+            observed_after=observed_after,
+            observed_before=observed_before,
+            limit=max(1, min(limit, 500)),
+        )
+        return [
+            result.to_payload()
+            for result in self.repository.search_local_archive(filters)
+        ]
+
+    def rebuild_local_search_index(self) -> int:
+        return self.repository.rebuild_local_search_index()
 
     def workspace_payload(self, investigation_id: str) -> dict:
         investigation = self.get(investigation_id)

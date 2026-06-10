@@ -423,7 +423,8 @@ a:focus-visible {
     font-weight: 700;
 }
 
-.operator-field input {
+.operator-field input,
+.operator-field select {
     width: 100%;
     min-height: 38px;
     padding: 0 10px;
@@ -431,6 +432,14 @@ a:focus-visible {
     border-radius: 6px;
     background: var(--surface-2);
     color: var(--text);
+}
+
+.operator-field-wide {
+    grid-column: span 2;
+}
+
+.local-search-panel {
+    margin-top: 14px;
 }
 
 .operator-field input::placeholder {
@@ -1422,6 +1431,10 @@ table.dataTable.no-footer {
 
     .operator-grid {
         grid-template-columns: 1fr;
+    }
+
+    .operator-field-wide {
+        grid-column: auto;
     }
 
     .engine-group,

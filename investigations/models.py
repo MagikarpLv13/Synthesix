@@ -129,6 +129,59 @@ class InvestigationSearchRun:
 
 
 @dataclass(frozen=True)
+class LocalSearchFilters:
+    query: str = ""
+    investigation_id: str = ""
+    source: str = ""
+    analyst_status: str = ""
+    domain: str = ""
+    observed_after: str = ""
+    observed_before: str = ""
+    limit: int = 100
+
+
+@dataclass(frozen=True)
+class LocalSearchResult:
+    result_id: str
+    investigation_id: str | None
+    investigation_title: str
+    title: str
+    description: str
+    url: str
+    notes: str
+    tags: tuple[str, ...]
+    sources: tuple[str, ...]
+    analyst_status: str
+    domain: str
+    first_observed_at: str
+    last_observed_at: str
+    is_saved: bool
+    evidence_count: int
+    rank: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "result_id": self.result_id,
+            "investigation_id": self.investigation_id,
+            "investigation_title": self.investigation_title,
+            "title": self.title,
+            "description": self.description,
+            "url": self.url,
+            "notes": self.notes,
+            "tags": list(self.tags),
+            "sources": list(self.sources),
+            "analyst_status": self.analyst_status,
+            "domain": self.domain,
+            "first_observed_at": self.first_observed_at,
+            "last_observed_at": self.last_observed_at,
+            "is_saved": self.is_saved,
+            "evidence_count": self.evidence_count,
+            "rank": self.rank,
+            "already_observed": True,
+        }
+
+
+@dataclass(frozen=True)
 class EvidenceArtifact:
     id: str
     artifact_type: str

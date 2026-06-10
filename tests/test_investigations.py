@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 5)
+        self.assertEqual(self.repository.schema_version(), 6)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,10 +92,112 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 5)
+            self.assertEqual(repository.schema_version(), 6)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
+
+    def test_v5_data_is_indexed_when_fts_migration_runs(self):
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "legacy-v5.db"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TEXT NOT NULL
+                    )
+                    """
+                )
+                for version, sql in MIGRATIONS[:5]:
+                    connection.executescript(sql)
+                    connection.execute(
+                        """
+                        INSERT INTO schema_migrations(version, applied_at)
+                        VALUES (?, ?)
+                        """,
+                        (version, "2026-06-09T00:00:00+00:00"),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO investigations(
+                        id, title, reference, description, tags_json, status,
+                        created_at, updated_at
+                    )
+                    VALUES (
+                        'case-1', 'Legacy indexed case', '', '', '[]', 'active',
+                        ?, ?
+                    )
+                    """,
+                    (
+                        "2026-06-09T00:00:00+00:00",
+                        "2026-06-09T00:00:00+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO search_runs(
+                        id, investigation_id, original_query, parsed_query,
+                        filters_json, engines_json, requested_results,
+                        result_count, total_time, report_path, status,
+                        engine_errors_json, started_at, completed_at
+                    )
+                    VALUES (
+                        'search-1', 'case-1', 'legacy archive',
+                        '"legacy archive"', '{}', '{"google":true}', 10, 1,
+                        0.5, 'report.html', 'completed', '{}', ?, ?
+                    )
+                    """,
+                    (
+                        "2026-06-09T00:00:00+00:00",
+                        "2026-06-09T00:00:01+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO results(
+                        id, canonical_url, url, title, description,
+                        first_observed_at, last_observed_at
+                    )
+                    VALUES (
+                        'result-1', 'https://example.com/legacy',
+                        'https://example.com/legacy', 'Legacy archive page',
+                        'Stored before FTS5', ?, ?
+                    )
+                    """,
+                    (
+                        "2026-06-09T00:00:01+00:00",
+                        "2026-06-09T00:00:01+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO search_result_observations(
+                        search_run_id, result_id, source_json, title,
+                        description, relevance_score, score_breakdown_json,
+                        observed_at
+                    )
+                    VALUES (
+                        'search-1', 'result-1', '["Google"]',
+                        'Legacy archive page', 'Stored before FTS5', 5, '[]', ?
+                    )
+                    """,
+                    ("2026-06-09T00:00:01+00:00",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            service = InvestigationService(
+                InvestigationRepository(database_path)
+            )
+            service.initialize()
+
+            self.assertEqual(service.repository.schema_version(), 6)
+            results = service.search_local_archive({"query": "legacy"})
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
 
     def test_creates_updates_and_archives_investigation(self):
         created = self.service.create(
@@ -212,6 +314,129 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(refreshed.search_count, 2)
         self.assertEqual(refreshed.result_count, 0)
 
+    def test_local_search_indexes_content_and_metadata_filters(self):
+        investigation = self.service.create({"title": "Registry case"})
+        self.service.record_search(
+            investigation_id=investigation.id,
+            original_query="example company",
+            parsed_query='"example company"',
+            filters={},
+            engines={"google": True, "bing": True},
+            requested_results=10,
+            report_path="report.html",
+            total_time=0.5,
+            engine_errors={},
+            started_at="2026-06-09T09:00:00+00:00",
+            results=[
+                {
+                    "title": "Example Company Registry",
+                    "link": "https://records.example.com/company/42",
+                    "description": "Official incorporation record.",
+                    "source": "Google, Bing",
+                    "relevance_score": 8.5,
+                }
+            ],
+        )
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://records.example.com/company/42",
+                "title": "Example Company Registry",
+                "description": "Official incorporation record.",
+                "referrer": "file:///report.html",
+            },
+        )
+        self.service.update_result(
+            investigation.id,
+            saved.id,
+            {
+                "analyst_status": "confirme",
+                "favorite": False,
+                "notes": "Validated against the chamber of commerce.",
+                "tags": "corporate, registry",
+            },
+        )
+
+        by_title = self.service.search_local_archive({"query": "Company"})
+        by_notes = self.service.search_local_archive({"query": "chamber"})
+        by_url = self.service.search_local_archive({"query": "company 42"})
+        filtered = self.service.search_local_archive(
+            {
+                "investigation_id": investigation.id,
+                "source": "Bing",
+                "analyst_status": "confirme",
+                "domain": "example.com",
+                "observed_after": "2026-06-09",
+                "observed_before": "2026-06-10",
+            }
+        )
+
+        self.assertEqual(by_title[0]["result_id"], saved.id)
+        self.assertEqual(by_notes[0]["notes"], "Validated against the chamber of commerce.")
+        self.assertEqual(by_url[0]["domain"], "records.example.com")
+        self.assertEqual(filtered[0]["investigation_title"], "Registry case")
+        self.assertEqual(filtered[0]["sources"], ["Bing", "Google"])
+        self.assertEqual(filtered[0]["tags"], ["corporate", "registry"])
+        self.assertTrue(filtered[0]["already_observed"])
+        self.assertTrue(filtered[0]["is_saved"])
+        self.assertEqual(self.repository.table_count("local_search_documents"), 1)
+        self.assertEqual(self.repository.table_count("local_search_fts"), 1)
+
+    def test_local_search_rebuilds_and_moves_attached_search_scope(self):
+        investigation = self.service.create({"title": "Case"})
+        search_id = self.service.record_search(
+            investigation_id=None,
+            original_query="offline archive",
+            parsed_query='"offline archive"',
+            filters={},
+            engines={"duckduckgo": True},
+            requested_results=10,
+            report_path="report.html",
+            total_time=0.5,
+            engine_errors={},
+            results=[
+                {
+                    "title": "Offline archive result",
+                    "link": "https://example.org/archive",
+                    "description": "Previously collected material.",
+                    "source": "DuckDuckGo",
+                    "relevance_score": 5,
+                }
+            ],
+        )
+
+        unassigned = self.service.search_local_archive(
+            {
+                "query": "offline",
+                "investigation_id": "__unassigned__",
+            }
+        )
+        self.assertEqual(len(unassigned), 1)
+
+        self.service.attach_search(investigation.id, search_id)
+        self.assertEqual(
+            self.service.search_local_archive(
+                {
+                    "query": "offline",
+                    "investigation_id": "__unassigned__",
+                }
+            ),
+            [],
+        )
+        attached = self.service.search_local_archive(
+            {
+                "query": "offline",
+                "investigation_id": investigation.id,
+            }
+        )
+        self.assertEqual(len(attached), 1)
+
+        with self.repository._connection() as connection:
+            connection.execute("DELETE FROM local_search_documents")
+        self.assertEqual(self.service.search_local_archive({"query": "offline"}), [])
+        self.assertEqual(self.service.rebuild_local_search_index(), 1)
+        self.assertEqual(len(self.service.search_local_archive({"query": "offline"})), 1)
+
     def test_clear_history_preserves_investigation_shells(self):
         investigation = self.service.create({"title": "Case"})
         self.service.record_search(
@@ -253,6 +478,9 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(len(self.service.list_investigations()), 1)
         preserved = self.repository.list_investigation_results(investigation.id)[0]
         self.assertEqual(preserved.id, saved.id)
+        local_results = self.service.search_local_archive({"query": "saved"})
+        self.assertEqual(len(local_results), 1)
+        self.assertTrue(local_results[0]["is_saved"])
         self.assertEqual(preserved.discovery_query, "query")
         self.assertEqual(preserved.discovery_sources, ("Google",))
 
@@ -515,6 +743,8 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(workspace["evidence"][0]["id"], "capture-1")
         self.assertEqual(self.repository.table_count("evidence_captures"), 1)
         self.assertEqual(self.repository.table_count("evidence_artifacts"), 1)
+        indexed = self.service.search_local_archive({"query": "profile"})
+        self.assertEqual(indexed[0]["evidence_count"], 1)
         with self.assertRaises(InvestigationValidationError):
             self.service.remove_saved_page(investigation.id, saved.id)
 
@@ -524,6 +754,8 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         )
         self.assertEqual(self.repository.table_count("evidence_captures"), 0)
         self.assertEqual(self.repository.table_count("evidence_artifacts"), 0)
+        indexed = self.service.search_local_archive({"query": "profile"})
+        self.assertEqual(indexed[0]["evidence_count"], 0)
         self.service.remove_saved_page(investigation.id, saved.id)
 
     def test_attaches_unassigned_search_and_results(self):

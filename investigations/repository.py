@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -25,10 +26,13 @@ from investigations.models import (
     Investigation,
     InvestigationResult,
     InvestigationSearchRun,
+    LocalSearchFilters,
+    LocalSearchResult,
 )
 
 
 LEGACY_IMPORT_KEY = "legacy_history_import_v1"
+LOCAL_SEARCH_SEPARATOR = "\x1f"
 
 
 def utc_now() -> str:
@@ -73,6 +77,23 @@ def _json_load(value: str, fallback):
     except (TypeError, json.JSONDecodeError):
         return fallback
     return loaded
+
+
+def _fts_match_query(value: str) -> str:
+    terms = re.findall(r"\w+", str(value or ""), flags=re.UNICODE)
+    return " AND ".join(f'"{term}"*' for term in terms)
+
+
+def _normalized_domain(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if "://" not in text:
+        text = f"https://{text}"
+    try:
+        return (urlsplit(text).hostname or "").lower().removeprefix("www.")
+    except ValueError:
+        return ""
 
 
 class InvestigationRepository:
@@ -132,12 +153,302 @@ class InvestigationRepository:
             finally:
                 connection.close()
 
+        with self._connection() as connection:
+            document_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM local_search_documents"
+                ).fetchone()["count"]
+            )
+            result_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM results"
+                ).fetchone()["count"]
+            )
+            if document_count == 0 and result_count:
+                self._refresh_local_search_documents(connection)
+
     def schema_version(self) -> int:
         with self._connection() as connection:
             row = connection.execute(
                 "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
             ).fetchone()
         return int(row["version"])
+
+    def _refresh_local_search_documents(
+        self,
+        connection: sqlite3.Connection,
+        result_ids: Iterable[str] | None = None,
+    ) -> int:
+        selected_ids = tuple(dict.fromkeys(
+            str(result_id)
+            for result_id in (result_ids or ())
+            if str(result_id).strip()
+        ))
+        if result_ids is not None and not selected_ids:
+            return 0
+
+        params: list[str] = []
+        result_filter = ""
+        if selected_ids:
+            placeholders = ", ".join("?" for _ in selected_ids)
+            connection.execute(
+                f"DELETE FROM local_search_documents "
+                f"WHERE result_id IN ({placeholders})",
+                selected_ids,
+            )
+            result_filter = f"WHERE r.id IN ({placeholders})"
+            params.extend(selected_ids)
+        else:
+            connection.execute("DELETE FROM local_search_documents")
+
+        rows = connection.execute(
+            f"""
+            WITH scopes AS (
+                SELECT DISTINCT
+                    o.result_id,
+                    sr.investigation_id
+                FROM search_result_observations o
+                JOIN search_runs sr ON sr.id = o.search_run_id
+
+                UNION
+
+                SELECT
+                    ir.result_id,
+                    ir.investigation_id
+                FROM investigation_results ir
+                WHERE ir.is_saved = 1
+            )
+            SELECT
+                r.id AS result_id,
+                s.investigation_id,
+                COALESCE(i.title, '') AS investigation_title,
+                r.title,
+                r.description,
+                r.url,
+                COALESCE(ir.notes, '') AS notes,
+                COALESCE(ir.tags_json, '[]') AS tags_json,
+                COALESCE(ir.analyst_status, '') AS analyst_status,
+                COALESCE(ir.is_saved, 0) AS is_saved,
+                r.first_observed_at,
+                MAX(
+                    r.last_observed_at,
+                    COALESCE(MAX(o.observed_at), r.last_observed_at)
+                ) AS last_observed_at,
+                GROUP_CONCAT(o.source_json, char(31)) AS source_payloads,
+                (
+                    SELECT COUNT(*)
+                    FROM evidence_captures ec
+                    WHERE
+                        ec.result_id = r.id
+                        AND ec.investigation_id = s.investigation_id
+                ) AS evidence_count
+            FROM scopes s
+            JOIN results r ON r.id = s.result_id
+            LEFT JOIN investigations i ON i.id = s.investigation_id
+            LEFT JOIN investigation_results ir
+                ON ir.result_id = r.id
+                AND ir.investigation_id = s.investigation_id
+                AND ir.is_saved = 1
+            LEFT JOIN search_result_observations o
+                ON o.result_id = r.id
+                AND EXISTS (
+                    SELECT 1
+                    FROM search_runs sr2
+                    WHERE
+                        sr2.id = o.search_run_id
+                        AND (
+                            (
+                                s.investigation_id IS NULL
+                                AND sr2.investigation_id IS NULL
+                            )
+                            OR (
+                                s.investigation_id IS NOT NULL
+                                AND (
+                                    sr2.investigation_id = s.investigation_id
+                                    OR (
+                                        COALESCE(ir.is_saved, 0) = 1
+                                        AND sr2.investigation_id IS NULL
+                                    )
+                                )
+                            )
+                        )
+                )
+            {result_filter}
+            GROUP BY r.id, s.investigation_id
+            """,
+            params,
+        ).fetchall()
+
+        for row in rows:
+            sources = set()
+            for payload in str(row["source_payloads"] or "").split(
+                LOCAL_SEARCH_SEPARATOR
+            ):
+                loaded = _json_load(payload, [])
+                if isinstance(loaded, list):
+                    sources.update(
+                        str(source).strip()
+                        for source in loaded
+                        if str(source).strip()
+                    )
+            tags = _json_load(row["tags_json"], [])
+            if not isinstance(tags, list):
+                tags = []
+            investigation_id = row["investigation_id"]
+            document_key = (
+                f"{row['result_id']}:{investigation_id or '__unassigned__'}"
+            )
+            connection.execute(
+                """
+                INSERT INTO local_search_documents(
+                    document_key, result_id, investigation_id,
+                    investigation_title, title, description, url, notes,
+                    tags, sources, analyst_status, domain,
+                    first_observed_at, last_observed_at, is_saved,
+                    evidence_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_key,
+                    row["result_id"],
+                    investigation_id,
+                    row["investigation_title"],
+                    row["title"],
+                    row["description"],
+                    row["url"],
+                    row["notes"],
+                    LOCAL_SEARCH_SEPARATOR.join(
+                        str(tag).strip()
+                        for tag in tags
+                        if str(tag).strip()
+                    ),
+                    LOCAL_SEARCH_SEPARATOR.join(
+                        sorted(sources, key=str.casefold)
+                    ),
+                    row["analyst_status"],
+                    _normalized_domain(row["url"]),
+                    row["first_observed_at"],
+                    row["last_observed_at"],
+                    int(row["is_saved"] or 0),
+                    int(row["evidence_count"] or 0),
+                ),
+            )
+        return len(rows)
+
+    def rebuild_local_search_index(self) -> int:
+        with self._connection() as connection:
+            return self._refresh_local_search_documents(connection)
+
+    def search_local_archive(
+        self,
+        filters: LocalSearchFilters,
+    ) -> list[LocalSearchResult]:
+        match_query = _fts_match_query(filters.query)
+        params: list[str | int] = []
+        conditions = []
+        if match_query:
+            from_clause = (
+                "local_search_fts "
+                "JOIN local_search_documents d "
+                "ON d.id = local_search_fts.rowid"
+            )
+            rank_expression = (
+                "bm25(local_search_fts, 6.0, 3.0, 2.0, 4.0, 3.0)"
+            )
+            conditions.append("local_search_fts MATCH ?")
+            params.append(match_query)
+        else:
+            from_clause = "local_search_documents d"
+            rank_expression = "0.0"
+
+        if filters.investigation_id == "__unassigned__":
+            conditions.append("d.investigation_id IS NULL")
+        elif filters.investigation_id:
+            conditions.append("d.investigation_id = ?")
+            params.append(filters.investigation_id)
+        if filters.source:
+            conditions.append(
+                "instr(char(31) || d.sources || char(31), "
+                "char(31) || ? || char(31)) > 0"
+            )
+            params.append(filters.source)
+        if filters.analyst_status:
+            conditions.append("d.analyst_status = ?")
+            params.append(filters.analyst_status)
+        if filters.domain:
+            domain = _normalized_domain(filters.domain)
+            if not domain:
+                return []
+            conditions.append(
+                "(d.domain = ? OR d.domain LIKE ?)"
+            )
+            params.extend((
+                domain,
+                f"%.{domain}",
+            ))
+        if filters.observed_after:
+            conditions.append("substr(d.last_observed_at, 1, 10) >= ?")
+            params.append(filters.observed_after)
+        if filters.observed_before:
+            conditions.append("substr(d.last_observed_at, 1, 10) <= ?")
+            params.append(filters.observed_before)
+
+        where_clause = (
+            "WHERE " + " AND ".join(conditions)
+            if conditions
+            else ""
+        )
+        params.append(max(1, min(int(filters.limit), 500)))
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    d.*,
+                    {rank_expression} AS rank
+                FROM {from_clause}
+                {where_clause}
+                ORDER BY rank ASC, d.last_observed_at DESC, d.title ASC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+
+        return [
+            LocalSearchResult(
+                result_id=row["result_id"],
+                investigation_id=row["investigation_id"],
+                investigation_title=(
+                    row["investigation_title"] or "Unassigned searches"
+                ),
+                title=row["title"],
+                description=row["description"],
+                url=row["url"],
+                notes=row["notes"],
+                tags=tuple(
+                    tag
+                    for tag in str(row["tags"] or "").split(
+                        LOCAL_SEARCH_SEPARATOR
+                    )
+                    if tag
+                ),
+                sources=tuple(
+                    source
+                    for source in str(row["sources"] or "").split(
+                        LOCAL_SEARCH_SEPARATOR
+                    )
+                    if source
+                ),
+                analyst_status=row["analyst_status"],
+                domain=row["domain"],
+                first_observed_at=row["first_observed_at"],
+                last_observed_at=row["last_observed_at"],
+                is_saved=bool(row["is_saved"]),
+                evidence_count=int(row["evidence_count"] or 0),
+                rank=float(row["rank"] or 0),
+            )
+            for row in rows
+        ]
 
     def _row_to_investigation(self, row: sqlite3.Row) -> Investigation:
         tags = _json_load(row["tags_json"], [])
@@ -279,6 +590,14 @@ class InvestigationRepository:
             )
             if cursor.rowcount == 0:
                 raise InvestigationNotFoundError(investigation_id)
+            connection.execute(
+                """
+                UPDATE local_search_documents
+                SET investigation_title = ?
+                WHERE investigation_id = ?
+                """,
+                (title, investigation_id),
+            )
         return self.get_investigation(investigation_id)
 
     def archive_investigation(self, investigation_id: str) -> Investigation:
@@ -508,6 +827,7 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (now, investigation_id),
             )
+            self._refresh_local_search_documents(connection, (result_id,))
 
         return next(
             result
@@ -538,6 +858,17 @@ class InvestigationRepository:
                 raise InvestigationValidationError(
                     "This search is already attached to an investigation."
                 )
+            result_ids = [
+                row["result_id"]
+                for row in connection.execute(
+                    """
+                    SELECT result_id
+                    FROM search_result_observations
+                    WHERE search_run_id = ?
+                    """,
+                    (search_run_id,),
+                )
+            ]
 
             connection.execute(
                 "UPDATE search_runs SET investigation_id = ? WHERE id = ?",
@@ -547,6 +878,7 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (now, investigation_id),
             )
+            self._refresh_local_search_documents(connection, result_ids)
 
         return next(
             search
@@ -713,6 +1045,7 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (now, investigation_id),
             )
+            self._refresh_local_search_documents(connection, (result_id,))
 
         return next(
             result
@@ -767,6 +1100,10 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (now, investigation_id),
             )
+            self._refresh_local_search_documents(
+                connection,
+                (result["id"],),
+            )
         return True
 
     def remove_saved_page(
@@ -814,6 +1151,7 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (utc_now(), investigation_id),
             )
+            self._refresh_local_search_documents(connection, (result_id,))
 
     def delete_investigation(self, investigation_id: str) -> None:
         investigation = self.get_investigation(investigation_id)
@@ -862,6 +1200,7 @@ class InvestigationRepository:
             }
             for engine, error in engine_errors.items()
         }
+        indexed_result_ids = []
 
         with self._connection() as connection:
             connection.execute(
@@ -933,6 +1272,7 @@ class InvestigationRepository:
                         """,
                         (url, title, description, completed_at, result_id),
                     )
+                indexed_result_ids.append(result_id)
 
                 sources = [
                     source.strip()
@@ -969,6 +1309,10 @@ class InvestigationRepository:
                     "UPDATE investigations SET updated_at = ? WHERE id = ?",
                     (completed_at, investigation_id),
                 )
+            self._refresh_local_search_documents(
+                connection,
+                indexed_result_ids,
+            )
         return search_id
 
     def import_legacy_history(self, entries: Iterable[Mapping]) -> int:
@@ -1064,6 +1408,7 @@ class InvestigationRepository:
                 )
                 """
             )
+            self._refresh_local_search_documents(connection)
         return search_count
 
     def record_evidence_capture(
@@ -1162,6 +1507,7 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (captured_at, investigation_id),
             )
+            self._refresh_local_search_documents(connection, (result_id,))
 
         return next(
             capture
@@ -1261,6 +1607,14 @@ class InvestigationRepository:
                 "Archived investigations are read-only."
             )
         with self._connection() as connection:
+            capture = connection.execute(
+                """
+                SELECT result_id
+                FROM evidence_captures
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (capture_id, investigation_id),
+            ).fetchone()
             cursor = connection.execute(
                 """
                 DELETE FROM evidence_captures
@@ -1276,6 +1630,10 @@ class InvestigationRepository:
                 "UPDATE investigations SET updated_at = ? WHERE id = ?",
                 (utc_now(), investigation_id),
             )
+            self._refresh_local_search_documents(
+                connection,
+                (capture["result_id"],),
+            )
 
     def table_count(self, table_name: str) -> int:
         allowed = {
@@ -1286,6 +1644,8 @@ class InvestigationRepository:
             "investigation_results",
             "evidence_captures",
             "evidence_artifacts",
+            "local_search_documents",
+            "local_search_fts",
         }
         if table_name not in allowed:
             raise ValueError("Unsupported table name")

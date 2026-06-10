@@ -151,6 +151,13 @@ The detail separates exact title, description, URL, filter, and multi-engine
 contributions. Multi-engine consensus means that several engines returned the
 same URL; it is not presented as factual verification.
 
+The **Search local archive** panel on the home page uses SQLite FTS5 and never
+contacts an external engine. It searches stored titles, descriptions, URLs,
+analyst notes, and tags, with optional investigation, engine, status, domain,
+and observation-date filters. Results include first/last observation dates and
+links back to saved investigation pages and their evidence. The index updates
+with database changes and can be rebuilt explicitly from the same panel.
+
 The floating button is not injected into Synthesix pages or non-HTTP(S) browser
 pages. It does not read cookies, authentication data, form values, or page body
 content. Without an active investigation, clicking it returns to the Synthesix
@@ -293,7 +300,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 
 | Path | Role |
 | --- | --- |
-| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, explainable score components, and analyst metadata. |
+| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, explainable score components, analyst metadata, and the rebuildable FTS5 archive index. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
 | `data/evidence/` | Explicit PNG, sanitized HTML/MHTML evidence artifacts, and versioned provenance manifests, grouped by investigation and capture ID. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
@@ -409,7 +416,7 @@ venv\Scripts\python.exe -m unittest discover
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
+venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
 ```
 
 Check whitespace before committing:
@@ -454,7 +461,7 @@ Use this checklist before bumping Zendriver:
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
+   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
    venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
@@ -484,7 +491,7 @@ Use this checklist before bumping Zendriver:
 | `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
-| `investigations/` | Versioned SQLite schema, repositories, domain models, services, and local workspace generation. |
+| `investigations/` | Versioned SQLite/FTS5 schema, repositories, domain models, services, local archive reports, and workspace generation. |
 | `evidence/` | Async CDP PNG/HTML/MHTML capture, sensitive-data cleaning, SHA-256 hashing, and versioned provenance manifests. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |

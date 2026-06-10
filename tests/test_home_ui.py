@@ -90,6 +90,24 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn("setInvestigations", self.content)
         self.assertIn("setSelectedInvestigation", self.content)
 
+    def test_local_archive_search_is_offline_and_filterable(self):
+        self.assertEqual(
+            len(self.tree.xpath("//input[@id='local-search-query']")),
+            1,
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//select[@id='local-search-investigation']")),
+            1,
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//button[@id='rebuild-local-index']")),
+            1,
+        )
+        self.assertIn('queueAction("local_archive_search"', self.content)
+        self.assertIn('queueAction("rebuild_local_search_index"', self.content)
+        self.assertIn("never", self.content)
+        self.assertIn("external search engine", self.content)
+
     def test_svg_brand_assets_are_valid_xml(self):
         assets_dir = Path(__file__).resolve().parents[1] / "assets"
         filenames = (

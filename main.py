@@ -23,6 +23,7 @@ from evidence.hashing import sha256_file
 from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
+from investigations.search_view import generate_local_search_page
 from investigations.view import generate_investigation_page
 from query_operators import SearchFilters, build_display_query
 from search_orchestrator import SearchOrchestrator
@@ -1490,6 +1491,74 @@ async def main():
                     )
                 except InvestigationError:
                     active_investigation = None
+                continue
+            if result["action"] == "local_archive_search":
+                filters = dict(result.get("filters", {}) or {})
+                try:
+                    local_results = investigation_service.search_local_archive(
+                        filters
+                    )
+                    investigation_id = str(
+                        filters.get("investigation_id", "") or ""
+                    )
+                    if investigation_id == "__unassigned__":
+                        filters["investigation_title"] = "Unassigned searches"
+                    elif investigation_id:
+                        filters["investigation_title"] = (
+                            investigation_service.get(investigation_id).title
+                        )
+                    output_path = settings.history_dir / "local_search.html"
+                    generate_local_search_page(
+                        local_results,
+                        filters,
+                        output_path,
+                        base_dir=settings.base_dir,
+                        investigation_pages_dir=settings.investigation_pages_dir,
+                    )
+                    report_tab = await browser.get(
+                        output_path.resolve().as_uri(),
+                        new_tab=True,
+                    )
+                    await report_tab.bring_to_front()
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        f"Local archive search: {len(local_results)} result(s).",
+                    )
+                except InvestigationError as exc:
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        str(exc),
+                        is_error=True,
+                    )
+                except Exception:
+                    logger.exception("Local archive search failed.")
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "Local archive search failed. Check the logs for details.",
+                        is_error=True,
+                    )
+                continue
+            if result["action"] == "rebuild_local_search_index":
+                try:
+                    indexed_count = (
+                        investigation_service.rebuild_local_search_index()
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        f"Local archive index rebuilt: {indexed_count} document(s).",
+                    )
+                except Exception:
+                    logger.exception("Local archive index rebuild failed.")
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "Local archive index rebuild failed. Check the logs.",
+                        is_error=True,
+                    )
                 continue
             if result["action"] == "create_investigation":
                 try:
