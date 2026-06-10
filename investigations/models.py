@@ -50,6 +50,7 @@ class InvestigationResult:
     last_observed_at: str
     latest_observed_at: str
     relevance_score: float
+    score_breakdown: tuple[dict[str, Any], ...]
     observation_count: int
     analyst_status: str
     favorite: bool
@@ -76,6 +77,7 @@ class InvestigationResult:
             "last_observed_at": self.last_observed_at,
             "latest_observed_at": self.latest_observed_at,
             "relevance_score": self.relevance_score,
+            "score_breakdown": [dict(component) for component in self.score_breakdown],
             "observation_count": self.observation_count,
             "analyst_status": self.analyst_status,
             "favorite": self.favorite,

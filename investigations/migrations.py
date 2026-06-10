@@ -167,4 +167,11 @@ MIGRATIONS = (
             ADD COLUMN name TEXT NOT NULL DEFAULT '';
         """,
     ),
+    (
+        5,
+        """
+        ALTER TABLE search_result_observations
+            ADD COLUMN score_breakdown_json TEXT NOT NULL DEFAULT '[]';
+        """,
+    ),
 )

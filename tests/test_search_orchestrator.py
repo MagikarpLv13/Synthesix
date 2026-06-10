@@ -471,6 +471,11 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
 
         duplicate_row = combined[combined["link"] == "https://example.com/python-async"].iloc[0]
         self.assertEqual(duplicate_row["source"], "Bing, Google")
+        self.assertEqual(duplicate_row["engine_count"], 2)
+        self.assertIn(
+            "engine_consensus",
+            [component["key"] for component in duplicate_row["score_breakdown"]],
+        )
         self.assertEqual(len(combined), 2)
         self.assertIn("relevance_score", combined.columns)
 
@@ -527,6 +532,10 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
 
         self.assertEqual(len(combined), 1)
         self.assertEqual(combined.iloc[0]["relevance_score"], 1.0)
+        self.assertEqual(
+            combined.iloc[0]["score_breakdown"][0]["key"],
+            "filter_match",
+        )
 
 
 if __name__ == "__main__":

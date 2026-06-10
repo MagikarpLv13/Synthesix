@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 4)
+        self.assertEqual(self.repository.schema_version(), 5)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 4)
+            self.assertEqual(repository.schema_version(), 5)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -275,6 +275,18 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
                     "description": "Registry entry.",
                     "source": "Google, Bing",
                     "relevance_score": 8.5,
+                    "score_breakdown": [
+                        {
+                            "key": "exact_title",
+                            "label": "Exact query term in title",
+                            "score": 4.5,
+                        },
+                        {
+                            "key": "engine_consensus",
+                            "label": "Returned by 2 search engines",
+                            "score": 1.0,
+                        },
+                    ],
                 }
             ],
         )
@@ -308,6 +320,10 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(updated.discovery_query, "example company")
         self.assertEqual(updated.discovery_method, "search_result")
         self.assertEqual(updated.relevance_score, 8.5)
+        self.assertEqual(
+            [component["key"] for component in updated.score_breakdown],
+            ["exact_title", "engine_consensus"],
+        )
         self.assertEqual(updated.observation_count, 1)
 
         workspace = self.service.workspace_payload(investigation.id)

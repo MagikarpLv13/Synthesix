@@ -59,6 +59,32 @@ def _status_options(selected: str) -> str:
     return "".join(options)
 
 
+def _score_markup(result: Mapping) -> str:
+    score = float(result.get("relevance_score", 0) or 0)
+    components = result.get("score_breakdown", [])
+    if not isinstance(components, (list, tuple)):
+        components = []
+
+    items = []
+    for component in components:
+        if not isinstance(component, Mapping):
+            continue
+        component_score = float(component.get("score", 0) or 0)
+        label = component.get("label", "Score component")
+        items.append(f"<li>+{component_score:.1f} {_html(label)}</li>")
+
+    if not items:
+        return f"<span>Score {score:.1f}</span>"
+    return (
+        '<details class="score-breakdown">'
+        f"<summary>Score {score:.1f}</summary>"
+        f"<ul>{''.join(items)}</ul>"
+        "<p>Multi-engine consensus confirms repeated retrieval, "
+        "not factual accuracy.</p>"
+        "</details>"
+    )
+
+
 def _evidence_markup(
     captures: list[Mapping],
     *,
@@ -326,7 +352,7 @@ def _result_cards(
                 <p class="result-description">{_html(description)}</p>
                 <div class="result-metadata">
                     <span>{source_markup}</span>
-                    <span>Score {float(result.get("relevance_score", 0) or 0):.1f}</span>
+                    {_score_markup(result)}
                     <span>{int(result.get("observation_count", 0) or 0)} observation(s)</span>
                     <span>First seen {_local_datetime(result.get("first_observed_at"))}</span>
                     <span>Last seen {_local_datetime(latest_observed)}</span>

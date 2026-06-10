@@ -325,6 +325,22 @@ class InvestigationRepository:
                     ir.discovery_observed_at,
                     ir.discovery_referrer,
                     COALESCE(MAX(o.relevance_score), 0) AS relevance_score,
+                    COALESCE(
+                        (
+                            SELECT o2.score_breakdown_json
+                            FROM search_result_observations o2
+                            JOIN search_runs sr2 ON sr2.id = o2.search_run_id
+                            WHERE
+                                o2.result_id = r.id
+                                AND (
+                                    sr2.investigation_id = ?
+                                    OR sr2.investigation_id IS NULL
+                                )
+                            ORDER BY o2.relevance_score DESC, o2.observed_at DESC
+                            LIMIT 1
+                        ),
+                        '[]'
+                    ) AS score_breakdown_json,
                     MAX(
                         r.last_observed_at,
                         COALESCE(MAX(o.observed_at), r.last_observed_at)
@@ -354,7 +370,7 @@ class InvestigationRepository:
                     END,
                     latest_observed_at DESC
                 """,
-                (investigation_id, investigation_id),
+                (investigation_id, investigation_id, investigation_id),
             ).fetchall()
 
         results = []
@@ -369,6 +385,9 @@ class InvestigationRepository:
                 row["discovery_sources_json"],
                 [],
             )
+            score_breakdown = _json_load(row["score_breakdown_json"], [])
+            if not isinstance(score_breakdown, list):
+                score_breakdown = []
             results.append(
                 InvestigationResult(
                     id=row["id"],
@@ -381,6 +400,11 @@ class InvestigationRepository:
                     last_observed_at=row["last_observed_at"],
                     latest_observed_at=row["latest_observed_at"],
                     relevance_score=float(row["relevance_score"] or 0),
+                    score_breakdown=tuple(
+                        dict(component)
+                        for component in score_breakdown
+                        if isinstance(component, dict)
+                    ),
                     observation_count=int(row["observation_count"] or 0),
                     analyst_status=row["analyst_status"],
                     favorite=bool(row["favorite"]),
@@ -919,9 +943,10 @@ class InvestigationRepository:
                     """
                     INSERT INTO search_result_observations(
                         search_run_id, result_id, source_json, title,
-                        description, relevance_score, observed_at
+                        description, relevance_score, score_breakdown_json,
+                        observed_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         search_id,
@@ -930,6 +955,11 @@ class InvestigationRepository:
                         title,
                         description,
                         float(result.get("relevance_score", 0) or 0),
+                        _json_dump(
+                            result.get("score_breakdown", [])
+                            if isinstance(result.get("score_breakdown", []), list)
+                            else []
+                        ),
                         completed_at,
                     ),
                 )

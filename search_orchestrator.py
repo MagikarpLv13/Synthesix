@@ -8,7 +8,13 @@ import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
 from query_operators import SearchFilters, build_engine_query, result_matches_filters
-from scoring import build_relevance_scorer, calculate_relevance
+from scoring import (
+    ScoreBreakdown,
+    ScoreComponent,
+    add_context_to_breakdown,
+    build_relevance_explainer,
+    calculate_relevance,
+)
 from settings import AppSettings, get_settings
 from utils import add_to_history, generate_history_html, generate_html_report
 
@@ -79,37 +85,76 @@ def aggregate_search_results(
         if missing_columns:
             logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
             continue
-        frames.append(df)
+        engine_frame = df.copy()
+        engine_frame["_engine"] = str(engine)
+        frames.append(engine_frame)
 
     if not frames:
-        return pd.DataFrame(columns=[*REQUIRED_RESULT_COLUMNS, "relevance_score"])
+        return pd.DataFrame(columns=[
+            *REQUIRED_RESULT_COLUMNS,
+            "relevance_score",
+            "score_breakdown",
+            "engine_count",
+        ])
 
     combined_df = pd.concat(frames, ignore_index=True)
-    combined_df = combined_df.drop_duplicates(subset=list(REQUIRED_RESULT_COLUMNS))
+    combined_df = combined_df.drop_duplicates(
+        subset=[*REQUIRED_RESULT_COLUMNS, "_engine"]
+    )
     filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
     if filters.has_filters():
         combined_df = combined_df[
             combined_df.apply(lambda row: result_matches_filters(row, filters), axis=1)
         ]
         if combined_df.empty:
-            return pd.DataFrame(columns=[*REQUIRED_RESULT_COLUMNS, "relevance_score"])
+            return pd.DataFrame(columns=[
+                *REQUIRED_RESULT_COLUMNS,
+                "relevance_score",
+                "score_breakdown",
+                "engine_count",
+            ])
 
-    row_scorer = build_relevance_scorer(parsed_query) if scorer is calculate_relevance else (
-        lambda row: scorer(row, parsed_query)
-    )
-    combined_df["relevance_score"] = combined_df.apply(row_scorer, axis=1)
-    if filters.has_filters() and not (base_query or "").strip():
-        combined_df["relevance_score"] = combined_df["relevance_score"].where(
-            combined_df["relevance_score"] > 0,
-            1.0,
+    if scorer is calculate_relevance:
+        row_explainer = build_relevance_explainer(parsed_query)
+        combined_df["_base_breakdown"] = combined_df.apply(row_explainer, axis=1)
+    else:
+        combined_df["_base_breakdown"] = combined_df.apply(
+            lambda row: ScoreBreakdown((
+                ScoreComponent(
+                    "custom_score",
+                    "Custom relevance score",
+                    float(scorer(row, parsed_query)),
+                ),
+            )),
+            axis=1,
         )
-    combined_df = combined_df.sort_values("relevance_score", ascending=False)
+    combined_df["_base_score"] = combined_df["_base_breakdown"].map(
+        lambda breakdown: breakdown.total
+    )
 
-    best_idx = combined_df.groupby("link")["relevance_score"].idxmax()
-    best_rows = combined_df.loc[best_idx, ["link", "title", "description", "relevance_score"]]
+    best_idx = combined_df.groupby("link")["_base_score"].idxmax()
+    best_rows = combined_df.loc[
+        best_idx,
+        ["link", "title", "description", "_base_breakdown"],
+    ].copy()
     sources = combined_df.groupby("link")["source"].apply(
         lambda values: ", ".join(sorted(values.astype(str).unique()))
     )
+    engine_counts = combined_df.groupby("link")["_engine"].nunique()
+    filters_matched = filters.has_filters()
+    best_rows["engine_count"] = best_rows["link"].map(engine_counts).astype(int)
+    best_rows["score_breakdown"] = best_rows.apply(
+        lambda row: add_context_to_breakdown(
+            row["_base_breakdown"],
+            engine_count=int(row["engine_count"]),
+            filters_matched=filters_matched,
+        ).to_payload(),
+        axis=1,
+    )
+    best_rows["relevance_score"] = best_rows["score_breakdown"].map(
+        lambda components: sum(float(component["score"]) for component in components)
+    )
+    best_rows = best_rows.drop(columns=["_base_breakdown"])
 
     return (
         best_rows

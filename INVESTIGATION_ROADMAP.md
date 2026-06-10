@@ -38,12 +38,18 @@ Phase P0 - preuves et provenance :
 - conservation du PNG avec statut partiel si HTML ou MHTML est indisponible :
   realisee.
 
-Prochaine phase P0 :
+Phase P1 - scoring explicable et consensus multi-moteur :
 
-- decomposition explicable du score ;
-- consensus multi-moteur ;
+- decomposition explicable du score : realisee ;
+- poids centralises et testes : realise ;
+- consensus multi-moteur plafonne : realise ;
+- moteurs sources affiches sans inference de veracite : realise ;
+- premiere et derniere observation : realisee.
+
+Prochaine phase P1 :
+
 - index local SQLite FTS5 ;
-- premiere et derniere observation.
+- comparaison temporelle et surveillance manuelle.
 
 ## 1. Objectif
 

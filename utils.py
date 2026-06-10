@@ -504,6 +504,26 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         link = _html_escape(row["link"])
         source = _html_escape(row["source"])
         score = f"{row['relevance_score']:.2f}"
+        score_breakdown = row.get("score_breakdown", [])
+        breakdown_items = []
+        if isinstance(score_breakdown, list):
+            for component in score_breakdown:
+                if not isinstance(component, dict):
+                    continue
+                component_score = float(component.get("score", 0) or 0)
+                component_label = _html_escape(component.get("label", "Score component"))
+                breakdown_items.append(
+                    f"<li>+{component_score:.1f} {component_label}</li>"
+                )
+        if breakdown_items:
+            score_markup = (
+                f'<details class="score-breakdown"><summary>{score}</summary>'
+                f"<ul>{''.join(breakdown_items)}</ul>"
+                "<small>Multi-engine consensus confirms repeated retrieval, "
+                "not factual accuracy.</small></details>"
+            )
+        else:
+            score_markup = score
         link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
         rows.append(f"""
         <tr>
@@ -511,7 +531,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             <td class="description">{desc}</td>
             <td class="link">{link_html}</td>
             <td>{source}</td>
-            <td>{score}</td>
+            <td>{score_markup}</td>
         </tr>
         """)
     rows_html = "".join(rows)

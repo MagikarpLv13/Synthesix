@@ -146,6 +146,11 @@ For each explicitly saved page, Synthesix records:
   result observed in the active investigation;
 - analyst notes, tags, status, and favorite state.
 
+Search result scores are expandable in result reports and investigation pages.
+The detail separates exact title, description, URL, filter, and multi-engine
+contributions. Multi-engine consensus means that several engines returned the
+same URL; it is not presented as factual verification.
+
 The floating button is not injected into Synthesix pages or non-HTTP(S) browser
 pages. It does not read cookies, authentication data, form values, or page body
 content. Without an active investigation, clicking it returns to the Synthesix
@@ -288,7 +293,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 
 | Path | Role |
 | --- | --- |
-| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, and analyst metadata. |
+| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, explainable score components, and analyst metadata. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
 | `data/evidence/` | Explicit PNG, sanitized HTML/MHTML evidence artifacts, and versioned provenance manifests, grouped by investigation and capture ID. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
@@ -487,7 +492,7 @@ Use this checklist before bumping Zendriver:
 | `settings.py` | Runtime configuration and environment variable parsing. |
 | `exceptions.py` | Application-level exception types. |
 | `utils.py` | HTML report/history generation and query helpers. |
-| `scoring.py` | Result scoring logic. |
+| `scoring.py` | Centralized scoring weights, explainable components, and consensus bonus logic. |
 | `tests/` | Unit tests for settings, scoring, engines, orchestration, errors, and reports. |
 
 ## Maintenance Rules

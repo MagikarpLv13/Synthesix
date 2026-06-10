@@ -855,6 +855,27 @@ a:focus-visible {
     font-size: 12px;
 }
 
+.score-breakdown summary {
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 700;
+}
+
+.score-breakdown ul {
+    margin: 8px 0 4px;
+    padding-left: 18px;
+    color: var(--muted);
+}
+
+.score-breakdown p,
+.score-breakdown small {
+    display: block;
+    max-width: 280px;
+    margin: 6px 0 0;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
 .result-provenance {
     display: flex;
     flex-wrap: wrap;

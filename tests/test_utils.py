@@ -71,6 +71,13 @@ class UtilsTestCase(unittest.TestCase):
                             "link": 'https://example.com/?q=<x>&a="b"',
                             "source": "Google",
                             "relevance_score": 5.0,
+                            "score_breakdown": [
+                                {
+                                    "key": "exact_title",
+                                    "label": "<Exact title>",
+                                    "score": 4.5,
+                                }
+                            ],
                         }
                     ]
                 )
@@ -91,6 +98,8 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn('class="data-table display"', content)
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
+                self.assertIn("&lt;Exact title&gt;", content)
+                self.assertIn("not factual accuracy", content)
                 self.assertNotIn("<script>alert(1)</script>", content)
             finally:
                 os.chdir(current_dir)

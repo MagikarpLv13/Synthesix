@@ -1,6 +1,15 @@
 import unittest
 
-from scoring import build_relevance_scorer, calculate_relevance, extract_scoring_terms
+from scoring import (
+    DEFAULT_SCORING_WEIGHTS,
+    ScoreBreakdown,
+    ScoreComponent,
+    add_context_to_breakdown,
+    build_relevance_explainer,
+    build_relevance_scorer,
+    calculate_relevance,
+    extract_scoring_terms,
+)
 
 
 class ScoringTestCase(unittest.TestCase):
@@ -44,6 +53,49 @@ class ScoringTestCase(unittest.TestCase):
         scorer = build_relevance_scorer('"starvos and lych"')
 
         self.assertEqual(scorer(row), calculate_relevance(row, '"starvos and lych"'))
+
+    def test_breakdown_explains_each_scoring_component(self):
+        row = {
+            "title": "Starvos and Lych archive",
+            "description": "Starvos and Lych reference",
+            "link": "https://example.com/starvos-and-lych",
+        }
+
+        breakdown = build_relevance_explainer('"starvos and lych"')(row)
+
+        self.assertEqual(
+            [component.key for component in breakdown.components],
+            ["exact_title", "exact_description", "url_match"],
+        )
+        self.assertEqual(breakdown.total, calculate_relevance(row, '"starvos and lych"'))
+        self.assertEqual(
+            breakdown.components[0].score,
+            DEFAULT_SCORING_WEIGHTS.exact_title,
+        )
+
+    def test_consensus_bonus_is_capped_and_does_not_create_relevance(self):
+        empty_breakdown = ScoreBreakdown(())
+        relevant_breakdown = ScoreBreakdown((
+            ScoreComponent("exact_title", "Exact query term in title", 4.5),
+        ))
+
+        empty_with_consensus = add_context_to_breakdown(
+            empty_breakdown,
+            engine_count=4,
+            filters_matched=False,
+        )
+        relevant_with_consensus = add_context_to_breakdown(
+            relevant_breakdown,
+            engine_count=4,
+            filters_matched=False,
+        )
+
+        self.assertEqual(empty_with_consensus.total, 0)
+        self.assertEqual(relevant_with_consensus.total, 6.5)
+        self.assertEqual(
+            relevant_with_consensus.components[-1].key,
+            "engine_consensus",
+        )
 
 
 if __name__ == "__main__":

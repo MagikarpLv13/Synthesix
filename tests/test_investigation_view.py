@@ -30,6 +30,18 @@ def workspace_payload(*, status="active"):
                 "last_observed_at": "2026-06-09T11:00:00+00:00",
                 "latest_observed_at": "2026-06-09T11:00:00+00:00",
                 "relevance_score": 8.5,
+                "score_breakdown": [
+                    {
+                        "key": "exact_title",
+                        "label": "Exact query term in title",
+                        "score": 4.5,
+                    },
+                    {
+                        "key": "engine_consensus",
+                        "label": "Returned by 2 search engines",
+                        "score": 1.0,
+                    },
+                ],
                 "observation_count": 2,
                 "analyst_status": "pertinent",
                 "favorite": True,
@@ -162,6 +174,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn("Found through search", content)
         self.assertIn("example company", content)
+        self.assertIn("Exact query term in title", content)
+        self.assertIn("Returned by 2 search engines", content)
+        self.assertIn("not factual accuracy", content)
         self.assertIn("data-local-datetime", content)
         self.assertIn("Intl.DateTimeFormat", content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
