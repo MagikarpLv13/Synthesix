@@ -46,8 +46,8 @@ Zendriver launches and controls Chrome/Chromium through CDP. If Synthesix is lat
 Create and activate a virtual environment first:
 
 ```powershell
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
@@ -55,8 +55,8 @@ python -m pip install -r requirements.txt
 On Linux/macOS:
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
@@ -68,6 +68,15 @@ zendriver==0.15.3
 ```
 
 Keep Zendriver pinned unless you are intentionally testing a browser/CDP compatibility update.
+
+## Language and appearance
+
+Synthesix supports English, Mandarin Chinese, Spanish, French, Portuguese, and
+German. On first launch, the interface selects the first supported language
+from `navigator.languages`, with English as the fallback. Open **Settings** from
+the top bar to choose a language and the system, light, or dark theme.
+Preferences are stored in the Synthesix browser profile and synchronized live
+across open Synthesix tabs and reports.
 
 ## Usage
 
@@ -134,9 +143,35 @@ For a tracked investigation:
 8. Filter saved pages by text, status, source, tag, observation date, or favorite.
 9. Attach an earlier unassigned search when its query and observations belong to
    the investigation.
+10. Use **Extract entities** on a saved page to propose deterministic email,
+    phone, URL, domain, IP address, handle, UUID, and explicit coordinate
+    candidates from its URL, title, description, and analyst notes.
+11. Review every candidate as **Proposed**, **Validated**, or **Rejected**, or
+    delete it explicitly from the saved page.
 
 The analyst statuses are `To verify`, `Relevant`, `Discarded`, and `Confirmed`.
 They describe the analyst's review state, not the factual reliability of a source.
+Entity confidence describes only the deterministic pattern match. It does not
+confirm identity, ownership, or factual accuracy. Rejected candidates remain
+recorded and are not silently proposed again by a later extraction.
+
+The investigation page can export an immutable ZeroNeurone bundle containing:
+
+- `zeroneurone.zip`, the native dossier archive with positioned elements,
+  directed links, typed properties, visual styles, and optional assets;
+- `dossier.json`, the readable native dossier payload included in the ZIP;
+- `investigation.graphml`, using documented ZeroNeurone node/link attributes;
+- `zeroneurone.csv`, using the unified import columns;
+- `nodes.csv` and `edges.csv` for manual inspection;
+- `manifest.json`, with schema version, options, counts, and SHA-256 hashes.
+
+The default export includes saved pages, their search provenance, and validated
+entities. Synthesix tags are preserved on the corresponding elements. URLs and
+domains expose typed `URL`, `Domaine`, and `Date d'accès` properties. Proposed
+or rejected candidates and evidence assets require explicit checkboxes. Generated
+bundles can be deleted from the investigation page, which also removes their
+local files. See `docs/ZERONEURONE_IMPORT_SMOKE_TEST.md` for the application-level
+import check.
 
 For each explicitly saved page, Synthesix records:
 
@@ -229,6 +264,22 @@ is searched as:
 Advanced queries with explicit operators and quoted phrases are preserved by the parser.
 Uncheck **Automatic dorks** to send the main query text unchanged. OSINT filters
 remain active independently of this option.
+
+The optional **Query variants** panel can propose accent-free, reversed-order,
+separator, initial, and case variants for simple queries. Suggestions are never
+executed automatically: select each additional query explicitly, or add a manual
+variant, before starting the search. The main query always runs.
+
+Selected variants and enabled engines are executed as asynchronous combinations
+under the same global concurrency limit. Duplicate URLs are merged. Result
+reports show the exact queries that found each URL and, when several variants
+and engines were used, include a compact coverage table distinguishing result
+counts, timeouts, robot challenges, and other errors. Results are ordered by
+numeric relevance score from highest to lowest by default.
+
+Failed coverage cells include a **Retry** action. A retry runs only the selected
+engine/query combination and creates a separate report, preserving the original
+report as an immutable search snapshot.
 
 ## OSINT Filters
 
@@ -366,6 +417,8 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_ENGINE_RETRY_ATTEMPTS` | Retry attempts for transient engine failures. |
 | `SYNTHESIX_ENGINE_RETRY_DELAY` | Initial retry delay. |
 | `SYNTHESIX_ENGINE_RETRY_BACKOFF` | Retry delay multiplier. |
+| `SYNTHESIX_MAX_QUERY_VARIANTS` | Maximum total query variants per search, including the main query. Defaults to `6`. |
+| `SYNTHESIX_EXPORTS_DIR` | Local directory for versioned investigation export bundles. Defaults to `data/exports`. |
 
 Example:
 
@@ -419,13 +472,13 @@ exec flatpak run com.brave.Browser "$@"
 Run the non-browser regression tests:
 
 ```powershell
-venv\Scripts\python.exe -m unittest discover
+.venv\Scripts\python.exe -m unittest discover
 ```
 
 Compile the main modules:
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
+.venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
 ```
 
 Check whitespace before committing:
@@ -437,15 +490,15 @@ git diff --check
 Profile Python startup/import overhead:
 
 ```powershell
-Measure-Command { venv\Scripts\python.exe -c "import main" }
-venv\Scripts\python.exe -X importtime -c "import main"
+Measure-Command { .venv\Scripts\python.exe -c "import main" }
+.venv\Scripts\python.exe -X importtime -c "import main"
 ```
 
 Profile the non-browser test suite:
 
 ```powershell
-Measure-Command { venv\Scripts\python.exe -m unittest discover }
-venv\Scripts\python.exe -m cProfile -s cumtime -m unittest discover
+Measure-Command { .venv\Scripts\python.exe -m unittest discover }
+.venv\Scripts\python.exe -m cProfile -s cumtime -m unittest discover
 ```
 
 Optional live smoke test:
@@ -464,14 +517,14 @@ Use this checklist before bumping Zendriver:
 2. Reinstall dependencies in the virtual environment:
 
    ```powershell
-   venv\Scripts\python.exe -m pip install --upgrade -r requirements.txt
+   .venv\Scripts\python.exe -m pip install --upgrade -r requirements.txt
    ```
 
 3. Run the local checks:
 
    ```powershell
-   venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
-   venv\Scripts\python.exe -m unittest discover
+   .venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
+   .venv\Scripts\python.exe -m unittest discover
    git diff --check
    ```
 

@@ -9,6 +9,7 @@
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="theme.css">
     <script src="theme.js"></script>
+    <script src="i18n.js"></script>
 </head>
 <body>
     <main class="app">
@@ -32,7 +33,6 @@
                     <span id="vpn-status-label">Checking VPN</span>
                 </button>
                 <a href="history/history.html" target="_blank" rel="noopener noreferrer" class="nav-link">History</a>
-                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
 
@@ -215,6 +215,42 @@
                     <input type="number" id="num-results" min="1" max="100" value="20">
                 </label>
             </div>
+            <details id="query-variants-panel" class="osint-panel">
+                <summary>Query variants (optional)</summary>
+                <div class="query-variants-body">
+                    <p class="panel-help">
+                        The main query always runs. Suggested variants run only after
+                        you explicitly select them.
+                    </p>
+                    <div class="query-variant-actions">
+                        <button id="suggest-query-variants" class="secondary-button" type="button">
+                            Suggest variants
+                        </button>
+                        <label class="query-variant-manual" for="manual-query-variant">
+                            <span>Manual variant</span>
+                            <input
+                                id="manual-query-variant"
+                                type="text"
+                                maxlength="500"
+                                placeholder="Exact alternative query"
+                            >
+                        </label>
+                        <button id="add-query-variant" class="secondary-button" type="button">
+                            Add
+                        </button>
+                        <button id="clear-query-variants" class="secondary-button" type="button">
+                            Clear variants
+                        </button>
+                    </div>
+                    <div
+                        id="query-variant-list"
+                        class="query-variant-list"
+                        aria-live="polite"
+                    >
+                        <p class="panel-help">No additional variant selected.</p>
+                    </div>
+                </div>
+            </details>
             <details class="osint-panel local-search-panel">
                 <summary>Search local archive</summary>
                 <div class="operator-grid" aria-label="Local archive filters">
@@ -378,11 +414,21 @@
                 "local-search-investigation"
             );
             const automaticDorksInput = document.getElementById("automatic-dorks");
+            const suggestQueryVariantsButton = document.getElementById(
+                "suggest-query-variants"
+            );
+            const addQueryVariantButton = document.getElementById("add-query-variant");
+            const clearQueryVariantsButton = document.getElementById(
+                "clear-query-variants"
+            );
+            const manualQueryVariant = document.getElementById("manual-query-variant");
+            const queryVariantList = document.getElementById("query-variant-list");
             const vpnStatusButton = document.getElementById("vpn-status");
             const vpnStatusLabel = document.getElementById("vpn-status-label");
             const vpnCheckUrl = "https://api.ipapi.is";
             const activeInvestigationStorageKey = "synthesix-active-investigation";
             const engineIds = ["google", "bing", "brave", "duckduckgo"];
+            const maxAdditionalQueryVariants = 5;
             const filterInputIds = {
                 site: "filter-site",
                 exclude: "filter-exclude",
@@ -613,6 +659,7 @@
             const selectHistoryItem = (item) => {
                 searchField.value = item.query || "";
                 setFilters(item.filters || {});
+                clearQueryVariants();
                 if (item.investigation_id) {
                     setSelectedInvestigation(item.investigation_id);
                 }
@@ -685,6 +732,83 @@
                 });
             };
 
+            const queryVariantItems = () => Array.from(
+                queryVariantList.querySelectorAll(".query-variant-option")
+            );
+
+            const renderEmptyQueryVariants = () => {
+                if (!queryVariantItems().length) {
+                    queryVariantList.innerHTML =
+                        '<p class="panel-help">No additional variant selected.</p>';
+                }
+            };
+
+            const clearQueryVariants = () => {
+                queryVariantList.innerHTML = "";
+                manualQueryVariant.value = "";
+                renderEmptyQueryVariants();
+            };
+
+            const addQueryVariant = (query, label, selected = false) => {
+                const value = String(query || "").trim();
+                if (!value || value === searchField.value.trim()) {
+                    return false;
+                }
+                if (
+                    queryVariantItems().some((item) => item.dataset.query === value)
+                ) {
+                    return false;
+                }
+                if (queryVariantItems().length >= maxAdditionalQueryVariants) {
+                    setStatus(
+                        `At most ${maxAdditionalQueryVariants} additional variants can run.`,
+                        true
+                    );
+                    return false;
+                }
+
+                if (!queryVariantItems().length) {
+                    queryVariantList.innerHTML = "";
+                }
+                const option = document.createElement("label");
+                option.className = "query-variant-option";
+                option.dataset.query = value;
+
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.checked = Boolean(selected);
+
+                const copy = document.createElement("span");
+                const code = document.createElement("code");
+                code.textContent = value;
+                const reason = document.createElement("small");
+                reason.textContent = String(label || "Manual variant");
+                copy.append(code, reason);
+                option.append(checkbox, copy);
+                queryVariantList.appendChild(option);
+                return true;
+            };
+
+            const setQueryVariants = (query, suggestions) => {
+                if (searchField.value.trim() !== String(query || "").trim()) {
+                    return;
+                }
+                clearQueryVariants();
+                (Array.isArray(suggestions) ? suggestions : []).forEach((item) => {
+                    addQueryVariant(item.query, item.label, false);
+                });
+                renderEmptyQueryVariants();
+                setStatus(
+                    queryVariantItems().length
+                        ? "Select the query variants to execute."
+                        : "No safe automatic variant was suggested."
+                );
+            };
+
+            const selectedQueryVariants = () => queryVariantItems()
+                .filter((item) => item.querySelector("input").checked)
+                .map((item) => item.dataset.query);
+
             const getSearchPayload = () => {
                 const value = searchField.value.trim();
                 const filters = getFilters();
@@ -721,6 +845,7 @@
                     engines,
                     numResults,
                     automaticDorks: automaticDorksInput.checked,
+                    queryVariants: selectedQueryVariants(),
                     investigationId: investigationSelect.value || ""
                 };
             };
@@ -779,10 +904,16 @@
             };
 
             const setVpnStatus = (status, label, detail) => {
+                const translate = window.synthesixI18n?.t || ((value) => value);
+                const translatedLabel = translate(label);
+                const translatedDetail = translate(detail);
                 vpnStatusButton.className = `vpn-status vpn-status--${status}`;
-                vpnStatusLabel.textContent = label;
-                vpnStatusButton.title = `${detail} Click to refresh.`;
-                vpnStatusButton.setAttribute("aria-label", `${label}. ${detail}`);
+                vpnStatusLabel.textContent = translatedLabel;
+                vpnStatusButton.title = `${translatedDetail} ${translate("Click to refresh.")}`;
+                vpnStatusButton.setAttribute(
+                    "aria-label",
+                    `${translatedLabel}. ${translatedDetail}`,
+                );
                 vpnStatusButton.disabled = status === "checking";
             };
 
@@ -1001,7 +1132,36 @@
                     queueAction("clear_browser_data");
                 }
             });
-            searchField.addEventListener("input", openHistory);
+            suggestQueryVariantsButton.addEventListener("click", () => {
+                const value = searchField.value.trim();
+                if (!value) {
+                    alert("Enter a main query before requesting variants.");
+                    searchField.focus();
+                    return;
+                }
+                queueAction("suggest_query_variants", { value });
+            });
+            addQueryVariantButton.addEventListener("click", () => {
+                const added = addQueryVariant(
+                    manualQueryVariant.value,
+                    "Manual variant",
+                    true
+                );
+                if (added) {
+                    manualQueryVariant.value = "";
+                }
+            });
+            manualQueryVariant.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    addQueryVariantButton.click();
+                }
+            });
+            clearQueryVariantsButton.addEventListener("click", clearQueryVariants);
+            searchField.addEventListener("input", () => {
+                clearQueryVariants();
+                openHistory();
+            });
             searchField.addEventListener("focus", openHistory);
             searchField.addEventListener("keydown", (event) => {
                 if (event.key === "ArrowDown" && state.visibleItems.length) {
@@ -1039,6 +1199,7 @@
                 setHistory,
                 setInvestigations,
                 setSelectedInvestigation,
+                setQueryVariants,
                 setStatus,
                 checkVpnStatus,
                 consumeAction

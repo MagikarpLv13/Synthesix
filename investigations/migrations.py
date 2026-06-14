@@ -313,4 +313,103 @@ MIGRATIONS = (
             ON evidence_captures(result_id, capture_kind, captured_at DESC);
         """,
     ),
+    (
+        8,
+        """
+        CREATE TABLE extracted_entities (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL,
+            result_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL
+                CHECK (
+                    entity_type IN (
+                        'email',
+                        'phone',
+                        'url',
+                        'domain',
+                        'ipv4',
+                        'ipv6',
+                        'handle',
+                        'identifier',
+                        'coordinates'
+                    )
+                ),
+            value_original TEXT NOT NULL,
+            value_normalized TEXT NOT NULL,
+            source_field TEXT NOT NULL
+                CHECK (
+                    source_field IN (
+                        'url',
+                        'title',
+                        'description',
+                        'notes'
+                    )
+                ),
+            source_text TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'proposed'
+                CHECK (status IN ('proposed', 'validated', 'rejected')),
+            first_observed_at TEXT NOT NULL,
+            last_observed_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            FOREIGN KEY (investigation_id, result_id)
+                REFERENCES investigation_results(investigation_id, result_id)
+                ON DELETE CASCADE,
+            UNIQUE(
+                investigation_id,
+                result_id,
+                entity_type,
+                value_normalized
+            )
+        );
+
+        CREATE INDEX idx_extracted_entities_investigation
+            ON extracted_entities(
+                investigation_id,
+                status,
+                entity_type,
+                last_observed_at DESC
+            );
+        CREATE INDEX idx_extracted_entities_result
+            ON extracted_entities(result_id, entity_type);
+        """,
+    ),
+    (
+        9,
+        """
+        CREATE TABLE investigation_exports (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            export_type TEXT NOT NULL DEFAULT 'zeroneurone'
+                CHECK (export_type IN ('zeroneurone')),
+            graphml_path TEXT NOT NULL,
+            csv_path TEXT NOT NULL,
+            nodes_csv_path TEXT NOT NULL,
+            edges_csv_path TEXT NOT NULL,
+            manifest_path TEXT NOT NULL,
+            include_evidence INTEGER NOT NULL DEFAULT 0
+                CHECK (include_evidence IN (0, 1)),
+            include_unreviewed INTEGER NOT NULL DEFAULT 0
+                CHECK (include_unreviewed IN (0, 1)),
+            node_count INTEGER NOT NULL DEFAULT 0,
+            edge_count INTEGER NOT NULL DEFAULT 0,
+            generated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX idx_investigation_exports_generated
+            ON investigation_exports(investigation_id, generated_at DESC);
+        """,
+    ),
+    (
+        10,
+        """
+        ALTER TABLE investigation_exports
+            ADD COLUMN archive_path TEXT NOT NULL DEFAULT '';
+        ALTER TABLE investigation_exports
+            ADD COLUMN dossier_path TEXT NOT NULL DEFAULT '';
+        ALTER TABLE investigation_exports
+            ADD COLUMN asset_count INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 )

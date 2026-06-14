@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from exceptions import InvestigationHasDataError, InvestigationValidationError
 from investigations.migrations import MIGRATIONS
-from investigations.repository import InvestigationRepository, canonicalize_url
+from investigations.repository import InvestigationRepository, canonicalize_url, utc_now
 from investigations.service import InvestigationService
 
 
@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 7)
+        self.assertEqual(self.repository.schema_version(), 10)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 7)
+            self.assertEqual(repository.schema_version(), 10)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,7 +194,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 7)
+            self.assertEqual(service.repository.schema_version(), 10)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
@@ -235,7 +235,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             repository = InvestigationRepository(database_path)
             repository.initialize()
 
-            self.assertEqual(repository.schema_version(), 7)
+            self.assertEqual(repository.schema_version(), 10)
             self.assertEqual(repository.table_count("page_monitors"), 0)
             repaired = sqlite3.connect(database_path)
             try:
@@ -417,7 +417,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
                 "analyst_status": "confirme",
                 "domain": "example.com",
                 "observed_after": "2026-06-09",
-                "observed_before": "2026-06-10",
+                "observed_before": utc_now()[:10],
             }
         )
 
@@ -607,6 +607,154 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         workspace = self.service.workspace_payload(investigation.id)
         self.assertEqual(workspace["results"][0]["analyst_status"], "confirme")
         self.assertEqual(workspace["searches"][0]["original_query"], "example company")
+
+    def test_extracts_and_reviews_entities_without_resetting_analyst_status(self):
+        investigation = self.service.create({"title": "Entity case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Public profile",
+                "description": "Contact jane@example.org or @jane_public.",
+                "referrer": "https://example.org/directory",
+            },
+        )
+        self.service.update_result(
+            investigation.id,
+            saved.id,
+            {
+                "analyst_status": "pertinent",
+                "notes": "Server 192.0.2.10.",
+            },
+        )
+
+        extracted = self.service.extract_entities(
+            investigation.id,
+            saved.id,
+        )
+        email = next(
+            entity
+            for entity in extracted
+            if entity["entity_type"] == "email"
+        )
+        reviewed = self.service.update_entity_status(
+            investigation.id,
+            email["id"],
+            "rejected",
+        )
+
+        self.assertEqual(reviewed["status"], "rejected")
+        self.assertIsNotNone(reviewed["reviewed_at"])
+        extracted_again = self.service.extract_entities(
+            investigation.id,
+            saved.id,
+        )
+        email_again = next(
+            entity
+            for entity in extracted_again
+            if entity["id"] == email["id"]
+        )
+        self.assertEqual(email_again["status"], "rejected")
+        self.assertEqual(
+            self.repository.table_count("extracted_entities"),
+            len(extracted),
+        )
+        workspace = self.service.workspace_payload(investigation.id)
+        self.assertEqual(
+            next(
+                entity["status"]
+                for entity in workspace["entities"]
+                if entity["id"] == email["id"]
+            ),
+            "rejected",
+        )
+        self.service.remove_saved_page(investigation.id, saved.id)
+        self.assertEqual(
+            self.repository.table_count("extracted_entities"),
+            0,
+        )
+
+    def test_archived_investigation_rejects_entity_extraction(self):
+        investigation = self.service.create({"title": "Archived case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "Contact jane@example.org.",
+                "referrer": "",
+            },
+        )
+        self.service.archive(investigation.id)
+
+        with self.assertRaises(InvestigationValidationError):
+            self.service.extract_entities(investigation.id, saved.id)
+
+    def test_deletes_extracted_entity(self):
+        investigation = self.service.create({"title": "Entity deletion"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "Contact jane@example.org.",
+                "referrer": "",
+            },
+        )
+        entity = next(
+            item
+            for item in self.service.extract_entities(
+                investigation.id,
+                saved.id,
+            )
+            if item["entity_type"] == "email"
+        )
+
+        self.service.delete_entity(investigation.id, entity["id"])
+
+        entity_ids = {
+            item["id"]
+            for item in self.service.workspace_payload(
+                investigation.id
+            )["entities"]
+        }
+        self.assertNotIn(entity["id"], entity_ids)
+
+    def test_records_zeroneurone_export_in_workspace(self):
+        investigation = self.service.create({"title": "Export case"})
+
+        recorded = self.service.record_export(
+            investigation.id,
+            archive_path="data/exports/case/export/zeroneurone.zip",
+            dossier_path="data/exports/case/export/dossier.json",
+            graphml_path="data/exports/case/export/investigation.graphml",
+            csv_path="data/exports/case/export/zeroneurone.csv",
+            nodes_csv_path="data/exports/case/export/nodes.csv",
+            edges_csv_path="data/exports/case/export/edges.csv",
+            manifest_path="data/exports/case/export/manifest.json",
+            include_evidence=False,
+            include_unreviewed=False,
+            node_count=4,
+            edge_count=3,
+            asset_count=2,
+            generated_at="2026-06-12T12:00:00+00:00",
+        )
+
+        self.assertEqual(recorded["node_count"], 4)
+        self.assertEqual(recorded["asset_count"], 2)
+        workspace = self.service.workspace_payload(investigation.id)
+        self.assertEqual(workspace["exports"][0]["id"], recorded["id"])
+        self.assertEqual(
+            self.repository.table_count("investigation_exports"),
+            1,
+        )
+
+        self.service.delete_export(investigation.id, recorded["id"])
+
+        self.assertEqual(
+            self.repository.table_count("investigation_exports"),
+            0,
+        )
 
     def test_manual_page_save_records_referrer_without_search_noise(self):
         investigation = self.service.create({"title": "Case"})

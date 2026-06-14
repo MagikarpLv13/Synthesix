@@ -71,6 +71,7 @@ class AppSettings:
     database_path: Path
     investigation_pages_dir: Path
     evidence_dir: Path
+    exports_dir: Path
     history_dir: Path
     history_json_path: Path
     history_report_path: Path
@@ -100,6 +101,7 @@ class AppSettings:
     engine_retry_attempts: int
     engine_retry_delay: float
     engine_retry_backoff: float
+    max_query_variants: int
 
     def search_results_path(self, date_str: str) -> Path:
         return self.history_dir / f"search_results_{date_str}.html"
@@ -133,6 +135,11 @@ def get_settings() -> AppSettings:
         evidence_dir=_env_path(
             "SYNTHESIX_EVIDENCE_DIR",
             "data/evidence",
+            base_dir,
+        ),
+        exports_dir=_env_path(
+            "SYNTHESIX_EXPORTS_DIR",
+            "data/exports",
             base_dir,
         ),
         history_dir=history_dir,
@@ -171,4 +178,5 @@ def get_settings() -> AppSettings:
         engine_retry_attempts=_env_int("SYNTHESIX_ENGINE_RETRY_ATTEMPTS", 1),
         engine_retry_delay=_env_float("SYNTHESIX_ENGINE_RETRY_DELAY", 0.5),
         engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),
+        max_query_variants=max(1, _env_int("SYNTHESIX_MAX_QUERY_VARIANTS", 6)),
     )

@@ -110,6 +110,45 @@ def workspace_payload(*, status="active"):
                 "comparison_generated_at": "2026-06-10T10:00:00+00:00",
             }
         ],
+        "entities": [
+            {
+                "id": "entity-123",
+                "investigation_id": "case-123",
+                "result_id": "result-123",
+                "entity_type": "email",
+                "value_original": "analyst@example.com",
+                "value_normalized": "analyst@example.com",
+                "source_field": "notes",
+                "source_text": "Contact analyst@example.com for verification.",
+                "confidence": 0.99,
+                "status": "proposed",
+                "first_observed_at": "2026-06-10T10:00:00+00:00",
+                "last_observed_at": "2026-06-10T10:00:00+00:00",
+                "reviewed_at": None,
+            }
+        ],
+        "exports": [
+            {
+                "id": "export-123",
+                "investigation_id": "case-123",
+                "export_type": "zeroneurone",
+                "archive_path": "data/exports/case-123/export/zeroneurone.zip",
+                "dossier_path": "data/exports/case-123/export/dossier.json",
+                "graphml_path": (
+                    "data/exports/case-123/export/investigation.graphml"
+                ),
+                "csv_path": "data/exports/case-123/export/zeroneurone.csv",
+                "nodes_csv_path": "data/exports/case-123/export/nodes.csv",
+                "edges_csv_path": "data/exports/case-123/export/edges.csv",
+                "manifest_path": "data/exports/case-123/export/manifest.json",
+                "include_evidence": False,
+                "include_unreviewed": False,
+                "node_count": 4,
+                "edge_count": 3,
+                "asset_count": 2,
+                "generated_at": "2026-06-12T12:00:00+00:00",
+            }
+        ],
         "evidence": [
             {
                 "id": "capture-123",
@@ -193,6 +232,11 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn('queueAction("delete_page_monitor"', content)
+        self.assertIn('queueAction("extract_result_entities"', content)
+        self.assertIn('queueAction("update_entity_status"', content)
+        self.assertIn('queueAction("delete_entity"', content)
+        self.assertIn('queueAction("export_zeroneurone"', content)
+        self.assertIn('queueAction("delete_zeroneurone_export"', content)
         self.assertIn("Significant change", content)
         self.assertIn("75.00% text similarity", content)
         self.assertEqual(
@@ -201,6 +245,7 @@ class InvestigationViewTestCase(unittest.TestCase):
                 "#overview",
                 "#saved-pages",
                 "#page-monitoring",
+                "#exports",
                 "#attach-search",
                 "#search-runs",
             ],
@@ -212,8 +257,32 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("not factual accuracy", content)
         self.assertIn("data-local-datetime", content)
         self.assertIn("Intl.DateTimeFormat", content)
+        self.assertIn('src="../../i18n.js"', content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
         self.assertIn("Evidence (1)", content)
+        self.assertIn("Entities (1)", content)
+        self.assertIn("analyst@example.com", content)
+        self.assertIn("99% deterministic confidence", content)
+        self.assertIn("Delete</button>", content)
+        self.assertIn("ZeroNeurone export", content)
+        self.assertIn("Export GraphML and CSV", content)
+        self.assertIn(">GraphML</a>", content)
+        self.assertIn(">ZeroNeurone ZIP</a>", content)
+        self.assertIn(">Dossier JSON</a>", content)
+        self.assertIn(">ZeroNeurone CSV</a>", content)
+        self.assertIn(">Manifest</a>", content)
+        self.assertIn("2 assets", content)
+        self.assertIn("Delete export</button>", content)
+        self.assertEqual(
+            tree.xpath("//select[@data-entity-status]/@value"),
+            [],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//select[@data-entity-status]/option[@selected]/@value"
+            ),
+            ["proposed"],
+        )
         self.assertIn("Registry header", content)
         self.assertIn("Selected area", content)
         self.assertIn('class="evidence-thumbnail"', content)
@@ -333,6 +402,16 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         self.assertEqual(
             tree.xpath("//button[contains(@class, 'save-result-metadata')]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//button[contains(@class, 'extract-result-entities')]/@disabled"
+            ),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//select[@data-entity-status]/@disabled"),
             ["disabled"],
         )
         self.assertTrue(

@@ -13,7 +13,14 @@ class PageMonitoringViewTestCase(unittest.TestCase):
             "Updated company address.",
         )
         with TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "comparison.html"
+            base_dir = Path(temp_dir)
+            output_path = (
+                base_dir
+                / "data"
+                / "evidence"
+                / "case-1"
+                / "comparison.html"
+            )
             generated = generate_page_comparison_report(
                 output_path=output_path,
                 page_title="Company profile",
@@ -23,6 +30,7 @@ class PageMonitoringViewTestCase(unittest.TestCase):
                 previous_text="Original company address.",
                 current_text="Updated company address.",
                 change=change,
+                base_dir=base_dir,
             )
             content = output_path.read_text(encoding="utf-8")
 
@@ -31,3 +39,4 @@ class PageMonitoringViewTestCase(unittest.TestCase):
         self.assertIn("Company profile", content)
         self.assertIn("Original company address.", content)
         self.assertIn("Updated company address.", content)
+        self.assertIn('src="../../../i18n.js"', content)

@@ -91,16 +91,117 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("rel=\"noopener noreferrer\"", content)
                 self.assertIn("../theme.css", content)
                 self.assertIn("../theme.js", content)
+                self.assertIn("../i18n.js", content)
                 self.assertIn("../assets/favicon.svg", content)
                 self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertIn('class="brand-logo"', content)
-                self.assertIn("data-theme-toggle", content)
+                self.assertNotIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
                 self.assertIn("&lt;Exact title&gt;", content)
                 self.assertIn("not factual accuracy", content)
                 self.assertNotIn("<script>alert(1)</script>", content)
+            finally:
+                os.chdir(current_dir)
+
+    def test_generate_html_report_sorts_scores_numerically_descending(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                df = pd.DataFrame(
+                    [
+                        {
+                            "title": "Low",
+                            "description": "Low score",
+                            "link": "https://example.com/low",
+                            "source": "Google",
+                            "relevance_score": 2.0,
+                            "score_breakdown": [],
+                            "query_variants": ['"query"'],
+                        },
+                        {
+                            "title": "High",
+                            "description": "High score",
+                            "link": "https://example.com/high",
+                            "source": "Bing",
+                            "relevance_score": 10.0,
+                            "score_breakdown": [],
+                            "query_variants": ['"query"'],
+                        },
+                    ]
+                )
+
+                output_path = generate_html_report(df, '"query"', 0.1, 2)
+                content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertLess(content.index(">High</td>"), content.index(">Low</td>"))
+                self.assertIn('data-order="10.000000"', content)
+                self.assertIn("order: [[5, 'desc']]", content)
+            finally:
+                os.chdir(current_dir)
+
+    def test_coverage_errors_expose_targeted_retry_action(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                df = pd.DataFrame(
+                    columns=[
+                        "title",
+                        "description",
+                        "link",
+                        "source",
+                        "relevance_score",
+                        "score_breakdown",
+                        "query_variants",
+                    ]
+                )
+                df.attrs["query_coverage"] = (
+                    {
+                        "query": '"anna lindberg"',
+                        "engines": {
+                            "google": {"status": "ok", "count": 2},
+                            "bing": {"status": "timeout", "count": 0},
+                        },
+                    },
+                    {
+                        "query": '"lindberg anna"',
+                        "engines": {
+                            "google": {"status": "challenge", "count": 0},
+                            "bing": {"status": "ok", "count": 1},
+                        },
+                    },
+                )
+                df.attrs["search_context"] = {
+                    "original_query": "anna lindberg",
+                    "filters": {"site": "example.com"},
+                    "num_results": 7,
+                    "investigation_id": "case-1",
+                }
+
+                output_path = generate_html_report(
+                    df,
+                    '"anna lindberg" site:example.com',
+                    0.1,
+                    0,
+                )
+                content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertEqual(
+                    content.count('data-page-action="retry_search_combination"'),
+                    2,
+                )
+                self.assertIn("&quot;engine&quot;:&quot;bing&quot;", content)
+                self.assertIn(
+                    "&quot;query&quot;:&quot;\\&quot;anna lindberg"
+                    "\\&quot;&quot;",
+                    content,
+                )
+                self.assertIn("&quot;investigationId&quot;:&quot;case-1&quot;", content)
+                self.assertIn("data-page-status", content)
+                self.assertIn("This report action is invalid.", content)
             finally:
                 os.chdir(current_dir)
 
@@ -118,9 +219,10 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("file://C:/tmp/&quot;result&quot;.html", content)
                 self.assertIn("theme.css", content)
                 self.assertIn("theme.js", content)
+                self.assertIn("i18n.js", content)
                 self.assertIn("../assets/favicon.svg", content)
                 self.assertIn("../assets/synthesix-mark.svg", content)
-                self.assertIn("data-theme-toggle", content)
+                self.assertNotIn("data-theme-toggle", content)
                 self.assertIn('class="data-table display"', content)
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
@@ -314,6 +416,7 @@ class UtilsTestCase(unittest.TestCase):
 
                 self.assertIn("../../theme.css", content)
                 self.assertIn("../../theme.js", content)
+                self.assertIn("../../i18n.js", content)
                 self.assertIn("../../assets/favicon.svg", content)
                 self.assertIn("../../assets/synthesix-mark.svg", content)
                 self.assertIn('href="../../index.html"', content)

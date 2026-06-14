@@ -142,6 +142,7 @@ def generate_local_search_page(
     home_href = _relative_href(Path(base_dir) / "index.html", output_dir)
     theme_href = _relative_href(Path(base_dir) / "theme.css", output_dir)
     theme_script = _relative_href(Path(base_dir) / "theme.js", output_dir)
+    i18n_script = _relative_href(Path(base_dir) / "i18n.js", output_dir)
     favicon_href = _relative_href(
         Path(base_dir) / "assets" / "favicon.svg",
         output_dir,
@@ -173,6 +174,7 @@ def generate_local_search_page(
     <link rel="icon" href="{_html(favicon_href)}" type="image/svg+xml">
     <link rel="stylesheet" href="{_html(theme_href)}">
     <script src="{_html(theme_script)}"></script>
+    <script src="{_html(i18n_script)}"></script>
 </head>
 <body>
     <main class="app app--wide">
@@ -186,12 +188,6 @@ def generate_local_search_page(
             </div>
             <div class="top-actions">
                 <a href="{_html(home_href)}" class="nav-link">Search</a>
-                <button
-                    type="button"
-                    class="theme-toggle"
-                    data-theme-toggle
-                    aria-pressed="false"
-                >Dark mode</button>
             </div>
         </header>
         <section class="investigation-section">

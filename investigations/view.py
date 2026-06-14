@@ -13,6 +13,22 @@ STATUS_LABELS = {
     "ecarte": "Discarded",
     "confirme": "Confirmed",
 }
+ENTITY_STATUS_LABELS = {
+    "proposed": "Proposed",
+    "validated": "Validated",
+    "rejected": "Rejected",
+}
+ENTITY_TYPE_LABELS = {
+    "email": "Email",
+    "phone": "Phone",
+    "url": "URL",
+    "domain": "Domain",
+    "ipv4": "IPv4",
+    "ipv6": "IPv6",
+    "handle": "Handle",
+    "identifier": "Identifier",
+    "coordinates": "Coordinates",
+}
 
 
 def _html(value) -> str:
@@ -57,6 +73,85 @@ def _status_options(selected: str) -> str:
             f'<option value="{_html(value)}"{selection}>{_html(label)}</option>'
         )
     return "".join(options)
+
+
+def _entity_status_options(selected: str) -> str:
+    return "".join(
+        (
+            f'<option value="{_html(value)}"'
+            f'{" selected" if value == selected else ""}>'
+            f"{_html(label)}</option>"
+        )
+        for value, label in ENTITY_STATUS_LABELS.items()
+    )
+
+
+def _entity_markup(
+    entities: list[Mapping],
+    *,
+    read_only: bool,
+) -> str:
+    disabled = " disabled" if read_only else ""
+    items = []
+    for entity in entities:
+        entity_type = str(entity.get("entity_type", "") or "")
+        status = str(entity.get("status", "proposed") or "proposed")
+        confidence = max(
+            0.0,
+            min(1.0, float(entity.get("confidence", 0) or 0)),
+        )
+        items.append(
+            f"""
+            <li
+                class="entity-item entity-item--{_html(status)}"
+                data-entity-id="{_html(entity.get("id", ""))}"
+            >
+                <span class="entity-type">
+                    {_html(ENTITY_TYPE_LABELS.get(entity_type, entity_type))}
+                </span>
+                <code class="entity-value">
+                    {_html(entity.get("value_original", ""))}
+                </code>
+                <span class="entity-confidence">
+                    {confidence:.0%} deterministic confidence
+                </span>
+                <label class="entity-status-control">
+                    <span class="sr-only">Entity review status</span>
+                    <select data-entity-status{disabled}>
+                        {_entity_status_options(status)}
+                    </select>
+                </label>
+                <button
+                    type="button"
+                    class="danger-link delete-entity"
+                    {disabled}
+                >Delete</button>
+                <p class="entity-source">
+                    <strong>{_html(entity.get("source_field", ""))}</strong>
+                    {_html(entity.get("source_text", ""))}
+                </p>
+            </li>
+            """
+        )
+    empty = (
+        ""
+        if items
+        else '<p class="session-note">No entity candidate extracted yet.</p>'
+    )
+    return f"""
+        <div class="result-entities">
+            <div class="entity-heading">
+                <span class="provenance-label">Entities ({len(items)})</span>
+                <button
+                    type="button"
+                    class="secondary-button extract-result-entities"
+                    {disabled}
+                >Extract entities</button>
+            </div>
+            {empty}
+            <ul class="entity-list">{"".join(items)}</ul>
+        </div>
+    """
 
 
 def _score_markup(result: Mapping) -> str:
@@ -231,6 +326,7 @@ def _result_cards(
     results: list[Mapping],
     *,
     evidence_by_result: Mapping[str, list[Mapping]],
+    entities_by_result: Mapping[str, list[Mapping]],
     monitors_by_result: Mapping[str, Mapping],
     output_dir: Path,
     base_dir: Path,
@@ -288,6 +384,10 @@ def _result_cards(
             evidence_by_result.get(result_id, []),
             output_dir=output_dir,
             base_dir=base_dir,
+            read_only=read_only,
+        )
+        entity_markup = _entity_markup(
+            entities_by_result.get(result_id, []),
             read_only=read_only,
         )
         monitor = monitors_by_result.get(result_id)
@@ -392,6 +492,7 @@ def _result_cards(
                 <div class="result-provenance">
                     {discovery_markup}
                 </div>
+                {entity_markup}
                 {evidence_markup}
                 <details class="analyst-details">
                     <summary>Analyst notes and tags</summary>
@@ -547,6 +648,77 @@ def _search_rows(
     return "".join(rows)
 
 
+def _export_cards(
+    exports: list[Mapping],
+    *,
+    output_dir: Path,
+    base_dir: Path,
+    read_only: bool,
+) -> str:
+    if not exports:
+        return """
+            <div class="investigation-empty">
+                No ZeroNeurone export has been generated yet.
+            </div>
+        """
+
+    cards = []
+    disabled = " disabled" if read_only else ""
+    for export in exports:
+        links = []
+        for key, label in (
+            ("archive_path", "ZeroNeurone ZIP"),
+            ("dossier_path", "Dossier JSON"),
+            ("graphml_path", "GraphML"),
+            ("csv_path", "ZeroNeurone CSV"),
+            ("nodes_csv_path", "Nodes CSV"),
+            ("edges_csv_path", "Edges CSV"),
+            ("manifest_path", "Manifest"),
+        ):
+            path = _resolve_runtime_path(export.get(key), base_dir)
+            if path is None:
+                continue
+            links.append(
+                f'<a class="secondary-link" '
+                f'href="{_html(_relative_href(path, output_dir))}" '
+                'target="_blank" rel="noopener noreferrer">'
+                f"{_html(label)}</a>"
+            )
+        options = ["validated entities"]
+        if export.get("include_unreviewed"):
+            options.append("all entity review states")
+        if export.get("include_evidence"):
+            options.append("evidence assets")
+        cards.append(
+            f"""
+            <article
+                class="investigation-export-card"
+                data-export-id="{_html(export.get("id", ""))}"
+            >
+                <div>
+                    <strong>ZeroNeurone export</strong>
+                    <span>{_local_datetime(export.get("generated_at"))}</span>
+                </div>
+                <div class="export-summary">
+                    <span>{int(export.get("node_count", 0) or 0)} nodes</span>
+                    <span>{int(export.get("edge_count", 0) or 0)} links</span>
+                    <span>{int(export.get("asset_count", 0) or 0)} assets</span>
+                    <span>{_html(", ".join(options))}</span>
+                </div>
+                <div class="export-links">
+                    {"".join(links)}
+                    <button
+                        type="button"
+                        class="danger-link delete-export"
+                        {disabled}
+                    >Delete export</button>
+                </div>
+            </article>
+            """
+        )
+    return "".join(cards)
+
+
 def _unassigned_options(searches: list[Mapping]) -> str:
     options = ['<option value="">Select a search</option>']
     for search in searches:
@@ -571,6 +743,8 @@ def generate_investigation_page(
     investigation = workspace["investigation"]
     results = list(workspace.get("results", []))
     evidence = list(workspace.get("evidence", []))
+    entities = list(workspace.get("entities", []))
+    exports = list(workspace.get("exports", []))
     searches = list(workspace.get("searches", []))
     page_monitors = list(workspace.get("page_monitors", []))
     unassigned_searches = list(workspace.get("unassigned_searches", []))
@@ -627,6 +801,12 @@ def generate_investigation_page(
             str(capture.get("result_id", "")),
             [],
         ).append(capture)
+    entities_by_result: dict[str, list[Mapping]] = {}
+    for entity in entities:
+        entities_by_result.setdefault(
+            str(entity.get("result_id", "")),
+            [],
+        ).append(entity)
     monitors_by_result = {
         str(monitor.get("result_id", "")): monitor
         for monitor in page_monitors
@@ -641,6 +821,7 @@ def generate_investigation_page(
     <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="{asset_prefix}theme.css">
     <script src="{asset_prefix}theme.js"></script>
+    <script src="{asset_prefix}i18n.js"></script>
 </head>
 <body>
     <main class="app app--wide">
@@ -656,7 +837,6 @@ def generate_investigation_page(
                 <button type="button" class="nav-link" data-refresh-investigation>Refresh</button>
                 <a href="{_html(home_href)}" data-home-link class="nav-link">Search</a>
                 <a href="{_html(history_href)}" class="nav-link">History</a>
-                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
         <p id="investigation-action-status" class="action-status"></p>
@@ -665,6 +845,7 @@ def generate_investigation_page(
             <a href="#overview">Overview</a>
             <a href="#saved-pages">Saved pages</a>
             <a href="#page-monitoring">Monitoring</a>
+            <a href="#exports">Exports</a>
             <a href="#attach-search">Attach search</a>
             <a href="#search-runs">Search runs</a>
         </nav>
@@ -745,6 +926,7 @@ def generate_investigation_page(
                 {_result_cards(
                     results,
                     evidence_by_result=evidence_by_result,
+                    entities_by_result=entities_by_result,
                     monitors_by_result=monitors_by_result,
                     output_dir=output_dir,
                     base_dir=base_dir,
@@ -774,6 +956,45 @@ def generate_investigation_page(
             <div class="page-monitor-list">
                 {_page_monitor_cards(
                     page_monitors,
+                    output_dir=output_dir,
+                    base_dir=base_dir,
+                    read_only=read_only,
+                )}
+            </div>
+        </section>
+
+        <section
+            id="exports"
+            class="investigation-section"
+            aria-label="ZeroNeurone exports"
+        >
+            <div class="section-header">
+                <div>
+                    <p class="section-eyebrow">Interoperability</p>
+                    <h3>ZeroNeurone export</h3>
+                </div>
+                <span class="meta-pill">{len(exports)} export(s)</span>
+            </div>
+            <form id="zeroneurone-export-form" class="export-form">
+                <label>
+                    <input id="export-include-evidence" type="checkbox">
+                    Include evidence files as assets
+                </label>
+                <label>
+                    <input id="export-include-unreviewed" type="checkbox">
+                    Include proposed and rejected entity candidates
+                </label>
+                <button type="submit" class="primary-button">
+                    Export GraphML and CSV
+                </button>
+            </form>
+            <p class="session-note">
+                The default export includes saved pages and validated entities.
+                Evidence assets and unvalidated candidates require explicit options.
+            </p>
+            <div class="investigation-export-list">
+                {_export_cards(
+                    exports,
                     output_dir=output_dir,
                     base_dir=base_dir,
                     read_only=read_only,
@@ -944,6 +1165,35 @@ def generate_investigation_page(
                         resultId: card.dataset.resultId
                     }})
                 );
+                card.querySelector(".extract-result-entities")?.addEventListener(
+                    "click",
+                    () => queueAction("extract_result_entities", {{
+                        resultId: card.dataset.resultId
+                    }})
+                );
+                card.querySelectorAll("[data-entity-status]").forEach(
+                    (select) => {{
+                        select.addEventListener("change", () => {{
+                            const item = select.closest("[data-entity-id]");
+                            if (item) {{
+                                queueAction("update_entity_status", {{
+                                    entityId: item.dataset.entityId,
+                                    status: select.value
+                                }});
+                            }}
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".delete-entity").forEach((button) => {{
+                    button.addEventListener("click", () => {{
+                        const item = button.closest("[data-entity-id]");
+                        if (item && confirm("Delete this extracted entity?")) {{
+                            queueAction("delete_entity", {{
+                                entityId: item.dataset.entityId
+                            }});
+                        }}
+                    }});
+                }});
                 card.querySelector(".remove-saved-page")?.addEventListener(
                     "click",
                     () => {{
@@ -1065,6 +1315,34 @@ def generate_investigation_page(
                     }}
                 }}
             );
+
+            document.getElementById(
+                "zeroneurone-export-form"
+            )?.addEventListener("submit", (event) => {{
+                event.preventDefault();
+                queueAction("export_zeroneurone", {{
+                    includeEvidence: document.getElementById(
+                        "export-include-evidence"
+                    ).checked,
+                    includeUnreviewed: document.getElementById(
+                        "export-include-unreviewed"
+                    ).checked
+                }});
+                window.synthesixPage.setStatus("Generating export...");
+            }});
+            document.querySelectorAll(".delete-export").forEach((button) => {{
+                button.addEventListener("click", () => {{
+                    const card = button.closest("[data-export-id]");
+                    if (
+                        card
+                        && confirm("Delete this ZeroNeurone export and its files?")
+                    ) {{
+                        queueAction("delete_zeroneurone_export", {{
+                            exportId: card.dataset.exportId
+                        }});
+                    }}
+                }});
+            }});
         }})();
     </script>
 </body>

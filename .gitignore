@@ -16,7 +16,6 @@ test_*.html
 data/
 
 # Python
-venv/
 .venv/
 env/
 .env/
@@ -80,3 +79,4 @@ docker-compose.override.yml
 .cache/
 .temp/
 .tmp/
+/enquete.zip

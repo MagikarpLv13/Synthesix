@@ -45,6 +45,7 @@ class LocalSearchViewTestCase(unittest.TestCase):
             tree = html.fromstring(content)
 
         self.assertEqual(generated, str(output_path))
+        self.assertIn('src="../i18n.js"', content)
         self.assertIn(
             "No external search engine was contacted",
             " ".join(tree.text_content().split()),

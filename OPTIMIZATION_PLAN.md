@@ -244,7 +244,7 @@ Le plan d'optimisation initial est termine. Les prochaines evolutions peuvent ma
 ## 5. Commandes de verification
 
 ```powershell
-venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py
-venv\Scripts\python.exe -m unittest discover
+.venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py
+.venv\Scripts\python.exe -m unittest discover
 git diff --check
 ```

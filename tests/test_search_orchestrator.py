@@ -86,6 +86,26 @@ class ConcurrencyTrackingEngine:
             self.tracker["active"] -= 1
 
 
+class QueryAwareEngine:
+    def __init__(self, source):
+        self.source = source
+        self.calls = []
+
+    async def search(self, query, browser, max_results):
+        self.calls.append((query, browser, max_results))
+        title = query.replace('"', "").title()
+        return pd.DataFrame(
+            [
+                {
+                    "title": title,
+                    "link": "https://example.com/person",
+                    "description": f"Result for {title}.",
+                    "source": self.source,
+                }
+            ]
+        )
+
+
 class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_search_passes_exact_query_to_enabled_engines(self):
         frame = pd.DataFrame(
@@ -435,8 +455,95 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
             [('"john doe" site:example.com intitle:profile admin', browser, 5)],
         )
 
+    async def test_selected_query_variants_run_across_engines_and_merge_urls(self):
+        instances = []
+
+        def factory(source):
+            def create():
+                engine = QueryAwareEngine(source)
+                instances.append(engine)
+                return engine
+
+            return create
+
+        report_capture = ReportCapture()
+        orchestrator = SearchOrchestrator(
+            engine_factories={
+                "google": factory("Google"),
+                "bing": factory("Bing"),
+            },
+            report_generator=report_capture,
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        result = await orchestrator.search(
+            "anna lindberg",
+            '"anna lindberg"',
+            object(),
+            {"google": True, "bing": True},
+            5,
+            base_query='"anna lindberg"',
+            query_variants=('"anna lindberg"', '"lindberg anna"'),
+        )
+
+        self.assertEqual(len(instances), 4)
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(len(result.coverage), 2)
+        self.assertEqual(
+            set(result.coverage[0]["engines"]),
+            {"google", "bing"},
+        )
+        self.assertEqual(
+            result.results[0]["query_variants"],
+            ['"anna lindberg"', '"lindberg anna"'],
+        )
+        self.assertEqual(result.results[0]["source"], "Bing, Google")
+        self.assertEqual(
+            report_capture.calls[0]["df"].attrs["query_coverage"],
+            result.coverage,
+        )
+        self.assertEqual(
+            report_capture.calls[0]["df"].attrs["search_context"],
+            {
+                "original_query": "anna lindberg",
+                "filters": {},
+                "num_results": 5,
+                "investigation_id": "",
+            },
+        )
+
 
 class AggregateSearchResultsTestCase(unittest.TestCase):
+    def test_results_are_sorted_by_descending_relevance(self):
+        engine_results = {
+            "google": pd.DataFrame(
+                [
+                    {
+                        "title": "Low",
+                        "link": "https://example.com/low",
+                        "description": "Low result.",
+                        "source": "Google",
+                    },
+                    {
+                        "title": "High",
+                        "link": "https://example.com/high",
+                        "description": "High result.",
+                        "source": "Google",
+                    },
+                ]
+            )
+        }
+
+        combined = aggregate_search_results(
+            engine_results,
+            "query",
+            scorer=lambda row, _query: 10 if row["title"] == "High" else 1,
+        )
+
+        self.assertEqual(combined["title"].tolist(), ["High", "Low"])
+        self.assertEqual(combined.index.tolist(), [0, 1])
+
     def test_deduplicates_links_and_merges_sources(self):
         engine_results = {
             "google": pd.DataFrame(

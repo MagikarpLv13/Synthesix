@@ -23,7 +23,10 @@ from investigations.models import (
     ANALYST_STATUSES,
     EvidenceArtifact,
     EvidenceCapture,
+    ENTITY_STATUSES,
+    ExtractedEntity,
     Investigation,
+    InvestigationExport,
     InvestigationResult,
     InvestigationSearchRun,
     LocalSearchFilters,
@@ -653,6 +656,7 @@ class InvestigationRepository:
                     ir.added_at,
                     ir.updated_at,
                     ir.discovery_method,
+                    ir.discovery_search_run_id,
                     ir.discovery_query,
                     ir.discovery_sources_json,
                     ir.discovery_report_path,
@@ -747,6 +751,7 @@ class InvestigationRepository:
                     added_at=row["added_at"],
                     updated_at=row["updated_at"],
                     discovery_method=row["discovery_method"],
+                    discovery_search_run_id=row["discovery_search_run_id"],
                     discovery_query=row["discovery_query"],
                     discovery_sources=tuple(
                         str(source)
@@ -849,6 +854,388 @@ class InvestigationRepository:
             for result in self.list_investigation_results(investigation_id)
             if result.id == result_id
         )
+
+    def get_saved_result_entity_sources(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> dict[str, str]:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT r.url, r.title, r.description, ir.notes
+                FROM investigation_results ir
+                JOIN results r ON r.id = ir.result_id
+                WHERE
+                    ir.investigation_id = ?
+                    AND ir.result_id = ?
+                    AND ir.is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+        if row is None:
+            raise InvestigationResultNotFoundError(
+                investigation_id,
+                result_id,
+            )
+        return {
+            "url": str(row["url"] or ""),
+            "title": str(row["title"] or ""),
+            "description": str(row["description"] or ""),
+            "notes": str(row["notes"] or ""),
+        }
+
+    def upsert_extracted_entities(
+        self,
+        investigation_id: str,
+        result_id: str,
+        candidates: Iterable[Mapping],
+    ) -> list[ExtractedEntity]:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            saved = connection.execute(
+                """
+                SELECT 1
+                FROM investigation_results
+                WHERE
+                    investigation_id = ?
+                    AND result_id = ?
+                    AND is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if saved is None:
+                raise InvestigationResultNotFoundError(
+                    investigation_id,
+                    result_id,
+                )
+
+            for candidate in candidates:
+                entity_type = str(candidate.get("entity_type", "") or "")
+                normalized_value = str(
+                    candidate.get("normalized_value", "") or ""
+                )
+                if not entity_type or not normalized_value:
+                    continue
+                entity_id = str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        (
+                            f"synthesix:entity:{investigation_id}:{result_id}:"
+                            f"{entity_type}:{normalized_value}"
+                        ),
+                    )
+                )
+                connection.execute(
+                    """
+                    INSERT INTO extracted_entities(
+                        id, investigation_id, result_id, entity_type,
+                        value_original, value_normalized, source_field,
+                        source_text, confidence, status,
+                        first_observed_at, last_observed_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+                    ON CONFLICT(
+                        investigation_id,
+                        result_id,
+                        entity_type,
+                        value_normalized
+                    ) DO UPDATE SET
+                        value_original = excluded.value_original,
+                        source_field = excluded.source_field,
+                        source_text = excluded.source_text,
+                        confidence = excluded.confidence,
+                        last_observed_at = excluded.last_observed_at
+                    """,
+                    (
+                        entity_id,
+                        investigation_id,
+                        result_id,
+                        entity_type,
+                        str(candidate.get("value", "") or ""),
+                        normalized_value,
+                        str(candidate.get("source_field", "") or ""),
+                        str(candidate.get("source_text", "") or ""),
+                        float(candidate.get("confidence", 0) or 0),
+                        now,
+                        now,
+                    ),
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return [
+            entity
+            for entity in self.list_extracted_entities(investigation_id)
+            if entity.result_id == result_id
+        ]
+
+    def list_extracted_entities(
+        self,
+        investigation_id: str,
+    ) -> list[ExtractedEntity]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM extracted_entities
+                WHERE investigation_id = ?
+                ORDER BY
+                    CASE status
+                        WHEN 'proposed' THEN 0
+                        WHEN 'validated' THEN 1
+                        ELSE 2
+                    END,
+                    entity_type,
+                    value_normalized
+                """,
+                (investigation_id,),
+            ).fetchall()
+        return [
+            ExtractedEntity(
+                id=row["id"],
+                investigation_id=row["investigation_id"],
+                result_id=row["result_id"],
+                entity_type=row["entity_type"],
+                value_original=row["value_original"],
+                value_normalized=row["value_normalized"],
+                source_field=row["source_field"],
+                source_text=row["source_text"],
+                confidence=float(row["confidence"] or 0),
+                status=row["status"],
+                first_observed_at=row["first_observed_at"],
+                last_observed_at=row["last_observed_at"],
+                reviewed_at=row["reviewed_at"],
+            )
+            for row in rows
+        ]
+
+    def update_extracted_entity_status(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        status: str,
+    ) -> ExtractedEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        if status not in ENTITY_STATUSES:
+            raise InvestigationValidationError(
+                f"Unsupported entity status: {status}"
+            )
+        now = utc_now()
+        reviewed_at = None if status == "proposed" else now
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE extracted_entities
+                SET status = ?, reviewed_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (status, reviewed_at, entity_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Extracted entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_extracted_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
+    def delete_extracted_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM extracted_entities
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (entity_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Extracted entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+
+    def record_investigation_export(
+        self,
+        investigation_id: str,
+        *,
+        archive_path: str,
+        dossier_path: str,
+        graphml_path: str,
+        csv_path: str,
+        nodes_csv_path: str,
+        edges_csv_path: str,
+        manifest_path: str,
+        include_evidence: bool,
+        include_unreviewed: bool,
+        node_count: int,
+        edge_count: int,
+        asset_count: int,
+        generated_at: str,
+    ) -> InvestigationExport:
+        self.get_investigation(investigation_id)
+        export_id = str(uuid4())
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO investigation_exports(
+                    id, investigation_id, export_type, archive_path,
+                    dossier_path, graphml_path,
+                    csv_path, nodes_csv_path, edges_csv_path, manifest_path,
+                    include_evidence, include_unreviewed, node_count,
+                    edge_count, asset_count, generated_at
+                )
+                VALUES (
+                    ?, ?, 'zeroneurone', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    export_id,
+                    investigation_id,
+                    archive_path,
+                    dossier_path,
+                    graphml_path,
+                    csv_path,
+                    nodes_csv_path,
+                    edges_csv_path,
+                    manifest_path,
+                    int(include_evidence),
+                    int(include_unreviewed),
+                    int(node_count),
+                    int(edge_count),
+                    int(asset_count),
+                    generated_at,
+                ),
+            )
+        return next(
+            export
+            for export in self.list_investigation_exports(investigation_id)
+            if export.id == export_id
+        )
+
+    def list_investigation_exports(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationExport]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM investigation_exports
+                WHERE investigation_id = ?
+                ORDER BY generated_at DESC, id DESC
+                """,
+                (investigation_id,),
+            ).fetchall()
+        return [
+            InvestigationExport(
+                id=row["id"],
+                investigation_id=row["investigation_id"],
+                export_type=row["export_type"],
+                archive_path=row["archive_path"],
+                dossier_path=row["dossier_path"],
+                graphml_path=row["graphml_path"],
+                csv_path=row["csv_path"],
+                nodes_csv_path=row["nodes_csv_path"],
+                edges_csv_path=row["edges_csv_path"],
+                manifest_path=row["manifest_path"],
+                include_evidence=bool(row["include_evidence"]),
+                include_unreviewed=bool(row["include_unreviewed"]),
+                node_count=int(row["node_count"] or 0),
+                edge_count=int(row["edge_count"] or 0),
+                asset_count=int(row["asset_count"] or 0),
+                generated_at=row["generated_at"],
+            )
+            for row in rows
+        ]
+
+    def get_investigation_export(
+        self,
+        investigation_id: str,
+        export_id: str,
+    ) -> InvestigationExport:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        return next(
+            (
+                export
+                for export in self.list_investigation_exports(investigation_id)
+                if export.id == export_id
+            ),
+            None,
+        ) or self._raise_export_not_found(export_id)
+
+    @staticmethod
+    def _raise_export_not_found(export_id: str):
+        raise InvestigationValidationError(
+            f"Investigation export not found: {export_id}"
+        )
+
+    def delete_investigation_export(
+        self,
+        investigation_id: str,
+        export_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM investigation_exports
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (export_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Investigation export not found: {export_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (utc_now(), investigation_id),
+            )
 
     def attach_search(
         self,
@@ -2035,6 +2422,8 @@ class InvestigationRepository:
             "local_search_fts",
             "page_monitors",
             "page_comparisons",
+            "extracted_entities",
+            "investigation_exports",
         }
         if table_name not in allowed:
             raise ValueError("Unsupported table name")

@@ -138,7 +138,6 @@ a:focus-visible {
 }
 
 .nav-link,
-.theme-toggle,
 .vpn-status {
     display: inline-flex;
     align-items: center;
@@ -155,7 +154,6 @@ a:focus-visible {
 }
 
 .nav-link:hover,
-.theme-toggle:hover,
 .vpn-status:hover {
     color: var(--text);
     background: var(--surface-2);
@@ -406,6 +404,79 @@ a:focus-visible {
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
+}
+
+.query-variants-body {
+    display: grid;
+    gap: 12px;
+    padding: 0 14px 14px;
+}
+
+.panel-help {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.query-variant-actions {
+    display: grid;
+    grid-template-columns: auto minmax(220px, 1fr) auto auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.query-variant-manual {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.query-variant-manual input {
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.query-variant-list {
+    display: grid;
+    gap: 8px;
+}
+
+.query-variant-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    cursor: pointer;
+}
+
+.query-variant-option input {
+    margin-top: 3px;
+}
+
+.query-variant-option code,
+.query-variant-option small {
+    display: block;
+}
+
+.query-variant-option code {
+    overflow-wrap: anywhere;
+    color: var(--text);
+}
+
+.query-variant-option small {
+    margin-top: 3px;
+    color: var(--muted);
 }
 
 .operator-grid {
@@ -946,6 +1017,83 @@ a:focus-visible {
     background: var(--surface-2);
 }
 
+.result-entities {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid #7c3aed;
+    background: var(--surface-2);
+}
+
+.entity-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.entity-list {
+    display: grid;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.entity-item {
+    display: grid;
+    grid-template-columns: auto minmax(160px, 1fr) auto auto auto;
+    gap: 8px 12px;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+}
+
+.entity-item--rejected {
+    opacity: 0.65;
+}
+
+.entity-type {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: var(--line);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.entity-value {
+    overflow-wrap: anywhere;
+    color: var(--text);
+}
+
+.entity-confidence {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.entity-status-control select {
+    min-height: 34px;
+    padding: 0 26px 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.entity-source {
+    grid-column: 2 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.entity-source strong {
+    margin-right: 6px;
+    color: var(--secondary);
+    text-transform: capitalize;
+}
+
 .evidence-list {
     display: grid;
     gap: 8px;
@@ -1053,6 +1201,65 @@ a:focus-visible {
     margin-top: 16px;
 }
 
+.export-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    align-items: center;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.export-form label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.investigation-export-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.investigation-export-card {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto;
+    gap: 16px;
+    align-items: center;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.investigation-export-card > div:first-child {
+    display: grid;
+    gap: 4px;
+}
+
+.investigation-export-card > div:first-child span,
+.export-summary {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.export-summary,
+.export-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.export-links {
+    justify-content: flex-end;
+}
+
 .page-monitor-card {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1155,6 +1362,9 @@ a:focus-visible {
     border-radius: 6px;
     background: var(--surface-2);
     color: var(--text);
+}
+
+.dialog-fields textarea {
     resize: vertical;
 }
 
@@ -1249,7 +1459,8 @@ a:focus-visible {
 }
 
 .dialog-fields input,
-.dialog-fields textarea {
+.dialog-fields textarea,
+.dialog-fields select {
     width: 100%;
     padding: 9px 10px;
     border: 1px solid var(--line);
@@ -1257,6 +1468,10 @@ a:focus-visible {
     background: var(--surface-2);
     color: var(--text);
     resize: vertical;
+}
+
+.settings-dialog {
+    width: min(480px, calc(100% - 24px));
 }
 
 .dialog-actions {
@@ -1271,6 +1486,45 @@ a:focus-visible {
     display: grid;
     gap: 10px;
     margin-bottom: 18px;
+}
+
+.coverage-summary {
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.coverage-summary > summary {
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.coverage-summary > p {
+    margin: 10px 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.coverage-table code {
+    overflow-wrap: anywhere;
+}
+
+.coverage-table td {
+    vertical-align: middle;
+}
+
+.coverage-state {
+    display: inline-block;
+    margin-right: 8px;
+    color: var(--warning);
+    font-weight: 700;
+}
+
+.coverage-retry {
+    min-height: 32px;
+    padding: 5px 10px;
 }
 
 .page-title {
@@ -1510,6 +1764,22 @@ table.dataTable.no-footer {
         justify-content: flex-start;
     }
 
+    .entity-item {
+        grid-template-columns: 1fr;
+    }
+
+    .entity-source {
+        grid-column: auto;
+    }
+
+    .investigation-export-card {
+        grid-template-columns: 1fr;
+    }
+
+    .export-links {
+        justify-content: flex-start;
+    }
+
     .analyst-fields,
     .attach-search-form {
         grid-template-columns: 1fr;
@@ -1521,6 +1791,10 @@ table.dataTable.no-footer {
     }
 
     .operator-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .query-variant-actions {
         grid-template-columns: 1fr;
     }
 

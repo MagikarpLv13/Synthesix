@@ -40,6 +40,19 @@ class HomeUiTestCase(unittest.TestCase):
             self.content,
         )
 
+    def test_query_variants_require_explicit_selection(self):
+        panels = self.tree.xpath("//details[@id='query-variants-panel']")
+        suggestions = self.tree.xpath("//button[@id='suggest-query-variants']")
+        manual_inputs = self.tree.xpath("//input[@id='manual-query-variant']")
+
+        self.assertEqual(len(panels), 1)
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(len(manual_inputs), 1)
+        self.assertIn('queueAction("suggest_query_variants"', self.content)
+        self.assertIn("queryVariants: selectedQueryVariants()", self.content)
+        self.assertIn("checkbox.checked = Boolean(selected)", self.content)
+        self.assertIn("setQueryVariants", self.content)
+
     def test_vpn_status_uses_browser_public_ip_and_exposes_all_states(self):
         status_buttons = self.tree.xpath("//button[@id='vpn-status']")
 
@@ -65,6 +78,42 @@ class HomeUiTestCase(unittest.TestCase):
         for color in ("#2563EB", "#0F172A", "#06B6D4", "#64748B", "#000000", "#FFFFFF"):
             with self.subTest(color=color):
                 self.assertIn(color, theme)
+
+    def test_language_detection_and_settings_are_shared(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        i18n = (project_dir / "i18n.js").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            self.tree.xpath("//script[@src='i18n.js']/@src"),
+            ["i18n.js"],
+        )
+        self.assertIn('"synthesix-language"', i18n)
+        self.assertIn("navigator.languages", i18n)
+        self.assertIn("window.localStorage.setItem(storageKey", i18n)
+        self.assertIn("synthesix-settings-dialog", i18n)
+        self.assertIn('dataset.settingsButton = ""', i18n)
+        self.assertIn(
+            'supportedLanguages = ["en", "zh", "es", "fr", "pt", "de"]',
+            i18n,
+        )
+        for language in (
+            "English",
+            "中文（普通话）",
+            "Español",
+            "Français",
+            "Português",
+            "Deutsch",
+        ):
+            with self.subTest(language=language):
+                self.assertIn(language, i18n)
+        self.assertNotIn('<option value="hi">', i18n)
+        self.assertIn("Paramètres", i18n)
+        self.assertIn("Intl.DisplayNames", i18n)
+        self.assertIn("window.alert =", i18n)
+        self.assertIn("window.confirm =", i18n)
+        self.assertIn("BroadcastChannel", i18n)
+        self.assertIn('window.addEventListener("storage"', i18n)
+        self.assertEqual(self.tree.xpath("//*[@data-theme-toggle]"), [])
 
     def test_investigation_controls_are_wired_to_backend_actions(self):
         self.assertEqual(

@@ -23,6 +23,7 @@ def _theme_assets(asset_prefix: str = "") -> str:
     <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="{asset_prefix}theme.css">
     <script src="{asset_prefix}theme.js"></script>
+    <script src="{asset_prefix}i18n.js"></script>
 """
 
 
@@ -54,12 +55,20 @@ def _home_navigation_script() -> str:
     <script>
         (() => {
             const state = { pendingAction: null };
+            const status = document.querySelector("[data-page-status]");
 
             window.synthesixPage = {
                 consumeAction() {
                     const action = state.pendingAction;
                     state.pendingAction = null;
                     return action;
+                },
+                setStatus(message, isError = false) {
+                    if (!status) {
+                        return;
+                    }
+                    status.textContent = String(message || "");
+                    status.classList.toggle("is-error", Boolean(isError));
                 }
             };
 
@@ -67,6 +76,26 @@ def _home_navigation_script() -> str:
                 link.addEventListener("click", (event) => {
                     event.preventDefault();
                     state.pendingAction = { action: "focus_home" };
+                });
+            });
+
+            document.querySelectorAll("[data-page-action]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    let payload = {};
+                    try {
+                        payload = JSON.parse(button.dataset.actionPayload || "{}");
+                    } catch (_error) {
+                        window.synthesixPage.setStatus(
+                            "This report action is invalid.",
+                            true
+                        );
+                        return;
+                    }
+                    state.pendingAction = {
+                        action: button.dataset.pageAction,
+                        ...payload
+                    };
+                    window.synthesixPage.setStatus("Processing...");
                 });
             });
         })();
@@ -250,7 +279,6 @@ def generate_history_html():
             {_brand_markup("Search history", asset_prefix)}
             <div class="top-actions">
                 <a href="{search_href}" data-home-link class="nav-link">Search</a>
-                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
 
@@ -414,6 +442,15 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         str: The path to the generated HTML report
     """
 
+    coverage = tuple(df.attrs.get("query_coverage", ()))
+    search_context = df.attrs.get("search_context", {})
+    if not isinstance(search_context, dict):
+        search_context = {}
+    if "relevance_score" in df.columns:
+        df = (
+            df.sort_values("relevance_score", ascending=False, kind="stable")
+            .reset_index(drop=True)
+        )
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     settings = get_settings()
     output_path = settings.search_results_path(date_str)
@@ -423,6 +460,80 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     history_href = _relative_href(settings.history_report_path, output_path.parent)
     safe_search_term = _html_escape(search_term)
     safe_output_path = _html_escape(output_path)
+    coverage_engines = sorted({
+        str(engine)
+        for item in coverage
+        if isinstance(item, dict)
+        for engine in item.get("engines", {})
+    })
+    coverage_html = ""
+    if len(coverage) > 1 and len(coverage_engines) > 1:
+        coverage_headers = "".join(
+            f"<th>{_html_escape(engine.title())}</th>"
+            for engine in coverage_engines
+        )
+        coverage_rows = []
+        for item in coverage:
+            if not isinstance(item, dict):
+                continue
+            engine_states = item.get("engines", {})
+            cells = []
+            for engine in coverage_engines:
+                state = engine_states.get(engine, {})
+                status = str(state.get("status", "not run"))
+                if status == "ok":
+                    cell_markup = _html_escape(
+                        str(int(state.get("count", 0) or 0))
+                    )
+                else:
+                    retry_payload = {
+                        "query": str(item.get("query", "") or ""),
+                        "engine": engine,
+                        "originalQuery": str(
+                            search_context.get("original_query", "") or ""
+                        ),
+                        "filters": search_context.get("filters", {}),
+                        "numResults": search_context.get("num_results", 20),
+                        "investigationId": str(
+                            search_context.get("investigation_id", "") or ""
+                        ),
+                    }
+                    payload_json = _html_escape(
+                        json.dumps(
+                            retry_payload,
+                            ensure_ascii=True,
+                            separators=(",", ":"),
+                        )
+                    )
+                    cell_markup = (
+                        f'<span class="coverage-state">{_html_escape(status)}</span>'
+                        f'<button type="button" class="secondary-button coverage-retry" '
+                        f'data-page-action="retry_search_combination" '
+                        f'data-action-payload="{payload_json}">Retry</button>'
+                    )
+                cells.append(f"<td>{cell_markup}</td>")
+            coverage_rows.append(
+                "<tr>"
+                f"<td><code>{_html_escape(item.get('query', ''))}</code></td>"
+                f"{''.join(cells)}"
+                "</tr>"
+            )
+        coverage_html = f"""
+            <details class="coverage-summary">
+                <summary>Query coverage ({len(coverage)} variants)</summary>
+                <p>Counts distinguish successful zero-result searches from timeouts,
+                challenges, and other errors.</p>
+                <p class="action-status" data-page-status aria-live="polite"></p>
+                <div class="table-shell">
+                    <table class="data-table coverage-table">
+                        <thead>
+                            <tr><th>Exact query</th>{coverage_headers}</tr>
+                        </thead>
+                        <tbody>{''.join(coverage_rows)}</tbody>
+                    </table>
+                </div>
+            </details>
+        """
 
     html_head = f"""
 <!DOCTYPE html>
@@ -443,7 +554,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             <div class="top-actions">
                 <a href="{search_href}" data-home-link class="nav-link">Search</a>
                 <a href="{history_href}" class="nav-link">History</a>
-                <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">Dark mode</button>
             </div>
         </header>
 
@@ -457,6 +567,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                     <span class="meta-pill">Report: {safe_output_path}</span>
                 </div>
             </div>
+            {coverage_html}
             <div class="table-shell">
                 <table id="results" class="data-table display">
                     <thead>
@@ -465,6 +576,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                             <th>Description</th>
                             <th>Link</th>
                             <th>Source</th>
+                            <th>Exact query</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -474,7 +586,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     if nb_results == 0:
         rows_html = """
         <tr>
-            <td colspan="5" class="empty-row">
+            <td colspan="6" class="empty-row">
                 No relevant results found
             </td>
         </tr>
@@ -503,7 +615,15 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         desc = _html_escape(row["description"])
         link = _html_escape(row["link"])
         source = _html_escape(row["source"])
-        score = f"{row['relevance_score']:.2f}"
+        numeric_score = float(row["relevance_score"])
+        score = f"{numeric_score:.2f}"
+        query_variants = row.get("query_variants", [])
+        if not isinstance(query_variants, (list, tuple)):
+            query_variants = []
+        variants_markup = "<br>".join(
+            f"<code>{_html_escape(query)}</code>"
+            for query in query_variants
+        )
         score_breakdown = row.get("score_breakdown", [])
         breakdown_items = []
         if isinstance(score_breakdown, list):
@@ -531,7 +651,8 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             <td class="description">{desc}</td>
             <td class="link">{link_html}</td>
             <td>{source}</td>
-            <td>{score_markup}</td>
+            <td>{variants_markup}</td>
+            <td data-order="{numeric_score:.6f}">{score_markup}</td>
         </tr>
         """)
     rows_html = "".join(rows)
@@ -547,7 +668,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             $('#results').DataTable({
                 pageLength: 50,
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                order: [[4, 'desc']]
+                order: [[5, 'desc']]
             });
         });
     </script>

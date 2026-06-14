@@ -23,13 +23,24 @@ from evidence import (
     write_manifest,
 )
 from evidence.hashing import sha256_file
-from exceptions import EvidenceCaptureError, InvestigationError, SynthesixError
+from exceptions import (
+    EvidenceCaptureError,
+    InvestigationError,
+    InvestigationValidationError,
+    SynthesixError,
+)
+from exports import export_zeroneurone_bundle
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
 from investigations.monitoring_view import generate_page_comparison_report
 from investigations.search_view import generate_local_search_page
 from investigations.view import generate_investigation_page
 from query_operators import SearchFilters, build_display_query
+from query_variants import (
+    MAX_QUERY_LENGTH,
+    normalize_query_variants,
+    suggest_query_variants,
+)
 from search_orchestrator import SearchOrchestrator
 from settings import AppSettings, get_settings
 import zendriver as uc
@@ -254,6 +265,51 @@ async def _consume_page_tab_action(tab):
     except Exception:
         logger.debug("Unable to read page tab action", exc_info=True)
         return None
+
+
+async def _consume_settings_change(tab):
+    try:
+        return await tab.evaluate(
+            """
+            (() => {
+                if (
+                    !window.synthesixI18n ||
+                    typeof window.synthesixI18n.consumeSettingsChange !== "function"
+                ) {
+                    return null;
+                }
+                return window.synthesixI18n.consumeSettingsChange();
+            })()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to read Synthesix settings change", exc_info=True)
+        return None
+
+
+async def _apply_settings_to_tabs(tabs, settings: dict, source_tab=None) -> None:
+    settings_json = json.dumps(settings, ensure_ascii=True)
+    for tab in tabs:
+        if tab is source_tab or _is_external_web_tab(tab):
+            continue
+        try:
+            await tab.evaluate(
+                f"""
+                (() => {{
+                    if (
+                        window.synthesixI18n &&
+                        typeof window.synthesixI18n.applySettings === "function"
+                    ) {{
+                        window.synthesixI18n.applySettings({settings_json});
+                    }}
+                }})()
+                """,
+            )
+        except Exception:
+            logger.debug(
+                "Unable to synchronize Synthesix settings",
+                exc_info=True,
+            )
 
 
 def _is_external_web_tab(tab) -> bool:
@@ -1320,6 +1376,7 @@ async def _compare_page_archive(
         previous_text=previous_text,
         current_text=current_text,
         change=change,
+        base_dir=settings.base_dir,
     )
     return service.record_page_comparison(
         investigation_id=investigation_id,
@@ -1552,6 +1609,62 @@ async def _delete_evidence_capture(
     service.delete_evidence_capture(investigation_id, capture_id)
 
 
+async def _delete_investigation_export(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    export_id: str,
+) -> None:
+    export = service.get_export(investigation_id, export_id)
+    stored_paths = (
+        export.archive_path,
+        export.dossier_path,
+        export.graphml_path,
+        export.csv_path,
+        export.nodes_csv_path,
+        export.edges_csv_path,
+        export.manifest_path,
+    )
+    artifact_dirs = set()
+    for stored_path in stored_paths:
+        if not stored_path:
+            continue
+        path = Path(stored_path)
+        if not path.is_absolute():
+            path = settings.base_dir / path
+        artifact_dirs.add(path.resolve().parent)
+
+    if len(artifact_dirs) != 1:
+        raise InvestigationValidationError(
+            "Refusing to delete an export whose files span multiple directories."
+        )
+    export_dir = artifact_dirs.pop()
+    investigation_exports_root = (
+        settings.exports_dir / investigation_id
+    ).resolve()
+    try:
+        relative_export_dir = export_dir.relative_to(
+            investigation_exports_root
+        )
+    except ValueError as exc:
+        raise InvestigationValidationError(
+            "Refusing to delete files outside this investigation's export directory."
+        ) from exc
+    if not relative_export_dir.parts:
+        raise InvestigationValidationError(
+            "Refusing to delete the investigation export directory."
+        )
+
+    if export_dir.exists():
+        try:
+            await asyncio.to_thread(shutil.rmtree, export_dir)
+        except OSError as exc:
+            raise InvestigationValidationError(
+                f"Unable to delete export files: {exc}"
+            ) from exc
+    service.delete_export(investigation_id, export_id)
+
+
 async def _verify_evidence_capture(
     service: InvestigationService,
     settings: AppSettings,
@@ -1714,6 +1827,33 @@ async def _set_home_status(
             logger.debug("Unable to update the home status", exc_info=True)
 
 
+async def _set_query_variant_suggestions(
+    tab,
+    query: str,
+    suggestions: tuple[dict[str, str], ...],
+) -> None:
+    query_json = json.dumps(query, ensure_ascii=True)
+    suggestions_json = json.dumps(suggestions, ensure_ascii=True)
+    try:
+        await tab.evaluate(
+            f"""
+            (() => {{
+                if (
+                    window.synthesixHome &&
+                    typeof window.synthesixHome.setQueryVariants === "function"
+                ) {{
+                    window.synthesixHome.setQueryVariants(
+                        {query_json},
+                        {suggestions_json}
+                    );
+                }}
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to update query variant suggestions", exc_info=True)
+
+
 async def _set_home_investigation_selection(
     browser: uc.Browser,
     index_url: str,
@@ -1799,6 +1939,18 @@ async def wait_for_home_action(
 
         empty_since = None
 
+        for tab in tabs:
+            if _is_external_web_tab(tab):
+                continue
+            settings_change = await _consume_settings_change(tab)
+            if settings_change:
+                await _apply_settings_to_tabs(
+                    tabs,
+                    settings_change,
+                    source_tab=tab,
+                )
+                break
+
         home_tabs = [tab for tab in tabs if _is_home_tab(tab, index_url)]
         if home_tabs:
             history_json, history_version = _cached_history_payload(settings, history_cache)
@@ -1811,7 +1963,9 @@ async def wait_for_home_action(
                     investigations_version,
                 )
                 if state and state.get("action"):
-                    return state["action"]
+                    action = state["action"]
+                    action["_source_tab"] = tab
+                    return action
 
         for tab in tabs:
             if tab in home_tabs:
@@ -1832,6 +1986,50 @@ async def wait_for_home_action(
             return action
 
         await asyncio.sleep(settings.home_poll_interval)
+
+
+async def _retry_search_combination(
+    result: dict,
+    browser: uc.Browser,
+    settings: AppSettings,
+    investigation_service: InvestigationService,
+) -> tuple[str, bool]:
+    query = str(result.get("query", "") or "").strip()
+    engine = str(result.get("engine", "") or "").strip().lower()
+    if not query or len(query) > MAX_QUERY_LENGTH:
+        return "The query variant cannot be retried.", True
+    if engine not in settings.default_engines:
+        return "The selected search engine cannot be retried.", True
+
+    try:
+        num_results = int(result.get("numResults", settings.default_max_results))
+    except (TypeError, ValueError):
+        num_results = settings.default_max_results
+    num_results = min(100, max(1, num_results))
+    filters = SearchFilters.from_payload(result.get("filters"))
+    investigation_id = str(result.get("investigationId", "") or "").strip() or None
+    original_query = (
+        str(result.get("originalQuery", "") or "").strip()
+        or query
+    )
+    retry_error = await perform_search(
+        original_query,
+        build_display_query(query, filters),
+        browser,
+        {
+            engine_name: engine_name == engine
+            for engine_name in settings.default_engines
+        },
+        num_results,
+        filters,
+        query,
+        investigation_service=investigation_service,
+        investigation_id=investigation_id,
+        query_variants=(query,),
+    )
+    if retry_error:
+        return retry_error, True
+    return f"Retry completed for {engine.title()}.", False
 
 
 async def main():
@@ -1890,6 +2088,35 @@ async def main():
                     )
                 except InvestigationError:
                     active_investigation = None
+                continue
+            if result["action"] == "suggest_query_variants":
+                query = str(result.get("value", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                suggestions = suggest_query_variants(
+                    query,
+                    limit=max(0, settings.max_query_variants - 1),
+                )
+                if source_tab is not None:
+                    await _set_query_variant_suggestions(
+                        source_tab,
+                        query,
+                        suggestions,
+                    )
+                continue
+            if result["action"] == "retry_search_combination":
+                source_tab = result.get("_source_tab")
+                await _set_page_status(source_tab, "Retrying...")
+                message, is_error = await _retry_search_combination(
+                    result,
+                    browser,
+                    settings,
+                    investigation_service,
+                )
+                await _set_page_status(
+                    source_tab,
+                    message,
+                    is_error=is_error,
+                )
                 continue
             if result["action"] == "local_archive_search":
                 filters = dict(result.get("filters", {}) or {})
@@ -2332,6 +2559,215 @@ async def main():
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
+            if result["action"] == "extract_result_entities":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                result_id = str(result.get("resultId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    entities = investigation_service.extract_entities(
+                        investigation_id,
+                        result_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_page_status(
+                        source_tab,
+                        f"{len(entities)} entity candidate(s) available.",
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "update_entity_status":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                entity_id = str(result.get("entityId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.update_entity_status(
+                        investigation_id,
+                        entity_id,
+                        result.get("status", ""),
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "delete_entity":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                entity_id = str(result.get("entityId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.delete_entity(
+                        investigation_id,
+                        entity_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "export_zeroneurone":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                include_evidence = bool(result.get("includeEvidence", False))
+                include_unreviewed = bool(
+                    result.get("includeUnreviewed", False)
+                )
+                try:
+                    workspace = investigation_service.workspace_payload(
+                        investigation_id
+                    )
+                    timestamp = (
+                        utc_now()
+                        .replace("+00:00", "")
+                        .replace("-", "")
+                        .replace(":", "")
+                        .replace("T", "_")
+                        .replace(".", "_")
+                    )
+                    output_dir = (
+                        settings.exports_dir
+                        / investigation_id
+                        / f"zeroneurone_{timestamp}"
+                    )
+                    exported = await asyncio.to_thread(
+                        export_zeroneurone_bundle,
+                        workspace,
+                        output_dir,
+                        include_evidence=include_evidence,
+                        include_unreviewed=include_unreviewed,
+                        tool_version=_tool_version(),
+                        base_dir=settings.base_dir,
+                        asset_root=settings.evidence_dir,
+                    )
+                    investigation_service.record_export(
+                        investigation_id,
+                        archive_path=_stored_path(
+                            exported.archive_path,
+                            settings.base_dir,
+                        ),
+                        dossier_path=_stored_path(
+                            exported.dossier_path,
+                            settings.base_dir,
+                        ),
+                        graphml_path=_stored_path(
+                            exported.graphml_path,
+                            settings.base_dir,
+                        ),
+                        csv_path=_stored_path(
+                            exported.csv_path,
+                            settings.base_dir,
+                        ),
+                        nodes_csv_path=_stored_path(
+                            exported.nodes_csv_path,
+                            settings.base_dir,
+                        ),
+                        edges_csv_path=_stored_path(
+                            exported.edges_csv_path,
+                            settings.base_dir,
+                        ),
+                        manifest_path=_stored_path(
+                            exported.manifest_path,
+                            settings.base_dir,
+                        ),
+                        include_evidence=include_evidence,
+                        include_unreviewed=include_unreviewed,
+                        node_count=exported.node_count,
+                        edge_count=exported.edge_count,
+                        asset_count=exported.asset_count,
+                        generated_at=exported.generated_at,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_page_status(
+                        source_tab,
+                        (
+                            f"Export generated: {exported.node_count} nodes, "
+                            f"{exported.edge_count} links."
+                        ),
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Unable to generate ZeroNeurone export.",
+                        exc_info=True,
+                    )
+                    await _set_page_status(
+                        source_tab,
+                        "Export failed. Check the logs for details.",
+                        is_error=True,
+                    )
+                continue
+            if result["action"] == "delete_zeroneurone_export":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                export_id = str(result.get("exportId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    await _delete_investigation_export(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                        export_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
             if result["action"] == "remove_saved_page":
                 investigation_id = str(result.get("investigationId", "") or "").strip()
                 result_id = str(result.get("resultId", "") or "").strip()
@@ -2557,10 +2993,19 @@ async def main():
             automatic_dorks = bool(result.get("automaticDorks", True))
             if automatic_dorks and not is_advanced_query(original_query):
                 logger.info("Parsing query to a smart query: %s", original_query)
-            parsed_base_query = _prepare_base_query(
+            raw_query_variants = normalize_query_variants(
                 original_query,
-                automatic_dorks=automatic_dorks,
+                result.get("queryVariants"),
+                settings.max_query_variants,
             )
+            parsed_query_variants = tuple(
+                _prepare_base_query(
+                    query,
+                    automatic_dorks=automatic_dorks,
+                )
+                for query in raw_query_variants
+            )
+            parsed_base_query = parsed_query_variants[0]
             if parsed_base_query != original_query:
                 logger.info("Smart query: %s", parsed_base_query)
 
@@ -2577,6 +3022,7 @@ async def main():
                 parsed_base_query,
                 investigation_service=investigation_service,
                 investigation_id=investigation_id,
+                query_variants=parsed_query_variants,
             )
             if persistence_error:
                 await _set_home_status(
@@ -2601,6 +3047,7 @@ async def perform_search(
     base_query: str | None = None,
     investigation_service: InvestigationService | None = None,
     investigation_id: str | None = None,
+    query_variants: tuple[str, ...] | None = None,
 ):
     started_at = utc_now()
     try:
@@ -2613,6 +3060,7 @@ async def perform_search(
             filters=filters,
             base_query=base_query,
             investigation_id=investigation_id,
+            query_variants=query_variants,
         )
     except SynthesixError:
         logger.error("Search failed.", exc_info=True)

@@ -57,6 +57,27 @@ Prochaine phase P1 :
 - comparaison temporelle du contenu des pages et surveillance manuelle :
   realisees.
 
+Phase P2 - variantes et couverture :
+
+- generation assistee de variantes simples : realisee ;
+- validation explicite et variantes manuelles : realisees ;
+- limite configurable des variantes : realisee ;
+- execution asynchrone des combinaisons moteur/variante : realisee ;
+- fusion des doublons avec provenance de requete : realisee ;
+- resume compact des resultats, timeouts, challenges et erreurs : realise ;
+- relance ciblee d'une combinaison en erreur : realisee.
+
+Phase P2 - entites et export :
+
+- extraction deterministe depuis les pages retenues : realisee ;
+- passage source, valeur originale et valeur normalisee : realises ;
+- validation et rejet explicites par l'analyste : realises ;
+- conservation des decisions lors d'une nouvelle extraction : realisee ;
+- relations observees : realisees ;
+- export ZIP natif, GraphML, CSV et manifeste : realise ;
+- validation automatique du schema documente : realisee ;
+- smoke test manuel dans l'application ZeroNeurone : a faire.
+
 ## 1. Objectif
 
 Faire evoluer Synthesix d'un agregateur multi-moteur vers un moteur
@@ -685,23 +706,24 @@ Livrable : detection de changements sans planificateur automatique.
 
 ### Phase 5 - Variantes et couverture
 
-- generation assistee de variantes ;
-- validation utilisateur ;
-- limite de combinaisons ;
-- resume de couverture compact ;
-- relance ciblee des erreurs.
+- generation assistee de variantes : realisee ;
+- validation utilisateur : realisee ;
+- limite de combinaisons : realisee ;
+- resume de couverture compact : realise ;
+- relance ciblee des erreurs : realisee.
 
 Livrable : recherche plus complete sans execution opaque.
 
 ### Phase 6 - Entites et export ZeroNeurone
 
-- extraction deterministe initiale ;
-- validation/rejet des entites ;
-- relations observees ;
-- export GraphML ;
-- CSV noeuds/liens ;
-- manifeste d'export ;
-- test d'import ZeroNeurone.
+- extraction deterministe initiale : realisee ;
+- validation/rejet des entites : realises ;
+- relations observees : realisees ;
+- export ZIP natif et GraphML : realises ;
+- CSV noeuds/liens : realises ;
+- manifeste d'export : realise ;
+- validation automatisee du format d'import documente : realisee ;
+- test manuel d'import ZeroNeurone : a faire.
 
 Livrable : transfert fiable vers ZeroNeurone pour l'analyse visuelle.
 

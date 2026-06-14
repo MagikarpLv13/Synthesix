@@ -4,6 +4,7 @@ from difflib import unified_diff
 from html import escape
 from pathlib import Path
 import re
+import os
 
 from evidence.changes import PageTextChange
 
@@ -35,6 +36,7 @@ def generate_page_comparison_report(
     previous_text: str,
     current_text: str,
     change: PageTextChange,
+    base_dir: Path | None = None,
 ) -> str:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +56,13 @@ def generate_page_comparison_report(
         if change.similarity is not None
         else "Unavailable"
     )
+    i18n_script = ""
+    if base_dir is not None:
+        relative_script = os.path.relpath(
+            (Path(base_dir) / "i18n.js").resolve(),
+            output_path.parent.resolve(),
+        ).replace(os.sep, "/")
+        i18n_script = f'<script src="{escape(relative_script, quote=True)}"></script>'
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,6 +82,7 @@ def generate_page_comparison_report(
         pre {{ overflow: auto; padding: 16px; border-radius: 6px;
             background: #0f172a; color: #e2e8f0; white-space: pre-wrap; }}
     </style>
+    {i18n_script}
 </head>
 <body>
 <main>

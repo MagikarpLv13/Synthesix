@@ -6,6 +6,7 @@ from typing import Any
 
 INVESTIGATION_STATUSES = ("active", "archived")
 ANALYST_STATUSES = ("a_verifier", "pertinent", "ecarte", "confirme")
+ENTITY_STATUSES = ("proposed", "validated", "rejected")
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class InvestigationResult:
     added_at: str
     updated_at: str
     discovery_method: str
+    discovery_search_run_id: str | None
     discovery_query: str
     discovery_sources: tuple[str, ...]
     discovery_report_path: str | None
@@ -86,6 +88,7 @@ class InvestigationResult:
             "added_at": self.added_at,
             "updated_at": self.updated_at,
             "discovery_method": self.discovery_method,
+            "discovery_search_run_id": self.discovery_search_run_id,
             "discovery_query": self.discovery_query,
             "discovery_sources": list(self.discovery_sources),
             "discovery_report_path": self.discovery_report_path,
@@ -125,6 +128,80 @@ class InvestigationSearchRun:
             "engine_errors": self.engine_errors,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+        }
+
+
+@dataclass(frozen=True)
+class ExtractedEntity:
+    id: str
+    investigation_id: str
+    result_id: str
+    entity_type: str
+    value_original: str
+    value_normalized: str
+    source_field: str
+    source_text: str
+    confidence: float
+    status: str
+    first_observed_at: str
+    last_observed_at: str
+    reviewed_at: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "result_id": self.result_id,
+            "entity_type": self.entity_type,
+            "value_original": self.value_original,
+            "value_normalized": self.value_normalized,
+            "source_field": self.source_field,
+            "source_text": self.source_text,
+            "confidence": self.confidence,
+            "status": self.status,
+            "first_observed_at": self.first_observed_at,
+            "last_observed_at": self.last_observed_at,
+            "reviewed_at": self.reviewed_at,
+        }
+
+
+@dataclass(frozen=True)
+class InvestigationExport:
+    id: str
+    investigation_id: str
+    export_type: str
+    archive_path: str
+    dossier_path: str
+    graphml_path: str
+    csv_path: str
+    nodes_csv_path: str
+    edges_csv_path: str
+    manifest_path: str
+    include_evidence: bool
+    include_unreviewed: bool
+    node_count: int
+    edge_count: int
+    asset_count: int
+    generated_at: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "export_type": self.export_type,
+            "archive_path": self.archive_path,
+            "dossier_path": self.dossier_path,
+            "graphml_path": self.graphml_path,
+            "csv_path": self.csv_path,
+            "nodes_csv_path": self.nodes_csv_path,
+            "edges_csv_path": self.edges_csv_path,
+            "manifest_path": self.manifest_path,
+            "include_evidence": self.include_evidence,
+            "include_unreviewed": self.include_unreviewed,
+            "node_count": self.node_count,
+            "edge_count": self.edge_count,
+            "asset_count": self.asset_count,
+            "generated_at": self.generated_at,
         }
 
 

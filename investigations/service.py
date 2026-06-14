@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from analysis.entities import extract_entity_candidates
 from exceptions import InvestigationValidationError
 from investigations.models import (
     ANALYST_STATUSES,
+    ENTITY_STATUSES,
     Investigation,
+    InvestigationExport,
     LocalSearchFilters,
     PageComparison,
     PageMonitor,
@@ -226,6 +230,18 @@ class InvestigationService:
                     investigation_id
                 )
             ],
+            "entities": [
+                entity.to_payload()
+                for entity in self.repository.list_extracted_entities(
+                    investigation_id
+                )
+            ],
+            "exports": [
+                export.to_payload()
+                for export in self.repository.list_investigation_exports(
+                    investigation_id
+                )
+            ],
         }
 
     def update_result(
@@ -252,6 +268,78 @@ class InvestigationService:
 
     def attach_search(self, investigation_id: str, search_run_id: str):
         return self.repository.attach_search(investigation_id, search_run_id)
+
+    def extract_entities(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> list[dict]:
+        sources = self.repository.get_saved_result_entity_sources(
+            investigation_id,
+            result_id,
+        )
+        candidates = extract_entity_candidates(sources)
+        return [
+            entity.to_payload()
+            for entity in self.repository.upsert_extracted_entities(
+                investigation_id,
+                result_id,
+                (asdict(candidate) for candidate in candidates),
+            )
+        ]
+
+    def update_entity_status(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        status: str,
+    ) -> dict:
+        normalized_status = str(status or "").strip()
+        if normalized_status not in ENTITY_STATUSES:
+            raise InvestigationValidationError(
+                f"Unsupported entity status: {normalized_status}"
+            )
+        return self.repository.update_extracted_entity_status(
+            investigation_id,
+            entity_id,
+            normalized_status,
+        ).to_payload()
+
+    def delete_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+    ) -> None:
+        self.repository.delete_extracted_entity(
+            investigation_id,
+            entity_id,
+        )
+
+    def record_export(self, investigation_id: str, **kwargs) -> dict:
+        return self.repository.record_investigation_export(
+            investigation_id,
+            **kwargs,
+        ).to_payload()
+
+    def get_export(
+        self,
+        investigation_id: str,
+        export_id: str,
+    ) -> InvestigationExport:
+        return self.repository.get_investigation_export(
+            investigation_id,
+            export_id,
+        )
+
+    def delete_export(
+        self,
+        investigation_id: str,
+        export_id: str,
+    ) -> None:
+        self.repository.delete_investigation_export(
+            investigation_id,
+            export_id,
+        )
 
     def save_page(self, investigation_id: str, payload: Mapping):
         return self.repository.save_page(

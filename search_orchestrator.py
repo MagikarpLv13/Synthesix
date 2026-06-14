@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Callable, Mapping
 
@@ -31,6 +32,7 @@ class SearchRunResult:
     total_time: float
     engine_errors: dict[str, Exception] = field(default_factory=dict)
     results: tuple[dict, ...] = ()
+    coverage: tuple[dict, ...] = ()
 
 
 def _create_google_engine():
@@ -86,7 +88,12 @@ def aggregate_search_results(
             logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
             continue
         engine_frame = df.copy()
-        engine_frame["_engine"] = str(engine)
+        if "_engine" not in engine_frame:
+            engine_frame["_engine"] = str(engine)
+        if "_query_variant" not in engine_frame:
+            engine_frame["_query_variant"] = (
+                base_query if base_query is not None else parsed_query
+            )
         frames.append(engine_frame)
 
     if not frames:
@@ -95,11 +102,12 @@ def aggregate_search_results(
             "relevance_score",
             "score_breakdown",
             "engine_count",
+            "query_variants",
         ])
 
     combined_df = pd.concat(frames, ignore_index=True)
     combined_df = combined_df.drop_duplicates(
-        subset=[*REQUIRED_RESULT_COLUMNS, "_engine"]
+        subset=[*REQUIRED_RESULT_COLUMNS, "_engine", "_query_variant"]
     )
     filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
     if filters.has_filters():
@@ -112,18 +120,25 @@ def aggregate_search_results(
                 "relevance_score",
                 "score_breakdown",
                 "engine_count",
+                "query_variants",
             ])
 
     if scorer is calculate_relevance:
-        row_explainer = build_relevance_explainer(parsed_query)
-        combined_df["_base_breakdown"] = combined_df.apply(row_explainer, axis=1)
+        explainers = {
+            query: build_relevance_explainer(query)
+            for query in combined_df["_query_variant"].astype(str).unique()
+        }
+        combined_df["_base_breakdown"] = combined_df.apply(
+            lambda row: explainers[str(row["_query_variant"])](row),
+            axis=1,
+        )
     else:
         combined_df["_base_breakdown"] = combined_df.apply(
             lambda row: ScoreBreakdown((
                 ScoreComponent(
                     "custom_score",
                     "Custom relevance score",
-                    float(scorer(row, parsed_query)),
+                    float(scorer(row, str(row["_query_variant"]))),
                 ),
             )),
             axis=1,
@@ -141,6 +156,9 @@ def aggregate_search_results(
         lambda values: ", ".join(sorted(values.astype(str).unique()))
     )
     engine_counts = combined_df.groupby("link")["_engine"].nunique()
+    query_variants = combined_df.groupby("link")["_query_variant"].apply(
+        lambda values: sorted(set(values.astype(str)))
+    )
     filters_matched = filters.has_filters()
     best_rows["engine_count"] = best_rows["link"].map(engine_counts).astype(int)
     best_rows["score_breakdown"] = best_rows.apply(
@@ -154,12 +172,14 @@ def aggregate_search_results(
     best_rows["relevance_score"] = best_rows["score_breakdown"].map(
         lambda components: sum(float(component["score"]) for component in components)
     )
+    best_rows["query_variants"] = best_rows["link"].map(query_variants)
     best_rows = best_rows.drop(columns=["_base_breakdown"])
 
     return (
         best_rows
         .merge(sources.rename("source"), on="link", how="left")
-        .sort_values("relevance_score", ascending=False)
+        .sort_values("relevance_score", ascending=False, kind="stable")
+        .reset_index(drop=True)
     )
 
 
@@ -190,18 +210,23 @@ class SearchOrchestrator:
         filters: SearchFilters | Mapping | None = None,
         base_query: str | None = None,
         investigation_id: str | None = None,
+        query_variants: Iterable[str] | None = None,
     ) -> SearchRunResult:
         filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
         logger.info("Search in progress for: %s", parsed_query)
         start_time = time.monotonic()
         engine_base_query = base_query if base_query is not None else parsed_query
 
-        engine_results, engine_errors, attempted_count = await self._run_engines(
+        execution_queries = tuple(query_variants or ())
+        if not execution_queries:
+            execution_queries = (engine_base_query,)
+        engine_results, engine_errors, attempted_count, coverage = await self._run_engines(
             engine_base_query,
             browser,
             engines,
             num_results,
             filters,
+            query_variants=execution_queries,
         )
         total_time = time.monotonic() - start_time
         logger.info("Global execution time: %.2f seconds", total_time)
@@ -223,7 +248,18 @@ class SearchOrchestrator:
             filters=filters,
             base_query=base_query,
         )
-        relevant_results = combined_df[combined_df["relevance_score"] > 0]
+        relevant_results = (
+            combined_df[combined_df["relevance_score"] > 0]
+            .sort_values("relevance_score", ascending=False, kind="stable")
+            .reset_index(drop=True)
+        )
+        relevant_results.attrs["query_coverage"] = coverage
+        relevant_results.attrs["search_context"] = {
+            "original_query": original_query,
+            "filters": filters.to_payload(),
+            "num_results": int(num_results),
+            "investigation_id": investigation_id or "",
+        }
         nb_results = len(relevant_results)
 
         output_path = self.report_generator(relevant_results, parsed_query, total_time, nb_results)
@@ -267,6 +303,7 @@ class SearchOrchestrator:
             total_time=total_time,
             engine_errors=engine_errors,
             results=tuple(relevant_results.to_dict(orient="records")),
+            coverage=coverage,
         )
 
     async def _run_engines(
@@ -276,43 +313,62 @@ class SearchOrchestrator:
         selected_engines: Mapping[str, bool],
         num_results: int,
         filters: SearchFilters,
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int]:
+        query_variants: Iterable[str] | None = None,
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int, tuple[dict, ...]]:
         tasks = []
         concurrency = max(1, self.settings.engine_concurrency)
         semaphore = asyncio.Semaphore(concurrency)
-        for engine_name, enabled in selected_engines.items():
-            if not enabled:
-                continue
+        queries = tuple(query_variants or (parsed_query,))
+        coverage = {
+            query: {"query": query, "engines": {}}
+            for query in queries
+        }
+        multiple_queries = len(queries) > 1
 
-            factory = self.engine_factories.get(engine_name)
-            if factory is None:
-                logger.warning("Unknown search engine selected: %s", engine_name)
-                continue
+        for query_index, query in enumerate(queries):
+            for engine_name, enabled in selected_engines.items():
+                if not enabled:
+                    continue
 
-            engine = factory()
-            engine.search_filters = filters
-            engine_query = build_engine_query(parsed_query, engine_name, filters)
-            tasks.append((
-                engine_name,
-                asyncio.create_task(self._search_engine_limited(
-                    semaphore,
+                factory = self.engine_factories.get(engine_name)
+                if factory is None:
+                    logger.warning("Unknown search engine selected: %s", engine_name)
+                    continue
+
+                engine = factory()
+                engine.search_filters = filters
+                engine_query = build_engine_query(query, engine_name, filters)
+                task_key = (
+                    f"{engine_name} [variant {query_index + 1}]"
+                    if multiple_queries
+                    else engine_name
+                )
+                tasks.append((
+                    task_key,
                     engine_name,
-                    engine,
-                    engine_query,
-                    browser,
-                    num_results,
-                )),
-            ))
+                    query,
+                    asyncio.create_task(self._search_engine_limited(
+                        semaphore,
+                        engine_name,
+                        engine,
+                        engine_query,
+                        browser,
+                        num_results,
+                    )),
+                ))
 
         if not tasks:
             logger.warning("No search engine selected.")
-            return {}, {}, 0
+            return {}, {}, 0, ()
 
-        results = await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        results = await asyncio.gather(
+            *(task for _, _, _, task in tasks),
+            return_exceptions=True,
+        )
         engine_results = {}
         engine_errors = {}
 
-        for (engine_name, _), result in zip(tasks, results):
+        for (task_key, engine_name, query, _), result in zip(tasks, results):
             if isinstance(result, Exception):
                 error = self._normalize_engine_error(engine_name, result)
                 logger.error(
@@ -321,12 +377,31 @@ class SearchOrchestrator:
                     error,
                     exc_info=(type(result), result, result.__traceback__),
                 )
-                engine_errors[engine_name] = error
-                engine_results[engine_name] = pd.DataFrame()
+                engine_errors[task_key] = error
+                engine_results[task_key] = pd.DataFrame()
+                coverage[query]["engines"][engine_name] = {
+                    "status": self._coverage_error_status(error),
+                    "count": 0,
+                }
             else:
-                engine_results[engine_name] = result
+                result_frame = result.copy()
+                result_frame["_engine"] = engine_name
+                result_frame["_query_variant"] = query
+                engine_results[task_key] = result_frame
+                coverage[query]["engines"][engine_name] = {
+                    "status": "ok",
+                    "count": len(result_frame),
+                }
 
-        return engine_results, engine_errors, len(tasks)
+        return engine_results, engine_errors, len(tasks), tuple(coverage.values())
+
+    @staticmethod
+    def _coverage_error_status(error: Exception) -> str:
+        if isinstance(error, RobotChallengeError):
+            return "challenge"
+        if isinstance(error, TimeoutError) or "timeout" in str(error).lower():
+            return "timeout"
+        return "error"
 
     async def _search_engine_limited(
         self,

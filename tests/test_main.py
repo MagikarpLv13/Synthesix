@@ -12,16 +12,20 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from main import (
     _archive_page,
+    _apply_settings_to_tabs,
     _cached_history_payload,
     _capture_evidence,
+    _consume_settings_change,
     _default_capture_name,
     _delete_evidence_capture,
+    _delete_investigation_export,
     _install_and_consume_save_overlay,
     _investigation_payload,
     _is_external_web_tab,
+    _log_level_from_args,
     _open_or_refresh_investigation_page,
     _prepare_base_query,
-    _log_level_from_args,
+    _retry_search_combination,
     _verify_evidence_capture,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
@@ -110,6 +114,40 @@ class HomeHistoryCacheTestCase(unittest.TestCase):
 
         self.assertNotEqual(refreshed_version, version)
         self.assertEqual(json.loads(refreshed_json)[0]["query"], "first query")
+
+
+class SettingsSynchronizationTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_settings_change_is_consumed_from_i18n_bridge(self):
+        tab = SimpleNamespace(
+            evaluate=AsyncMock(return_value={"language": "de", "theme": "dark"})
+        )
+
+        settings = await _consume_settings_change(tab)
+
+        self.assertEqual(settings, {"language": "de", "theme": "dark"})
+        self.assertIn("consumeSettingsChange", tab.evaluate.await_args.args[0])
+
+    async def test_settings_are_applied_only_to_other_synthesix_tabs(self):
+        source = SimpleNamespace(url="file:///app/index.html", evaluate=AsyncMock())
+        report = SimpleNamespace(url="file:///app/report.html", evaluate=AsyncMock())
+        external = SimpleNamespace(
+            url="https://example.com/",
+            evaluate=AsyncMock(),
+        )
+
+        await _apply_settings_to_tabs(
+            [source, report, external],
+            {"language": "pt", "theme": "light"},
+            source_tab=source,
+        )
+
+        source.evaluate.assert_not_awaited()
+        external.evaluate.assert_not_awaited()
+        report.evaluate.assert_awaited_once()
+        script = report.evaluate.await_args.args[0]
+        self.assertIn("applySettings", script)
+        self.assertIn('"language": "pt"', script)
+        self.assertIn('"theme": "light"', script)
 
 
 class InvestigationPayloadTestCase(unittest.TestCase):
@@ -387,6 +425,60 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                 "capture-1",
             )
 
+    async def test_delete_export_removes_directory_and_database_row(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            export_dir = (
+                base_dir
+                / "data"
+                / "exports"
+                / "case-1"
+                / "zeroneurone_1"
+            )
+            export_dir.mkdir(parents=True)
+            paths = {}
+            for name in (
+                "zeroneurone.zip",
+                "dossier.json",
+                "investigation.graphml",
+                "zeroneurone.csv",
+                "nodes.csv",
+                "edges.csv",
+                "manifest.json",
+            ):
+                path = export_dir / name
+                path.write_text("", encoding="utf-8")
+                paths[name] = path.relative_to(base_dir).as_posix()
+            service = SimpleNamespace(
+                get_export=lambda *_args: SimpleNamespace(
+                    archive_path=paths["zeroneurone.zip"],
+                    dossier_path=paths["dossier.json"],
+                    graphml_path=paths["investigation.graphml"],
+                    csv_path=paths["zeroneurone.csv"],
+                    nodes_csv_path=paths["nodes.csv"],
+                    edges_csv_path=paths["edges.csv"],
+                    manifest_path=paths["manifest.json"],
+                ),
+                delete_export=Mock(),
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                exports_dir=base_dir / "data" / "exports",
+            )
+
+            await _delete_investigation_export(
+                service,
+                settings,
+                "case-1",
+                "export-1",
+            )
+
+            self.assertFalse(export_dir.exists())
+            service.delete_export.assert_called_once_with(
+                "case-1",
+                "export-1",
+            )
+
     async def test_open_tabs_keeps_live_targets_without_websocket(self):
         from main import _open_tabs
 
@@ -518,6 +610,106 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(action["action"], "update_investigation_result")
         self.assertIs(action["_source_tab"], tab)
+
+    async def test_home_page_action_is_returned_with_source_tab(self):
+        class FakeTab:
+            url = "file:///tmp/index.html"
+            closed = False
+
+            async def evaluate(self, _script):
+                return {
+                    "ready": True,
+                    "action": {
+                        "action": "suggest_query_variants",
+                        "value": "anna lindberg",
+                    },
+                }
+
+        tab = FakeTab()
+        settings = SimpleNamespace(
+            home_poll_interval=0,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+        with (
+            patch("main._open_tabs", return_value=[tab]),
+            patch("main._cached_history_payload", return_value=("[]", "")),
+        ):
+            action = await wait_for_home_action(
+                SimpleNamespace(stopped=False),
+                "file:///tmp/index.html",
+                settings=settings,
+            )
+
+        self.assertEqual(action["action"], "suggest_query_variants")
+        self.assertIs(action["_source_tab"], tab)
+
+    async def test_retry_search_combination_runs_only_selected_cell(self):
+        settings = SimpleNamespace(
+            default_engines={
+                "google": True,
+                "bing": True,
+                "brave": True,
+                "duckduckgo": True,
+            },
+            default_max_results=20,
+        )
+        with patch("main.perform_search", new=AsyncMock(return_value=None)) as search:
+            message, is_error = await _retry_search_combination(
+                {
+                    "query": '"lindberg anna"',
+                    "engine": "bing",
+                    "originalQuery": "anna lindberg",
+                    "filters": {"site": "example.com"},
+                    "numResults": 7,
+                    "investigationId": "case-1",
+                },
+                object(),
+                settings,
+                Mock(),
+            )
+
+        self.assertFalse(is_error)
+        self.assertEqual(message, "Retry completed for Bing.")
+        search.assert_awaited_once()
+        call = search.await_args
+        self.assertEqual(call.args[0], "anna lindberg")
+        self.assertEqual(
+            call.args[1],
+            '"lindberg anna" site:example.com',
+        )
+        self.assertEqual(
+            call.args[3],
+            {
+                "google": False,
+                "bing": True,
+                "brave": False,
+                "duckduckgo": False,
+            },
+        )
+        self.assertEqual(call.args[4], 7)
+        self.assertEqual(call.kwargs["investigation_id"], "case-1")
+        self.assertEqual(call.kwargs["query_variants"], ('"lindberg anna"',))
+
+    async def test_retry_search_combination_rejects_unknown_engine(self):
+        settings = SimpleNamespace(
+            default_engines={"google": True},
+            default_max_results=20,
+        )
+        with patch("main.perform_search", new=AsyncMock()) as search:
+            message, is_error = await _retry_search_combination(
+                {"query": "query", "engine": "unknown"},
+                object(),
+                settings,
+                Mock(),
+            )
+
+        self.assertTrue(is_error)
+        self.assertEqual(
+            message,
+            "The selected search engine cannot be retried.",
+        )
+        search.assert_not_awaited()
 
     async def test_refresh_does_not_open_missing_investigation_tab(self):
         browser = SimpleNamespace()
