@@ -116,15 +116,35 @@ def workspace_payload(*, status="active"):
                 "investigation_id": "case-123",
                 "result_id": "result-123",
                 "entity_type": "email",
+                "suggested_type": "email",
+                "custom_label": "Primary contact",
                 "value_original": "analyst@example.com",
                 "value_normalized": "analyst@example.com",
                 "source_field": "notes",
                 "source_text": "Contact analyst@example.com for verification.",
                 "confidence": 0.99,
+                "confidence_reasons": ["Email syntax", "Domain syntax"],
+                "attributes": {"domain": "example.com"},
                 "status": "proposed",
                 "first_observed_at": "2026-06-10T10:00:00+00:00",
                 "last_observed_at": "2026-06-10T10:00:00+00:00",
                 "reviewed_at": None,
+            }
+        ],
+        "graph_entities": [
+            {
+                "id": "graph-entity-123",
+                "investigation_id": "case-123",
+                "label": "Example SAS",
+                "notes": "Primary company",
+                "tags": ["Entreprise"],
+                "properties": {
+                    "SIREN": "732829320",
+                    "Forme juridique": "SAS",
+                },
+                "linked_result_ids": ["result-123"],
+                "created_at": "2026-06-10T10:00:00+00:00",
+                "updated_at": "2026-06-10T10:00:00+00:00",
             }
         ],
         "exports": [
@@ -147,6 +167,38 @@ def workspace_payload(*, status="active"):
                 "edge_count": 3,
                 "asset_count": 2,
                 "generated_at": "2026-06-12T12:00:00+00:00",
+            }
+        ],
+        "url_analyses": [
+            {
+                "id": "analysis-123",
+                "investigation_id": "case-123",
+                "result_id": "result-123",
+                "requested_url": "https://example.com/start",
+                "final_url": "https://example.com/page?utm_source=test",
+                "final_domain_unicode": "example.com",
+                "final_domain_punycode": "example.com",
+                "status_code": 200,
+                "redirects": [
+                    {
+                        "url": "https://example.com/start",
+                        "status_code": 301,
+                        "location": "https://example.com/page?utm_source=test",
+                    }
+                ],
+                "headers": {
+                    "content-type": "text/html",
+                    "x-frame-options": "DENY",
+                },
+                "content_type": "text/html",
+                "content_length": 512,
+                "bytes_read": 512,
+                "content_sha256": "d" * 64,
+                "content_truncated": False,
+                "elapsed_ms": 42,
+                "tracking_parameters": ["utm_source"],
+                "cleaned_url": "https://example.com/page",
+                "analyzed_at": "2026-06-14T10:00:00+00:00",
             }
         ],
         "evidence": [
@@ -229,12 +281,31 @@ class InvestigationViewTestCase(unittest.TestCase):
             "previous search (3 results)",
         )
         self.assertIn('queueAction("update_investigation_result"', content)
+        self.assertIn("toggle-result-details", content)
+        self.assertIn("collapsedStorageKey", content)
+        self.assertIn("setResultCollapsed", content)
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn('queueAction("delete_page_monitor"', content)
         self.assertIn('queueAction("extract_result_entities"', content)
+        self.assertIn('queueAction("analyze_result_url"', content)
         self.assertIn('queueAction("update_entity_status"', content)
+        self.assertIn('queueAction("update_entity_metadata"', content)
         self.assertIn('queueAction("delete_entity"', content)
+        self.assertIn('queueAction("create_graph_entity"', content)
+        self.assertIn(
+            'queueAction("create_graph_entity_from_result"',
+            content,
+        )
+        self.assertIn(
+            '"create_graph_entity_from_extracted"',
+            content,
+        )
+        self.assertIn('queueAction("update_graph_entity"', content)
+        self.assertIn('queueAction("link_result_to_graph_entity"', content)
+        self.assertIn('queueAction("attach_extracted_property"', content)
+        self.assertIn("Créer une entité depuis ce site", content)
+        self.assertIn("Créer une entité depuis cette propriété", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
         self.assertIn("Significant change", content)
@@ -243,6 +314,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree.xpath("//nav[contains(@class, 'investigation-nav')]/a/@href"),
             [
                 "#overview",
+                "#entities",
                 "#saved-pages",
                 "#page-monitoring",
                 "#exports",
@@ -261,8 +333,24 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
         self.assertIn("Evidence (1)", content)
         self.assertIn("Entities (1)", content)
+        self.assertIn("Investigation entities", content)
+        self.assertIn("Example SAS", content)
+        self.assertIn("Forme juridique", content)
+        self.assertIn("Linked entities", content)
+        self.assertIn("Use as property", content)
         self.assertIn("analyst@example.com", content)
         self.assertIn("99% deterministic confidence", content)
+        self.assertIn("Primary contact", content)
+        self.assertIn("Suggested Email", content)
+        self.assertIn("from notes", content)
+        self.assertIn("Email syntax", content)
+        self.assertIn("example.com", content)
+        self.assertIn("Technical URL analysis (1)", content)
+        self.assertIn("HTTP 200", content)
+        self.assertIn("1 redirect(s)", content)
+        self.assertIn("SHA-256 " + ("d" * 64), content)
+        self.assertIn("x-frame-options", content)
+        self.assertIn("without known tracking parameters", content)
         self.assertIn("Delete</button>", content)
         self.assertIn("ZeroNeurone export", content)
         self.assertIn("Export GraphML and CSV", content)
@@ -328,9 +416,35 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("result-filter-tag", content)
         self.assertIn("result-filter-after", content)
         self.assertIn("result-filter-before", content)
+        self.assertIn('id="tag-suggestions"', content)
+        self.assertIn('<option value="Personne"></option>', content)
+        self.assertIn('<option value="Offshore"></option>', content)
+        self.assertIn('list="tag-suggestions"', content)
+        self.assertIn("Choose a suggested tag or enter custom tags", content)
+        self.assertIn("data-result-tag-suggestion", content)
+        self.assertIn("add-result-tag", content)
+        self.assertIn("data-entity-tags", content)
+        self.assertIn("data-entity-tag-suggestion", content)
+        self.assertIn("add-entity-tag", content)
+        self.assertNotIn("ZeroNeurone TagSets are suggested", content)
+        self.assertIn("tags.push(selected)", content)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
         self.assertNotIn("<script>alert(1)</script>", content)
         self.assertIn("../../theme.css", content)
+        self.assertEqual(
+            tree.xpath(
+                "//article[@data-result-id='result-123']"
+                "//button[contains(@class, 'toggle-result-details')]/@aria-expanded"
+            ),
+            ["true"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//article[@data-result-id='result-123']"
+                "/div[contains(@class, 'result-body')]/@id"
+            ),
+            ["result-body-result-123"],
+        )
 
         inline_scripts = re.findall(
             r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",
@@ -363,6 +477,51 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn(
             '<option value="duckduckgo">DuckDuckGo</option>',
             content,
+        )
+
+    def test_compacts_long_urls_without_changing_link_target(self):
+        workspace = workspace_payload()
+        long_url = (
+            "https://www.google.com/maps/@48.2368593,2.3635355,3a,15y/"
+            + ("data=!3m7!1e1!" * 30)
+            + "?entry=ttu&ucbcb=1"
+        )
+        workspace["results"][0]["url"] = long_url
+        workspace["url_analyses"][0]["final_url"] = long_url
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        self.assertEqual(
+            tree.xpath(
+                "//article[@data-result-id='result-123']"
+                "//a[contains(@class, 'result-title')]/@href"
+            ),
+            [long_url],
+        )
+        displayed_urls = tree.xpath(
+            "//article[@data-result-id='result-123']"
+            "//div[contains(@class, 'result-url')]/text()"
+        )
+        self.assertTrue(all(len(value.strip()) <= 160 for value in displayed_urls))
+        self.assertTrue(any("..." in value for value in displayed_urls))
+        self.assertTrue(
+            all(
+                value == long_url
+                for value in tree.xpath(
+                    "//article[@data-result-id='result-123']"
+                    "//div[contains(@class, 'result-url')]/@title"
+                )
+            )
         )
 
     def test_page_monitor_can_be_enabled_from_saved_page(self):
@@ -411,7 +570,45 @@ class InvestigationViewTestCase(unittest.TestCase):
             ["disabled"],
         )
         self.assertEqual(
+            tree.xpath(
+                "//button[contains(@class, 'analyze-result-url')]/@disabled"
+            ),
+            ["disabled"],
+        )
+        self.assertEqual(
             tree.xpath("//select[@data-entity-status]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//select[@data-entity-type]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//input[@data-entity-custom-label]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//input[@data-entity-tags]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//select[@data-result-tag-suggestion]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//button[contains(@class, 'add-result-tag')]/@disabled"
+            ),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath("//select[@data-entity-tag-suggestion]/@disabled"),
+            ["disabled"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//button[contains(@class, 'add-entity-tag')]/@disabled"
+            ),
             ["disabled"],
         )
         self.assertTrue(

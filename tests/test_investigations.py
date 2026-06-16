@@ -3,7 +3,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from exceptions import InvestigationHasDataError, InvestigationValidationError
 from investigations.migrations import MIGRATIONS
@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 10)
+        self.assertEqual(self.repository.schema_version(), 14)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 10)
+            self.assertEqual(repository.schema_version(), 14)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,7 +194,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 10)
+            self.assertEqual(service.repository.schema_version(), 14)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
@@ -235,7 +235,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             repository = InvestigationRepository(database_path)
             repository.initialize()
 
-            self.assertEqual(repository.schema_version(), 10)
+            self.assertEqual(repository.schema_version(), 14)
             self.assertEqual(repository.table_count("page_monitors"), 0)
             repaired = sqlite3.connect(database_path)
             try:
@@ -260,7 +260,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         )
 
         self.assertEqual(created.title, "Case Alpha")
-        self.assertEqual(created.tags, ("person", "priority"))
+        self.assertEqual(created.tags, ("Personne", "priority"))
         self.assertEqual(self.service.list_payload()[0]["id"], created.id)
 
         updated = self.service.update(
@@ -592,7 +592,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(updated.analyst_status, "confirme")
         self.assertTrue(updated.favorite)
         self.assertEqual(updated.notes, "Confirmed against the registry.")
-        self.assertEqual(updated.tags, ("company", "registry"))
+        self.assertEqual(updated.tags, ("Entreprise", "registry"))
         self.assertEqual(updated.sources, ("Bing", "Google"))
         self.assertEqual(updated.discovery_sources, ("Bing", "Google"))
         self.assertEqual(updated.discovery_query, "example company")
@@ -607,6 +607,138 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         workspace = self.service.workspace_payload(investigation.id)
         self.assertEqual(workspace["results"][0]["analyst_status"], "confirme")
         self.assertEqual(workspace["searches"][0]["original_query"], "example company")
+
+    def test_builds_curated_entity_from_saved_source_and_extracted_property(self):
+        investigation = self.service.create({"title": "Company case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://www.pappers.fr/entreprise/acme-732829320",
+                "title": "ACME SAS - Pappers",
+                "description": "SIRET 732 829 320 00074",
+                "referrer": "https://www.google.com/",
+            },
+        )
+        graph_entity = self.service.create_graph_entity(
+            investigation.id,
+            {
+                "label": "ACME SAS",
+                "tags": "Company",
+                "notes": "Company retained from the registry result.",
+            },
+        )
+        self.service.link_result_to_graph_entity(
+            investigation.id,
+            graph_entity["id"],
+            saved.id,
+        )
+        self.service.set_graph_entity_property(
+            investigation.id,
+            graph_entity["id"],
+            {"key": "Forme juridique", "value": "SAS"},
+        )
+        extracted = self.service.extract_entities(
+            investigation.id,
+            saved.id,
+        )
+        siret = next(
+            entity
+            for entity in extracted
+            if entity["entity_type"] == "siret"
+        )
+        attached = self.service.attach_extracted_property(
+            investigation.id,
+            siret["id"],
+            {
+                "graph_entity_id": graph_entity["id"],
+                "property_key": "SIRET",
+            },
+        )
+
+        workspace = self.service.workspace_payload(investigation.id)
+        curated = workspace["graph_entities"][0]
+        self.assertEqual(curated["label"], "ACME SAS")
+        self.assertEqual(curated["tags"], ["Entreprise"])
+        self.assertEqual(curated["properties"], {"Forme juridique": "SAS"})
+        self.assertEqual(curated["linked_result_ids"], [saved.id])
+        self.assertEqual(attached["status"], "validated")
+        self.assertEqual(
+            attached["investigation_entity_id"],
+            graph_entity["id"],
+        )
+        self.assertEqual(attached["property_key"], "SIRET")
+
+        self.service.detach_extracted_property(
+            investigation.id,
+            siret["id"],
+        )
+        detached = next(
+            entity
+            for entity in self.service.workspace_payload(
+                investigation.id
+            )["entities"]
+            if entity["id"] == siret["id"]
+        )
+        self.assertIsNone(detached["investigation_entity_id"])
+        self.assertEqual(detached["property_key"], "")
+
+    def test_creates_graph_entities_directly_from_results_and_properties(self):
+        investigation = self.service.create({"title": "Quick entities"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://www.pappers.fr/entreprise/acme-732829320",
+                "title": "ACME SAS - Pappers",
+                "description": "SIRET 732 829 320 00074",
+                "referrer": "https://www.google.com/",
+            },
+        )
+
+        site_entity = self.service.create_graph_entity_from_result(
+            investigation.id,
+            saved.id,
+            {
+                "label": "Pappers",
+                "category": "Website",
+            },
+        )
+        self.assertEqual(site_entity["tags"], ["Site web"])
+        self.assertEqual(site_entity["linked_result_ids"], [saved.id])
+
+        extracted = self.service.extract_entities(
+            investigation.id,
+            saved.id,
+        )
+        siret = next(
+            entity
+            for entity in extracted
+            if entity["entity_type"] == "siret"
+        )
+        company = self.service.create_graph_entity_from_extracted(
+            investigation.id,
+            siret["id"],
+            {
+                "label": "ACME SAS",
+                "category": "Company",
+                "property_key": "SIRET",
+            },
+        )
+
+        self.assertEqual(company["tags"], ["Entreprise"])
+        self.assertEqual(company["linked_result_ids"], [saved.id])
+        attached = next(
+            entity
+            for entity in self.service.workspace_payload(
+                investigation.id
+            )["entities"]
+            if entity["id"] == siret["id"]
+        )
+        self.assertEqual(
+            attached["investigation_entity_id"],
+            company["id"],
+        )
+        self.assertEqual(attached["property_key"], "SIRET")
+        self.assertEqual(attached["status"], "validated")
 
     def test_extracts_and_reviews_entities_without_resetting_analyst_status(self):
         investigation = self.service.create({"title": "Entity case"})
@@ -642,9 +774,25 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             email["id"],
             "rejected",
         )
+        relabeled = self.service.update_entity_metadata(
+            investigation.id,
+            email["id"],
+            {
+                "entity_type": "person",
+                "custom_label": "Primary contact",
+                "tags": "Person, Suspect, custom role",
+            },
+        )
 
         self.assertEqual(reviewed["status"], "rejected")
         self.assertIsNotNone(reviewed["reviewed_at"])
+        self.assertEqual(relabeled["entity_type"], "person")
+        self.assertEqual(relabeled["suggested_type"], "email")
+        self.assertEqual(relabeled["custom_label"], "Primary contact")
+        self.assertEqual(
+            relabeled["tags"],
+            ["Personne", "Suspect", "custom role"],
+        )
         extracted_again = self.service.extract_entities(
             investigation.id,
             saved.id,
@@ -674,6 +822,76 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             0,
         )
 
+    def test_extracts_entities_from_saved_archive_text(self):
+        investigation = self.service.create({"title": "Archive entities"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/company",
+                "title": "Company",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        text_path = (
+            Path(self.temp_dir.name)
+            / "data"
+            / "evidence"
+            / "capture-entity"
+            / "page.txt"
+        )
+        text_path.parent.mkdir(parents=True)
+        text_path.write_text(
+            "SIRET 732 829 320 00074. "
+            "Siège social : 10 rue de la Paix, 75002 Paris.",
+            encoding="utf-8",
+        )
+        self.service.record_evidence_capture(
+            capture_id="capture-entity",
+            investigation_id=investigation.id,
+            result_id=saved.id,
+            name="Company archive",
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope="viewport",
+            selection={},
+            manifest_path=(
+                "data/evidence/capture-entity/manifest.json"
+            ),
+            captured_at="2026-06-15T10:00:00+00:00",
+            tool_version="test",
+            capture_kind="page_archive",
+            artifacts=[
+                {
+                    "id": "artifact-entity-text",
+                    "artifact_type": "text",
+                    "file_path": (
+                        "data/evidence/capture-entity/page.txt"
+                    ),
+                    "mime_type": "text/plain; charset=utf-8",
+                    "sha256": "a" * 64,
+                    "byte_size": text_path.stat().st_size,
+                    "created_at": "2026-06-15T10:00:00+00:00",
+                }
+            ],
+        )
+
+        extracted = self.service.extract_entities(
+            investigation.id,
+            saved.id,
+        )
+
+        self.assertIn("siret", {item["entity_type"] for item in extracted})
+        address = next(
+            item
+            for item in extracted
+            if item["entity_type"] == "address"
+        )
+        self.assertTrue(
+            address["source_field"].startswith("archive_text:")
+        )
+        self.assertEqual(address["attributes"]["postal_code"], "75002")
+
     def test_archived_investigation_rejects_entity_extraction(self):
         investigation = self.service.create({"title": "Archived case"})
         saved = self.service.save_page(
@@ -689,6 +907,65 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
         with self.assertRaises(InvestigationValidationError):
             self.service.extract_entities(investigation.id, saved.id)
+
+    def test_analyzes_and_histories_saved_url(self):
+        investigation = self.service.create({"title": "URL analysis"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile?utm_source=test",
+                "title": "Profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        payload = {
+            "requested_url": saved.url,
+            "final_url": "https://example.org/profile?utm_source=test",
+            "final_domain_unicode": "example.org",
+            "final_domain_punycode": "example.org",
+            "status_code": 200,
+            "redirects": [],
+            "headers": {"content-type": "text/html"},
+            "content_type": "text/html",
+            "content_length": 123,
+            "bytes_read": 123,
+            "content_sha256": "a" * 64,
+            "content_truncated": False,
+            "elapsed_ms": 25,
+            "tracking_parameters": ["utm_source"],
+            "cleaned_url": "https://example.org/profile",
+        }
+        analyzer_result = Mock()
+        analyzer_result.to_payload.return_value = payload
+
+        with patch(
+            "investigations.service.analyze_url",
+            return_value=analyzer_result,
+        ):
+            first = self.service.analyze_result_url(
+                investigation.id,
+                saved.id,
+            )
+            second = self.service.analyze_result_url(
+                investigation.id,
+                saved.id,
+            )
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(
+            self.repository.table_count("url_analyses"),
+            2,
+        )
+        workspace = self.service.workspace_payload(investigation.id)
+        self.assertEqual(len(workspace["url_analyses"]), 2)
+        self.assertEqual(
+            workspace["url_analyses"][0]["tracking_parameters"],
+            ["utm_source"],
+        )
+
+        self.service.remove_saved_page(investigation.id, saved.id)
+        self.assertEqual(self.repository.table_count("url_analyses"), 0)
 
     def test_deletes_extracted_entity(self):
         investigation = self.service.create({"title": "Entity deletion"})

@@ -26,6 +26,7 @@ from investigations.models import (
     ENTITY_STATUSES,
     ExtractedEntity,
     Investigation,
+    InvestigationEntity,
     InvestigationExport,
     InvestigationResult,
     InvestigationSearchRun,
@@ -33,6 +34,7 @@ from investigations.models import (
     LocalSearchResult,
     PageComparison,
     PageMonitor,
+    UrlAnalysis,
 )
 
 
@@ -890,6 +892,553 @@ class InvestigationRepository:
             "notes": str(row["notes"] or ""),
         }
 
+    def get_saved_result_url(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> str:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT r.url
+                FROM investigation_results ir
+                JOIN results r ON r.id = ir.result_id
+                WHERE
+                    ir.investigation_id = ?
+                    AND ir.result_id = ?
+                    AND ir.is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+        if row is None:
+            raise InvestigationResultNotFoundError(
+                investigation_id,
+                result_id,
+            )
+        return str(row["url"] or "")
+
+    def record_url_analysis(
+        self,
+        investigation_id: str,
+        result_id: str,
+        analysis: Mapping,
+    ) -> UrlAnalysis:
+        self.get_saved_result_url(investigation_id, result_id)
+        analysis_id = str(uuid4())
+        analyzed_at = utc_now()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO url_analyses(
+                    id, investigation_id, result_id, requested_url, final_url,
+                    final_domain_unicode, final_domain_punycode, status_code,
+                    redirects_json, headers_json, content_type, content_length,
+                    bytes_read, content_sha256, content_truncated, elapsed_ms,
+                    tracking_parameters_json, cleaned_url, analyzed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis_id,
+                    investigation_id,
+                    result_id,
+                    str(analysis.get("requested_url", "") or ""),
+                    str(analysis.get("final_url", "") or ""),
+                    str(analysis.get("final_domain_unicode", "") or ""),
+                    str(analysis.get("final_domain_punycode", "") or ""),
+                    int(analysis.get("status_code", 0) or 0),
+                    _json_dump(analysis.get("redirects", [])),
+                    _json_dump(analysis.get("headers", {})),
+                    str(analysis.get("content_type", "") or ""),
+                    analysis.get("content_length"),
+                    int(analysis.get("bytes_read", 0) or 0),
+                    str(analysis.get("content_sha256", "") or ""),
+                    int(bool(analysis.get("content_truncated", False))),
+                    int(analysis.get("elapsed_ms", 0) or 0),
+                    _json_dump(analysis.get("tracking_parameters", [])),
+                    str(analysis.get("cleaned_url", "") or ""),
+                    analyzed_at,
+                ),
+            )
+        return next(
+            item
+            for item in self.list_url_analyses(investigation_id)
+            if item.id == analysis_id
+        )
+
+    def list_url_analyses(
+        self,
+        investigation_id: str,
+    ) -> list[UrlAnalysis]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM url_analyses
+                WHERE investigation_id = ?
+                ORDER BY analyzed_at DESC, id DESC
+                """,
+                (investigation_id,),
+            ).fetchall()
+        analyses = []
+        for row in rows:
+            redirects = _json_load(row["redirects_json"], [])
+            headers = _json_load(row["headers_json"], {})
+            tracking_parameters = _json_load(
+                row["tracking_parameters_json"],
+                [],
+            )
+            analyses.append(
+                UrlAnalysis(
+                    id=row["id"],
+                    investigation_id=row["investigation_id"],
+                    result_id=row["result_id"],
+                    requested_url=row["requested_url"],
+                    final_url=row["final_url"],
+                    final_domain_unicode=row["final_domain_unicode"],
+                    final_domain_punycode=row["final_domain_punycode"],
+                    status_code=int(row["status_code"]),
+                    redirects=tuple(
+                        dict(item)
+                        for item in redirects
+                        if isinstance(item, dict)
+                    ),
+                    headers={
+                        str(key): str(value)
+                        for key, value in headers.items()
+                    }
+                    if isinstance(headers, dict)
+                    else {},
+                    content_type=row["content_type"],
+                    content_length=(
+                        int(row["content_length"])
+                        if row["content_length"] is not None
+                        else None
+                    ),
+                    bytes_read=int(row["bytes_read"]),
+                    content_sha256=row["content_sha256"],
+                    content_truncated=bool(row["content_truncated"]),
+                    elapsed_ms=int(row["elapsed_ms"]),
+                    tracking_parameters=tuple(
+                        str(value)
+                        for value in tracking_parameters
+                        if str(value).strip()
+                    ),
+                    cleaned_url=row["cleaned_url"],
+                    analyzed_at=row["analyzed_at"],
+                )
+            )
+        return analyses
+
+    def create_investigation_entity(
+        self,
+        investigation_id: str,
+        *,
+        label: str,
+        notes: str,
+        tags: Iterable[str],
+    ) -> InvestigationEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        entity_id = str(uuid4())
+        now = utc_now()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO investigation_entities(
+                    id, investigation_id, label, notes, tags_json,
+                    properties_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, '{}', ?, ?)
+                """,
+                (
+                    entity_id,
+                    investigation_id,
+                    label,
+                    notes,
+                    _json_dump(list(tags)),
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_investigation_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
+    def list_investigation_entities(
+        self,
+        investigation_id: str,
+    ) -> list[InvestigationEntity]:
+        self.get_investigation(investigation_id)
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM investigation_entities
+                WHERE investigation_id = ?
+                ORDER BY label COLLATE NOCASE, created_at
+                """,
+                (investigation_id,),
+            ).fetchall()
+            link_rows = connection.execute(
+                """
+                SELECT entity_id, result_id
+                FROM investigation_entity_sources
+                WHERE investigation_id = ?
+                ORDER BY linked_at, result_id
+                """,
+                (investigation_id,),
+            ).fetchall()
+        linked_results: dict[str, list[str]] = {}
+        for row in link_rows:
+            linked_results.setdefault(row["entity_id"], []).append(
+                row["result_id"]
+            )
+        entities = []
+        for row in rows:
+            tags = _json_load(row["tags_json"], [])
+            properties = _json_load(row["properties_json"], {})
+            entities.append(
+                InvestigationEntity(
+                    id=row["id"],
+                    investigation_id=row["investigation_id"],
+                    label=row["label"],
+                    notes=row["notes"],
+                    tags=tuple(
+                        str(tag)
+                        for tag in tags
+                        if str(tag).strip()
+                    ),
+                    properties=(
+                        {
+                            str(key): str(value)
+                            for key, value in properties.items()
+                            if str(key).strip() and str(value).strip()
+                        }
+                        if isinstance(properties, dict)
+                        else {}
+                    ),
+                    linked_result_ids=tuple(
+                        linked_results.get(row["id"], ())
+                    ),
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
+        return entities
+
+    def update_investigation_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        *,
+        label: str,
+        notes: str,
+        tags: Iterable[str],
+    ) -> InvestigationEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE investigation_entities
+                SET label = ?, notes = ?, tags_json = ?, updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    label,
+                    notes,
+                    _json_dump(list(tags)),
+                    now,
+                    entity_id,
+                    investigation_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Investigation entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_investigation_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
+    def set_investigation_entity_property(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        *,
+        key: str,
+        value: str | None,
+    ) -> InvestigationEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT properties_json
+                FROM investigation_entities
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (entity_id, investigation_id),
+            ).fetchone()
+            if row is None:
+                raise InvestigationValidationError(
+                    f"Investigation entity not found: {entity_id}"
+                )
+            properties = _json_load(row["properties_json"], {})
+            if not isinstance(properties, dict):
+                properties = {}
+            if value is None:
+                properties.pop(key, None)
+            else:
+                properties[key] = value
+            connection.execute(
+                """
+                UPDATE investigation_entities
+                SET properties_json = ?, updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    _json_dump(properties),
+                    now,
+                    entity_id,
+                    investigation_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_investigation_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
+    def delete_investigation_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM investigation_entities
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (entity_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Investigation entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+
+    def link_result_to_investigation_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        result_id: str,
+    ) -> InvestigationEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            entity = connection.execute(
+                """
+                SELECT 1
+                FROM investigation_entities
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (entity_id, investigation_id),
+            ).fetchone()
+            saved = connection.execute(
+                """
+                SELECT 1
+                FROM investigation_results
+                WHERE investigation_id = ? AND result_id = ? AND is_saved = 1
+                """,
+                (investigation_id, result_id),
+            ).fetchone()
+            if entity is None:
+                raise InvestigationValidationError(
+                    f"Investigation entity not found: {entity_id}"
+                )
+            if saved is None:
+                raise InvestigationResultNotFoundError(
+                    investigation_id,
+                    result_id,
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO investigation_entity_sources(
+                    entity_id, investigation_id, result_id, linked_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (entity_id, investigation_id, result_id, now),
+            )
+            connection.execute(
+                """
+                UPDATE investigation_entities
+                SET updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (now, entity_id, investigation_id),
+            )
+        return next(
+            item
+            for item in self.list_investigation_entities(investigation_id)
+            if item.id == entity_id
+        )
+
+    def unlink_result_from_investigation_entity(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        result_id: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM investigation_entity_sources
+                WHERE
+                    entity_id = ?
+                    AND investigation_id = ?
+                    AND result_id = ?
+                """,
+                (entity_id, investigation_id, result_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    "The saved page is not linked to this entity."
+                )
+            connection.execute(
+                """
+                UPDATE investigation_entities
+                SET updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (now, entity_id, investigation_id),
+            )
+
+    def attach_extracted_entity_property(
+        self,
+        investigation_id: str,
+        extracted_entity_id: str,
+        investigation_entity_id: str | None,
+        *,
+        property_key: str,
+    ) -> ExtractedEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            if investigation_entity_id is not None:
+                parent = connection.execute(
+                    """
+                    SELECT 1
+                    FROM investigation_entities
+                    WHERE id = ? AND investigation_id = ?
+                    """,
+                    (investigation_entity_id, investigation_id),
+                ).fetchone()
+                if parent is None:
+                    raise InvestigationValidationError(
+                        "Investigation entity not found."
+                    )
+            cursor = connection.execute(
+                """
+                UPDATE extracted_entities
+                SET
+                    investigation_entity_id = ?,
+                    property_key = ?,
+                    status = CASE
+                        WHEN ? IS NOT NULL THEN 'validated'
+                        ELSE status
+                    END,
+                    reviewed_at = CASE
+                        WHEN ? IS NOT NULL THEN ?
+                        ELSE reviewed_at
+                    END,
+                    last_observed_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    investigation_entity_id,
+                    property_key if investigation_entity_id else "",
+                    investigation_entity_id,
+                    investigation_entity_id,
+                    now,
+                    now,
+                    extracted_entity_id,
+                    investigation_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Extracted entity not found: {extracted_entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_extracted_entities(investigation_id)
+            if entity.id == extracted_entity_id
+        )
+
     def upsert_extracted_entities(
         self,
         investigation_id: str,
@@ -940,21 +1489,29 @@ class InvestigationRepository:
                     """
                     INSERT INTO extracted_entities(
                         id, investigation_id, result_id, entity_type,
+                        suggested_type, custom_label,
                         value_original, value_normalized, source_field,
-                        source_text, confidence, status,
+                        source_text, confidence, confidence_reasons_json,
+                        attributes_json, status,
                         first_observed_at, last_observed_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+                    VALUES (
+                        ?, ?, ?, ?, ?, '',
+                        ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?
+                    )
                     ON CONFLICT(
                         investigation_id,
                         result_id,
-                        entity_type,
+                        suggested_type,
                         value_normalized
                     ) DO UPDATE SET
                         value_original = excluded.value_original,
                         source_field = excluded.source_field,
                         source_text = excluded.source_text,
                         confidence = excluded.confidence,
+                        confidence_reasons_json =
+                            excluded.confidence_reasons_json,
+                        attributes_json = excluded.attributes_json,
                         last_observed_at = excluded.last_observed_at
                     """,
                     (
@@ -962,11 +1519,18 @@ class InvestigationRepository:
                         investigation_id,
                         result_id,
                         entity_type,
+                        entity_type,
                         str(candidate.get("value", "") or ""),
                         normalized_value,
                         str(candidate.get("source_field", "") or ""),
                         str(candidate.get("source_text", "") or ""),
                         float(candidate.get("confidence", 0) or 0),
+                        _json_dump(
+                            list(candidate.get("confidence_reasons", ()) or ())
+                        ),
+                        _json_dump(
+                            dict(candidate.get("attributes", {}) or {})
+                        ),
                         now,
                         now,
                     ),
@@ -1009,11 +1573,42 @@ class InvestigationRepository:
                 investigation_id=row["investigation_id"],
                 result_id=row["result_id"],
                 entity_type=row["entity_type"],
+                suggested_type=row["suggested_type"],
+                custom_label=row["custom_label"],
+                tags=tuple(
+                    str(tag)
+                    for tag in _json_load(row["tags_json"], [])
+                    if str(tag).strip()
+                ),
+                investigation_entity_id=row["investigation_entity_id"],
+                property_key=row["property_key"],
                 value_original=row["value_original"],
                 value_normalized=row["value_normalized"],
                 source_field=row["source_field"],
                 source_text=row["source_text"],
                 confidence=float(row["confidence"] or 0),
+                confidence_reasons=tuple(
+                    str(reason)
+                    for reason in _json_load(
+                        row["confidence_reasons_json"],
+                        [],
+                    )
+                    if str(reason).strip()
+                ),
+                attributes=(
+                    {
+                        str(key): value
+                        for key, value in _json_load(
+                            row["attributes_json"],
+                            {},
+                        ).items()
+                    }
+                    if isinstance(
+                        _json_load(row["attributes_json"], {}),
+                        dict,
+                    )
+                    else {}
+                ),
                 status=row["status"],
                 first_observed_at=row["first_observed_at"],
                 last_observed_at=row["last_observed_at"],
@@ -1047,6 +1642,55 @@ class InvestigationRepository:
                 WHERE id = ? AND investigation_id = ?
                 """,
                 (status, reviewed_at, entity_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Extracted entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_extracted_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
+    def update_extracted_entity_metadata(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        *,
+        entity_type: str,
+        custom_label: str,
+        tags: Iterable[str],
+    ) -> ExtractedEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE extracted_entities
+                SET
+                    entity_type = ?,
+                    custom_label = ?,
+                    tags_json = ?,
+                    last_observed_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    entity_type,
+                    custom_label,
+                    _json_dump(list(tags)),
+                    now,
+                    entity_id,
+                    investigation_id,
+                ),
             )
             if cursor.rowcount == 0:
                 raise InvestigationValidationError(
@@ -2423,7 +3067,10 @@ class InvestigationRepository:
             "page_monitors",
             "page_comparisons",
             "extracted_entities",
+            "investigation_entities",
+            "investigation_entity_sources",
             "investigation_exports",
+            "url_analyses",
         }
         if table_name not in allowed:
             raise ValueError("Unsupported table name")

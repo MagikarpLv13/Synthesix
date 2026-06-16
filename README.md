@@ -138,16 +138,30 @@ For a tracked investigation:
 5. Use the adjacent camera button to capture either the visible viewport or a
    rectangular area selected directly on the page.
 6. Click **Open** on the home page to review saved pages with analyst statuses,
-   favorites, notes, and tags.
+   favorites, notes, and tags. Saved-page cards can be collapsed individually;
+   their state is retained locally. Very long URLs are compacted visually while
+   the complete target remains available in the link and hover text.
 7. Open or delete captures directly from the saved page.
 8. Filter saved pages by text, status, source, tag, observation date, or favorite.
 9. Attach an earlier unassigned search when its query and observations belong to
    the investigation.
 10. Use **Extract entities** on a saved page to propose deterministic email,
     phone, URL, domain, IP address, handle, UUID, and explicit coordinate
-    candidates from its URL, title, description, and analyst notes.
-11. Review every candidate as **Proposed**, **Validated**, or **Rejected**, or
-    delete it explicitly from the saved page.
+    candidates from its URL, title, description, analyst notes, and normalized
+    text from explicit HTML archives. The extractor also proposes French postal
+    addresses, checksum-validated SIREN/SIRET identifiers, VAT numbers, and
+    explicit dates. Ambiguous numeric dates retain every valid interpretation.
+11. Use **Analyze URL** on a saved page to make an explicit technical request.
+    Synthesix records the HTTP status, redirect chain, selected non-sensitive
+    headers, Unicode/punycode domains, known tracking parameters, response
+    timing, and a SHA-256 content hash when the response is at most 5 MiB.
+    Private, local, reserved, and loopback destinations are rejected, including
+    redirect targets. Each run is retained in the local investigation history.
+12. Review every candidate as **Proposed**, **Validated**, or **Rejected**.
+    The suggested type remains visible, while the analyst can select another
+    standard type and add a free label such as `Registered office` or
+    `Primary contact`. Detection reasons and structured attributes remain
+    inspectable. Candidates can also be deleted explicitly.
 
 The analyst statuses are `To verify`, `Relevant`, `Discarded`, and `Confirmed`.
 They describe the analyst's review state, not the factual reliability of a source.
@@ -172,6 +186,31 @@ or rejected candidates and evidence assets require explicit checkboxes. Generate
 bundles can be deleted from the investigation page, which also removes their
 local files. See `docs/ZERONEURONE_IMPORT_SMOKE_TEST.md` for the application-level
 import check.
+
+The exporter targets the 26 built-in ZeroNeurone 2.41.9 TagSets. Recognized
+aliases are canonicalized during export, for example `Person`/`Personne` to
+`Personne` and `Company`/`Organisation` to `Entreprise`. The first recognized
+analyst TagSet controls the native visual, matching ZeroNeurone behavior.
+Synthesix provides natural tag suggestions alongside free tag fields for
+investigations, saved pages, and extracted entities. Known aliases are
+canonicalized when metadata is saved, while unrecognized custom tags are
+preserved unchanged. Entity tags remain separate from the deterministic
+extraction type and the free analyst label.
+
+In the native dossier, the investigation root uses its title directly, without
+an `Investigation:` prefix. It is positioned at the graph origin and exported
+as a large dark hexagon with a cyan border so it remains identifiable as the
+central element even when it carries a ZeroNeurone TagSet.
+
+The investigation workspace also separates collected pages from final graph
+entities. An analyst can create an entity such as `ACME SAS`, link one or more
+saved pages as sources, and attach extracted SIREN, SIRET, VAT, address, email,
+or date candidates as properties. Once at least one explicit entity exists, the
+export uses these entities as graph nodes: linked pages become source
+properties, URL/domain candidates are not duplicated as nodes, and optional
+captures are linked directly as evidence. Without explicit entities, the
+previous saved-page export remains available as a compatibility fallback.
+Standalone extracted dates use the `Événement` tag by default.
 
 For each explicitly saved page, Synthesix records:
 
@@ -556,6 +595,7 @@ Use this checklist before bumping Zendriver:
 | `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
 | `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
 | `investigations/` | Versioned SQLite/FTS5 schema, repositories, domain models, services, local archive reports, and workspace generation. |
+| `analysis/` | Deterministic entity extraction and explicit, bounded technical URL analysis. |
 | `evidence/` | Async CDP screenshot/archive capture, text normalization and comparison, sensitive-data cleaning, hashing, and manifests. |
 | `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
 | `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |

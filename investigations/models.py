@@ -7,6 +7,28 @@ from typing import Any
 INVESTIGATION_STATUSES = ("active", "archived")
 ANALYST_STATUSES = ("a_verifier", "pertinent", "ecarte", "confirme")
 ENTITY_STATUSES = ("proposed", "validated", "rejected")
+ENTITY_TYPES = (
+    "email",
+    "phone",
+    "url",
+    "domain",
+    "ipv4",
+    "ipv6",
+    "handle",
+    "identifier",
+    "coordinates",
+    "address",
+    "vat_number",
+    "siret",
+    "siren",
+    "date",
+    "person",
+    "organization",
+    "place",
+    "event",
+    "product",
+    "other",
+)
 
 
 @dataclass(frozen=True)
@@ -137,11 +159,18 @@ class ExtractedEntity:
     investigation_id: str
     result_id: str
     entity_type: str
+    suggested_type: str
+    custom_label: str
+    tags: tuple[str, ...]
+    investigation_entity_id: str | None
+    property_key: str
     value_original: str
     value_normalized: str
     source_field: str
     source_text: str
     confidence: float
+    confidence_reasons: tuple[str, ...]
+    attributes: dict[str, Any]
     status: str
     first_observed_at: str
     last_observed_at: str
@@ -153,15 +182,48 @@ class ExtractedEntity:
             "investigation_id": self.investigation_id,
             "result_id": self.result_id,
             "entity_type": self.entity_type,
+            "suggested_type": self.suggested_type,
+            "custom_label": self.custom_label,
+            "tags": list(self.tags),
+            "investigation_entity_id": self.investigation_entity_id,
+            "property_key": self.property_key,
             "value_original": self.value_original,
             "value_normalized": self.value_normalized,
             "source_field": self.source_field,
             "source_text": self.source_text,
             "confidence": self.confidence,
+            "confidence_reasons": list(self.confidence_reasons),
+            "attributes": dict(self.attributes),
             "status": self.status,
             "first_observed_at": self.first_observed_at,
             "last_observed_at": self.last_observed_at,
             "reviewed_at": self.reviewed_at,
+        }
+
+
+@dataclass(frozen=True)
+class InvestigationEntity:
+    id: str
+    investigation_id: str
+    label: str
+    notes: str
+    tags: tuple[str, ...]
+    properties: dict[str, str]
+    linked_result_ids: tuple[str, ...]
+    created_at: str
+    updated_at: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "label": self.label,
+            "notes": self.notes,
+            "tags": list(self.tags),
+            "properties": dict(self.properties),
+            "linked_result_ids": list(self.linked_result_ids),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
 
@@ -202,6 +264,52 @@ class InvestigationExport:
             "edge_count": self.edge_count,
             "asset_count": self.asset_count,
             "generated_at": self.generated_at,
+        }
+
+
+@dataclass(frozen=True)
+class UrlAnalysis:
+    id: str
+    investigation_id: str
+    result_id: str
+    requested_url: str
+    final_url: str
+    final_domain_unicode: str
+    final_domain_punycode: str
+    status_code: int
+    redirects: tuple[dict[str, Any], ...]
+    headers: dict[str, str]
+    content_type: str
+    content_length: int | None
+    bytes_read: int
+    content_sha256: str
+    content_truncated: bool
+    elapsed_ms: int
+    tracking_parameters: tuple[str, ...]
+    cleaned_url: str
+    analyzed_at: str
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "investigation_id": self.investigation_id,
+            "result_id": self.result_id,
+            "requested_url": self.requested_url,
+            "final_url": self.final_url,
+            "final_domain_unicode": self.final_domain_unicode,
+            "final_domain_punycode": self.final_domain_punycode,
+            "status_code": self.status_code,
+            "redirects": [dict(item) for item in self.redirects],
+            "headers": dict(self.headers),
+            "content_type": self.content_type,
+            "content_length": self.content_length,
+            "bytes_read": self.bytes_read,
+            "content_sha256": self.content_sha256,
+            "content_truncated": self.content_truncated,
+            "elapsed_ms": self.elapsed_ms,
+            "tracking_parameters": list(self.tracking_parameters),
+            "cleaned_url": self.cleaned_url,
+            "analyzed_at": self.analyzed_at,
         }
 
 

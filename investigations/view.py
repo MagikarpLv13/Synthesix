@@ -6,6 +6,8 @@ from html import escape
 from pathlib import Path
 from typing import Mapping
 
+from exports.zeroneurone_tagsets import ZERONEURONE_TAGSETS
+
 
 STATUS_LABELS = {
     "a_verifier": "To verify",
@@ -28,11 +30,31 @@ ENTITY_TYPE_LABELS = {
     "handle": "Handle",
     "identifier": "Identifier",
     "coordinates": "Coordinates",
+    "address": "Postal address",
+    "vat_number": "VAT number",
+    "siret": "SIRET",
+    "siren": "SIREN",
+    "date": "Date",
+    "person": "Person",
+    "organization": "Organization",
+    "place": "Place",
+    "event": "Event",
+    "product": "Product or service",
+    "other": "Other",
 }
 
 
 def _html(value) -> str:
     return escape(str(value or ""), quote=True)
+
+
+def _compact_url(value: str, *, max_length: int = 160) -> str:
+    text = str(value or "")
+    if len(text) <= max_length:
+        return text
+    tail_length = 36
+    head_length = max_length - tail_length - 3
+    return f"{text[:head_length]}...{text[-tail_length:]}"
 
 
 def _relative_href(target: Path, from_dir: Path) -> str:
@@ -86,29 +108,247 @@ def _entity_status_options(selected: str) -> str:
     )
 
 
+def _entity_type_options(selected: str) -> str:
+    return "".join(
+        (
+            f'<option value="{_html(value)}"'
+            f'{" selected" if value == selected else ""}>'
+            f"{_html(label)}</option>"
+        )
+        for value, label in ENTITY_TYPE_LABELS.items()
+    )
+
+
+def _tag_datalist_options() -> str:
+    return "".join(
+        f'<option value="{_html(tag)}"></option>'
+        for tag in ZERONEURONE_TAGSETS
+    )
+
+
+def _tag_select_options() -> str:
+    return "".join(
+        f'<option value="{_html(tag)}">{_html(tag)}</option>'
+        for tag in ZERONEURONE_TAGSETS
+    )
+
+
+def _graph_entity_options(
+    graph_entities: list[Mapping],
+    *,
+    selected: str = "",
+) -> str:
+    options = ['<option value="">Select an entity...</option>']
+    for entity in graph_entities:
+        entity_id = str(entity.get("id", "") or "")
+        selection = " selected" if entity_id == selected else ""
+        options.append(
+            (
+                f'<option value="{_html(entity_id)}"{selection}>'
+                f'{_html(entity.get("label", entity_id))}</option>'
+            )
+        )
+    return "".join(options)
+
+
+def _default_property_key(entity_type: str) -> str:
+    return {
+        "email": "Email",
+        "phone": "Téléphone",
+        "url": "URL",
+        "domain": "Domaine",
+        "ipv4": "IP",
+        "ipv6": "IP",
+        "handle": "Compte en ligne",
+        "identifier": "Identifiant",
+        "coordinates": "Coordonnées",
+        "address": "Adresse",
+        "vat_number": "Numéro de TVA",
+        "siret": "SIRET",
+        "siren": "SIREN",
+        "date": "Date/heure",
+    }.get(entity_type, "Information")
+
+
+def _default_entity_category(entity_type: str) -> str:
+    return {
+        "email": "Email",
+        "phone": "Téléphone",
+        "url": "Site web",
+        "domain": "Site web",
+        "ipv4": "Site web",
+        "ipv6": "Site web",
+        "handle": "Compte en ligne",
+        "coordinates": "Lieu",
+        "address": "Lieu",
+        "vat_number": "Entreprise",
+        "siret": "Entreprise",
+        "siren": "Entreprise",
+        "date": "Événement",
+        "person": "Personne",
+        "organization": "Entreprise",
+        "place": "Lieu",
+        "event": "Événement",
+        "product": "Produit ou service",
+    }.get(entity_type, "Entité")
+
+
 def _entity_markup(
     entities: list[Mapping],
     *,
+    graph_entities: list[Mapping],
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
+    graph_entity_names = {
+        str(entity.get("id", "") or ""): str(
+            entity.get("label", "") or ""
+        )
+        for entity in graph_entities
+    }
     items = []
     for entity in entities:
         entity_type = str(entity.get("entity_type", "") or "")
+        suggested_type = str(
+            entity.get("suggested_type", entity_type) or entity_type
+        )
         status = str(entity.get("status", "proposed") or "proposed")
         confidence = max(
             0.0,
             min(1.0, float(entity.get("confidence", 0) or 0)),
         )
+        reasons = [
+            str(reason)
+            for reason in entity.get("confidence_reasons", [])
+            if str(reason).strip()
+        ]
+        attributes = entity.get("attributes", {})
+        if not isinstance(attributes, Mapping):
+            attributes = {}
+        tags = [
+            str(tag)
+            for tag in entity.get("tags", [])
+            if str(tag).strip()
+        ]
+        reason_items = "".join(
+            f"<li>{_html(reason)}</li>" for reason in reasons
+        )
+        attribute_items = "".join(
+            (
+                f"<li><code>{_html(key)}</code>: "
+                f"{_html(json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value)}</li>"
+            )
+            for key, value in sorted(attributes.items())
+            if value not in ("", None, [], {})
+        )
+        parent_id = str(
+            entity.get("investigation_entity_id", "") or ""
+        )
+        property_key = str(
+            entity.get("property_key", "") or ""
+        ) or _default_property_key(entity_type)
+        quick_entity_name = str(
+            entity.get("custom_label")
+            or entity.get("value_original")
+            or entity.get("value_normalized")
+            or ""
+        )
+        quick_create_markup = f"""
+            <details class="analyst-details quick-entity-create">
+                <summary>Créer une entité depuis cette propriété</summary>
+                <div class="analyst-fields">
+                    <label>
+                        Name
+                        <input
+                            type="text"
+                            data-quick-entity-label
+                            maxlength="200"
+                            value="{_html(quick_entity_name)}"
+                            {disabled}
+                        >
+                    </label>
+                    <label>
+                        Category
+                        <input
+                            type="text"
+                            data-quick-entity-category
+                            list="tag-suggestions"
+                            maxlength="50"
+                            value="{_html(_default_entity_category(entity_type))}"
+                            {disabled}
+                        >
+                    </label>
+                    <label>
+                        Property name
+                        <input
+                            type="text"
+                            data-quick-property-key
+                            maxlength="100"
+                            value="{_html(property_key)}"
+                            {disabled}
+                        >
+                    </label>
+                    <button
+                        type="button"
+                        class="primary-button create-entity-from-property"
+                        {disabled}
+                    >Créer une entité</button>
+                </div>
+            </details>
+        """
+        if parent_id:
+            property_link_markup = f"""
+                <div class="entity-property-link">
+                    <span>
+                        Property <strong>{_html(property_key)}</strong> on
+                        <strong>{_html(graph_entity_names.get(parent_id, parent_id))}</strong>
+                    </span>
+                    <button
+                        type="button"
+                        class="danger-link detach-extracted-property"
+                        {disabled}
+                    >Detach</button>
+                </div>
+            """
+        elif graph_entities:
+            property_link_markup = f"""
+                <div class="entity-property-link">
+                    <select data-property-graph-entity{disabled}>
+                        {_graph_entity_options(graph_entities)}
+                    </select>
+                    <input
+                        type="text"
+                        data-property-key
+                        maxlength="100"
+                        value="{_html(property_key)}"
+                        placeholder="Property name"
+                        {disabled}
+                    >
+                    <button
+                        type="button"
+                        class="secondary-button attach-extracted-property"
+                        {disabled}
+                    >Use as property</button>
+                </div>
+            """
+        else:
+            property_link_markup = """
+                <p class="session-note">
+                    Create an investigation entity to use this candidate as a property.
+                </p>
+            """
         items.append(
             f"""
             <li
                 class="entity-item entity-item--{_html(status)}"
                 data-entity-id="{_html(entity.get("id", ""))}"
             >
-                <span class="entity-type">
-                    {_html(ENTITY_TYPE_LABELS.get(entity_type, entity_type))}
-                </span>
+                <label class="entity-type-control">
+                    <span class="sr-only">Entity type</span>
+                    <select data-entity-type{disabled}>
+                        {_entity_type_options(entity_type)}
+                    </select>
+                </label>
                 <code class="entity-value">
                     {_html(entity.get("value_original", ""))}
                 </code>
@@ -123,13 +363,61 @@ def _entity_markup(
                 </label>
                 <button
                     type="button"
+                    class="secondary-button save-entity-metadata"
+                    {disabled}
+                >Save label</button>
+                <button
+                    type="button"
                     class="danger-link delete-entity"
                     {disabled}
                 >Delete</button>
+                <label class="entity-custom-label">
+                    Analyst label
+                    <input
+                        type="text"
+                        data-entity-custom-label
+                        maxlength="120"
+                        value="{_html(entity.get("custom_label", ""))}"
+                        placeholder="e.g. Registered office, Parent company"
+                        {disabled}
+                    >
+                </label>
+                <label class="entity-tags">
+                    Tags
+                    <input
+                        type="text"
+                        data-entity-tags
+                        list="tag-suggestions"
+                        value="{_html(", ".join(tags))}"
+                        placeholder="Personne, Suspect, custom tag..."
+                        {disabled}
+                    >
+                    <span class="tag-suggestion-controls">
+                        <select data-entity-tag-suggestion{disabled}>
+                            <option value="">Add suggested tag...</option>
+                            {_tag_select_options()}
+                        </select>
+                        <button
+                            type="button"
+                            class="secondary-button add-entity-tag"
+                            {disabled}
+                        >Add tag</button>
+                    </span>
+                </label>
                 <p class="entity-source">
-                    <strong>{_html(entity.get("source_field", ""))}</strong>
+                    <strong>
+                        Suggested {_html(ENTITY_TYPE_LABELS.get(suggested_type, suggested_type))}
+                        from {_html(entity.get("source_field", ""))}
+                    </strong>
                     {_html(entity.get("source_text", ""))}
                 </p>
+                <details class="entity-details">
+                    <summary>Detection details</summary>
+                    <ul>{reason_items or "<li>No recorded reason.</li>"}</ul>
+                    <ul>{attribute_items or "<li>No structured attribute.</li>"}</ul>
+                    {property_link_markup}
+                </details>
+                {quick_create_markup}
             </li>
             """
         )
@@ -150,6 +438,354 @@ def _entity_markup(
             </div>
             {empty}
             <ul class="entity-list">{"".join(items)}</ul>
+        </div>
+    """
+
+
+def _result_entity_links_markup(
+    result: Mapping,
+    graph_entities: list[Mapping],
+    *,
+    read_only: bool,
+) -> str:
+    result_id = str(result.get("id", "") or "")
+    disabled = " disabled" if read_only else ""
+    linked = [
+        entity
+        for entity in graph_entities
+        if result_id in {
+            str(value)
+            for value in entity.get("linked_result_ids", [])
+        }
+    ]
+    linked_markup = "".join(
+        f"""
+        <span class="source-entity-link" data-graph-entity-id="{_html(entity.get("id", ""))}">
+            {_html(entity.get("label", ""))}
+            <button
+                type="button"
+                class="danger-link unlink-result-entity"
+                title="Unlink this source"
+                {disabled}
+            >Unlink</button>
+        </span>
+        """
+        for entity in linked
+    )
+    if graph_entities:
+        control = f"""
+            <select data-link-graph-entity{disabled}>
+                {_graph_entity_options(graph_entities)}
+            </select>
+            <button
+                type="button"
+                class="secondary-button link-result-entity"
+                {disabled}
+            >Link source</button>
+        """
+    else:
+        control = """
+            <span class="session-note">
+                Create an investigation entity before linking this source.
+            </span>
+        """
+    suggested_name = str(
+        result.get("title")
+        or result.get("url")
+        or ""
+    )
+    return f"""
+        <div class="result-entity-links">
+            <span class="provenance-label">Linked entities</span>
+            <div class="source-entity-list">
+                {linked_markup or '<span class="session-note">No linked entity.</span>'}
+            </div>
+            <div class="source-entity-controls">{control}</div>
+            <details class="analyst-details quick-entity-create">
+                <summary>Créer une entité depuis ce site</summary>
+                <div class="analyst-fields">
+                    <label>
+                        Name
+                        <input
+                            type="text"
+                            data-quick-entity-label
+                            maxlength="200"
+                            value="{_html(suggested_name)}"
+                            {disabled}
+                        >
+                    </label>
+                    <label>
+                        Category
+                        <input
+                            type="text"
+                            data-quick-entity-category
+                            list="tag-suggestions"
+                            maxlength="50"
+                            value="Site web"
+                            {disabled}
+                        >
+                    </label>
+                    <button
+                        type="button"
+                        class="primary-button create-entity-from-result"
+                        {disabled}
+                    >Créer une entité</button>
+                </div>
+            </details>
+        </div>
+    """
+
+
+def _graph_entities_markup(
+    graph_entities: list[Mapping],
+    results_by_id: Mapping[str, Mapping],
+    *,
+    read_only: bool,
+) -> str:
+    disabled = " disabled" if read_only else ""
+    cards = []
+    for entity in graph_entities:
+        entity_id = str(entity.get("id", "") or "")
+        properties = entity.get("properties", {})
+        if not isinstance(properties, Mapping):
+            properties = {}
+        property_rows = "".join(
+            f"""
+            <li>
+                <strong>{_html(key)}</strong>
+                <span>{_html(value)}</span>
+                <button
+                    type="button"
+                    class="danger-link delete-graph-property"
+                    data-property-key="{_html(key)}"
+                    {disabled}
+                >Remove</button>
+            </li>
+            """
+            for key, value in properties.items()
+        )
+        source_rows = "".join(
+            f"""
+            <li>
+                <a
+                    href="{_html(results_by_id[result_id].get("url", ""))}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >{_html(results_by_id[result_id].get("title") or results_by_id[result_id].get("url"))}</a>
+            </li>
+            """
+            for result_id in entity.get("linked_result_ids", [])
+            if str(result_id) in results_by_id
+        )
+        cards.append(
+            f"""
+            <article class="graph-entity-card" data-graph-entity-id="{_html(entity_id)}">
+                <div class="graph-entity-heading">
+                    <div>
+                        <h4>{_html(entity.get("label", ""))}</h4>
+                        <div class="result-tags">
+                            {"".join(f'<span class="result-tag">{_html(tag)}</span>' for tag in entity.get("tags", []))}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        class="danger-link delete-graph-entity"
+                        {disabled}
+                    >Delete</button>
+                </div>
+                <p>{_html(entity.get("notes", ""))}</p>
+                <div class="graph-entity-columns">
+                    <div>
+                        <strong>Properties</strong>
+                        <ul class="graph-property-list">
+                            {property_rows or "<li>No property yet.</li>"}
+                        </ul>
+                    </div>
+                    <div>
+                        <strong>Sources</strong>
+                        <ul>{source_rows or "<li>No linked source.</li>"}</ul>
+                    </div>
+                </div>
+                <details class="analyst-details">
+                    <summary>Manage entity</summary>
+                    <div class="analyst-fields">
+                        <label>
+                            Name
+                            <input
+                                type="text"
+                                data-graph-entity-label
+                                maxlength="200"
+                                value="{_html(entity.get("label", ""))}"
+                                {disabled}
+                            >
+                        </label>
+                        <label>
+                            Tags
+                            <input
+                                type="text"
+                                data-graph-entity-tags
+                                list="tag-suggestions"
+                                value="{_html(", ".join(entity.get("tags", [])))}"
+                                {disabled}
+                            >
+                        </label>
+                        <label>
+                            Notes
+                            <textarea
+                                rows="3"
+                                data-graph-entity-notes
+                                {disabled}
+                            >{_html(entity.get("notes", ""))}</textarea>
+                        </label>
+                        <button
+                            type="button"
+                            class="primary-button save-graph-entity"
+                            {disabled}
+                        >Save entity</button>
+                        <div class="graph-property-form">
+                            <input
+                                type="text"
+                                data-new-property-key
+                                maxlength="100"
+                                placeholder="Property name, e.g. SIREN"
+                                {disabled}
+                            >
+                            <input
+                                type="text"
+                                data-new-property-value
+                                maxlength="4000"
+                                placeholder="Value"
+                                {disabled}
+                            >
+                            <button
+                                type="button"
+                                class="secondary-button add-graph-property"
+                                {disabled}
+                            >Add property</button>
+                        </div>
+                    </div>
+                </details>
+            </article>
+            """
+        )
+    empty = (
+        ""
+        if cards
+        else """
+            <p class="session-note">
+                No investigation entity yet. Create the person, company, place,
+                event, or other element that should appear in the final graph.
+            </p>
+        """
+    )
+    return empty + "".join(cards)
+
+
+def _url_analysis_markup(
+    analyses: list[Mapping],
+    *,
+    read_only: bool,
+) -> str:
+    disabled = " disabled" if read_only else ""
+    if not analyses:
+        return f"""
+            <div class="result-url-analysis">
+                <div class="entity-heading">
+                    <span class="provenance-label">Technical URL analysis</span>
+                    <button
+                        type="button"
+                        class="secondary-button analyze-result-url"
+                        {disabled}
+                    >Analyze URL</button>
+                </div>
+                <p class="session-note">
+                    No explicit network analysis has been run.
+                </p>
+            </div>
+        """
+
+    latest = analyses[0]
+    redirects = [
+        item
+        for item in latest.get("redirects", [])
+        if isinstance(item, Mapping)
+    ]
+    headers = latest.get("headers", {})
+    if not isinstance(headers, Mapping):
+        headers = {}
+    redirect_items = "".join(
+        (
+            "<li>"
+            f"{int(item.get('status_code', 0) or 0)} "
+            f"{_html(item.get('url', ''))} to "
+            f"{_html(item.get('location', ''))}"
+            "</li>"
+        )
+        for item in redirects
+    )
+    header_items = "".join(
+        f"<li><code>{_html(name)}</code>: {_html(value)}</li>"
+        for name, value in sorted(headers.items())
+    )
+    content_length = latest.get("content_length")
+    size_text = (
+        f"{int(content_length):,} declared bytes"
+        if content_length is not None
+        else f"{int(latest.get('bytes_read', 0) or 0):,} bytes read"
+    )
+    hash_value = str(latest.get("content_sha256", "") or "")
+    hash_markup = (
+        f"<code>SHA-256 {_html(hash_value)}</code>"
+        if hash_value
+        else "<span>Content hash skipped because the response exceeded 5 MiB.</span>"
+    )
+    tracking_parameters = [
+        str(value)
+        for value in latest.get("tracking_parameters", [])
+        if str(value).strip()
+    ]
+    cleaned_url = str(latest.get("cleaned_url", "") or "")
+    final_url = str(latest.get("final_url", "") or "")
+    cleaned_markup = (
+        f'<a href="{_html(cleaned_url)}" target="_blank" '
+        'rel="noopener noreferrer">Open suggested URL without known tracking parameters</a>'
+        if tracking_parameters and cleaned_url and cleaned_url != final_url
+        else ""
+    )
+    return f"""
+        <div class="result-url-analysis">
+            <div class="entity-heading">
+                <span class="provenance-label">
+                    Technical URL analysis ({len(analyses)})
+                </span>
+                <button
+                    type="button"
+                    class="secondary-button analyze-result-url"
+                    {disabled}
+                >Analyze again</button>
+            </div>
+            <div class="url-analysis-summary">
+                <strong>HTTP {int(latest.get("status_code", 0) or 0)}</strong>
+                <span>{len(redirects)} redirect(s)</span>
+                <span>{_html(latest.get("content_type", "") or "Unknown content type")}</span>
+                <span>{_html(size_text)}</span>
+                <span>{int(latest.get("elapsed_ms", 0) or 0)} ms</span>
+                <span>{_local_datetime(latest.get("analyzed_at"))}</span>
+            </div>
+            <div class="result-url" title="{_html(final_url)}">
+                {_html(_compact_url(final_url))}
+            </div>
+            <div class="url-analysis-domains">
+                <span>Unicode domain: {_html(latest.get("final_domain_unicode", ""))}</span>
+                <span>Punycode: {_html(latest.get("final_domain_punycode", ""))}</span>
+            </div>
+            <div class="url-analysis-hash">{hash_markup}</div>
+            {cleaned_markup}
+            <details>
+                <summary>Redirects and retained headers</summary>
+                <ul>{redirect_items or "<li>No redirect.</li>"}</ul>
+                <ul>{header_items or "<li>No retained header.</li>"}</ul>
+            </details>
         </div>
     """
 
@@ -327,6 +963,8 @@ def _result_cards(
     *,
     evidence_by_result: Mapping[str, list[Mapping]],
     entities_by_result: Mapping[str, list[Mapping]],
+    graph_entities: list[Mapping],
+    url_analyses_by_result: Mapping[str, list[Mapping]],
     monitors_by_result: Mapping[str, Mapping],
     output_dir: Path,
     base_dir: Path,
@@ -341,11 +979,13 @@ def _result_cards(
 
     cards = []
     disabled = " disabled" if read_only else ""
+    tag_suggestion_options = _tag_select_options()
     for result in results:
         result_id = str(result.get("id", ""))
         title = str(result.get("title") or result.get("url") or "Untitled result")
         description = str(result.get("description", ""))
         url = str(result.get("url", ""))
+        compact_url = _compact_url(url)
         sources = [str(item) for item in result.get("sources", []) if str(item).strip()]
         discovery_sources = [
             str(item)
@@ -388,6 +1028,16 @@ def _result_cards(
         )
         entity_markup = _entity_markup(
             entities_by_result.get(result_id, []),
+            graph_entities=graph_entities,
+            read_only=read_only,
+        )
+        entity_links_markup = _result_entity_links_markup(
+            result,
+            graph_entities,
+            read_only=read_only,
+        )
+        url_analysis_markup = _url_analysis_markup(
+            url_analyses_by_result.get(result_id, []),
             read_only=read_only,
         )
         monitor = monitors_by_result.get(result_id)
@@ -447,9 +1097,17 @@ def _result_cards(
                             target="_blank"
                             rel="noopener noreferrer"
                         >{_html(title)}</a>
-                        <div class="result-url">{_html(url)}</div>
+                        <div class="result-url" title="{_html(url)}">
+                            {_html(compact_url)}
+                        </div>
                     </div>
                     <div class="result-review-controls">
+                        <button
+                            type="button"
+                            class="secondary-button toggle-result-details"
+                            aria-expanded="true"
+                            aria-controls="result-body-{_html(result_id)}"
+                        >Collapse</button>
                         {monitor_control}
                         <label
                             class="favorite-toggle"
@@ -478,51 +1136,75 @@ def _result_cards(
                         >Remove</button>
                     </div>
                 </div>
-                <p class="result-description">{_html(description)}</p>
-                <div class="result-metadata">
-                    <span>{source_markup}</span>
-                    {_score_markup(result)}
-                    <span>{int(result.get("observation_count", 0) or 0)} observation(s)</span>
-                    <span>First seen {_local_datetime(result.get("first_observed_at"))}</span>
-                    <span>Last seen {_local_datetime(latest_observed)}</span>
-                </div>
-                <div class="result-tags" data-result-tags-display>
-                    {tag_markup}
-                </div>
-                <div class="result-provenance">
-                    {discovery_markup}
-                </div>
-                {entity_markup}
-                {evidence_markup}
-                <details class="analyst-details">
-                    <summary>Analyst notes and tags</summary>
-                    <div class="analyst-fields">
-                        <label>
-                            Notes
-                            <textarea
-                                rows="4"
-                                data-result-notes
-                                placeholder="Add verification notes, context, or caveats."
-                                {disabled}
-                            >{_html(notes)}</textarea>
-                        </label>
-                        <label>
-                            Tags
-                            <input
-                                type="text"
-                                data-result-tags
-                                value="{_html(", ".join(tags))}"
-                                placeholder="identity, registry, follow-up"
-                                {disabled}
-                            >
-                        </label>
-                        <button
-                            type="button"
-                            class="primary-button save-result-metadata"
-                            {disabled}
-                        >Save notes</button>
+                <div
+                    id="result-body-{_html(result_id)}"
+                    class="result-body"
+                >
+                    <p class="result-description">{_html(description)}</p>
+                    <div class="result-metadata">
+                        <span>{source_markup}</span>
+                        {_score_markup(result)}
+                        <span>{int(result.get("observation_count", 0) or 0)} observation(s)</span>
+                        <span>First seen {_local_datetime(result.get("first_observed_at"))}</span>
+                        <span>Last seen {_local_datetime(latest_observed)}</span>
                     </div>
-                </details>
+                    <div class="result-tags" data-result-tags-display>
+                        {tag_markup}
+                    </div>
+                    <div class="result-provenance">
+                        {discovery_markup}
+                    </div>
+                    {entity_links_markup}
+                    {url_analysis_markup}
+                    {entity_markup}
+                    {evidence_markup}
+                    <details class="analyst-details">
+                        <summary>Analyst notes and tags</summary>
+                        <div class="analyst-fields">
+                            <label>
+                                Notes
+                                <textarea
+                                    rows="4"
+                                    data-result-notes
+                                    placeholder="Add verification notes, context, or caveats."
+                                    {disabled}
+                                >{_html(notes)}</textarea>
+                            </label>
+                            <label>
+                                Tags
+                                <input
+                                    type="text"
+                                    data-result-tags
+                                    list="tag-suggestions"
+                                    value="{_html(", ".join(tags))}"
+                                    placeholder="Personne, Suspect, PEP..."
+                                    {disabled}
+                                >
+                                <span class="field-hint">
+                                    Choose a suggested tag or enter custom tags.
+                                </span>
+                                <span class="tag-suggestion-controls">
+                                    <select data-result-tag-suggestion{disabled}>
+                                        <option value="">
+                                            Add suggested tag...
+                                        </option>
+                                        {tag_suggestion_options}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        class="secondary-button add-result-tag"
+                                        {disabled}
+                                    >Add tag</button>
+                                </span>
+                            </label>
+                            <button
+                                type="button"
+                                class="primary-button save-result-metadata"
+                                {disabled}
+                            >Save notes</button>
+                        </div>
+                    </details>
+                </div>
             </article>
             """
         )
@@ -684,7 +1366,7 @@ def _export_cards(
                 'target="_blank" rel="noopener noreferrer">'
                 f"{_html(label)}</a>"
             )
-        options = ["validated entities"]
+        options = ["curated entities or validated candidates"]
         if export.get("include_unreviewed"):
             options.append("all entity review states")
         if export.get("include_evidence"):
@@ -744,7 +1426,9 @@ def generate_investigation_page(
     results = list(workspace.get("results", []))
     evidence = list(workspace.get("evidence", []))
     entities = list(workspace.get("entities", []))
+    graph_entities = list(workspace.get("graph_entities", []))
     exports = list(workspace.get("exports", []))
+    url_analyses = list(workspace.get("url_analyses", []))
     searches = list(workspace.get("searches", []))
     page_monitors = list(workspace.get("page_monitors", []))
     unassigned_searches = list(workspace.get("unassigned_searches", []))
@@ -756,6 +1440,10 @@ def generate_investigation_page(
     home_href = _relative_href(base_dir / "index.html", output_dir)
     history_href = _relative_href(history_report_path, output_dir)
     read_only = investigation.get("status") != "active"
+    results_by_id = {
+        str(result.get("id", "") or ""): result
+        for result in results
+    }
     all_sources = sorted(
         {
             str(source)
@@ -785,6 +1473,7 @@ def generate_investigation_page(
         f'<option value="{_html(tag.casefold())}">{_html(tag)}</option>'
         for tag in all_tags
     )
+    tag_datalist_options = _tag_datalist_options()
     investigation_tags = "".join(
         f'<span class="result-tag">{_html(tag)}</span>'
         for tag in investigation.get("tags", [])
@@ -807,6 +1496,12 @@ def generate_investigation_page(
             str(entity.get("result_id", "")),
             [],
         ).append(entity)
+    url_analyses_by_result: dict[str, list[Mapping]] = {}
+    for analysis in url_analyses:
+        url_analyses_by_result.setdefault(
+            str(analysis.get("result_id", "")),
+            [],
+        ).append(analysis)
     monitors_by_result = {
         str(monitor.get("result_id", "")): monitor
         for monitor in page_monitors
@@ -825,6 +1520,9 @@ def generate_investigation_page(
 </head>
 <body>
     <main class="app app--wide">
+        <datalist id="tag-suggestions">
+            {tag_datalist_options}
+        </datalist>
         <header class="topbar investigation-topbar">
             <div class="brand">
                 <img class="brand-logo" src="{asset_prefix}assets/synthesix-mark.svg" alt="">
@@ -843,6 +1541,7 @@ def generate_investigation_page(
 
         <nav class="investigation-nav" aria-label="Investigation sections">
             <a href="#overview">Overview</a>
+            <a href="#entities">Entities</a>
             <a href="#saved-pages">Saved pages</a>
             <a href="#page-monitoring">Monitoring</a>
             <a href="#exports">Exports</a>
@@ -862,8 +1561,64 @@ def generate_investigation_page(
             <div class="investigation-metrics" aria-label="Investigation metrics">
                 <div><strong>{len(searches)}</strong><span>Searches</span></div>
                 <div><strong>{len(results)}</strong><span>Saved pages</span></div>
+                <div><strong>{len(graph_entities)}</strong><span>Entities</span></div>
                 <div><strong>{sum(1 for item in results if item.get("favorite"))}</strong><span>Favorites</span></div>
                 <div><strong>{sum(1 for item in results if item.get("analyst_status") == "confirme")}</strong><span>Confirmed</span></div>
+            </div>
+        </section>
+
+        <section
+            id="entities"
+            class="investigation-section"
+            aria-label="Investigation entities"
+        >
+            <div class="section-header">
+                <div>
+                    <p class="section-eyebrow">Final graph</p>
+                    <h3>Investigation entities</h3>
+                </div>
+                <span class="meta-pill">{len(graph_entities)} entities</span>
+            </div>
+            <p class="session-note">
+                Create the meaningful elements of the graph here. Saved pages
+                and captures provide their sources; extracted identifiers can
+                be attached as properties instead of becoming separate nodes.
+            </p>
+            <form id="graph-entity-create-form" class="graph-entity-create-form">
+                <input
+                    id="new-graph-entity-label"
+                    type="text"
+                    maxlength="200"
+                    placeholder="Entity name, e.g. ACME SAS"
+                    required
+                    {"disabled" if read_only else ""}
+                >
+                <input
+                    id="new-graph-entity-tags"
+                    type="text"
+                    list="tag-suggestions"
+                    placeholder="Entreprise, Personne, Événement..."
+                    {"disabled" if read_only else ""}
+                >
+                <input
+                    id="new-graph-entity-notes"
+                    type="text"
+                    maxlength="4000"
+                    placeholder="Optional notes"
+                    {"disabled" if read_only else ""}
+                >
+                <button
+                    type="submit"
+                    class="primary-button"
+                    {"disabled" if read_only else ""}
+                >Create entity</button>
+            </form>
+            <div class="graph-entity-list">
+                {_graph_entities_markup(
+                    graph_entities,
+                    results_by_id,
+                    read_only=read_only,
+                )}
             </div>
         </section>
 
@@ -927,6 +1682,8 @@ def generate_investigation_page(
                     results,
                     evidence_by_result=evidence_by_result,
                     entities_by_result=entities_by_result,
+                    graph_entities=graph_entities,
+                    url_analyses_by_result=url_analyses_by_result,
                     monitors_by_result=monitors_by_result,
                     output_dir=output_dir,
                     base_dir=base_dir,
@@ -982,15 +1739,16 @@ def generate_investigation_page(
                 </label>
                 <label>
                     <input id="export-include-unreviewed" type="checkbox">
-                    Include proposed and rejected entity candidates
+                    Include unreviewed candidates in the legacy fallback
                 </label>
                 <button type="submit" class="primary-button">
                     Export GraphML and CSV
                 </button>
             </form>
             <p class="session-note">
-                The default export includes saved pages and validated entities.
-                Evidence assets and unvalidated candidates require explicit options.
+                When investigation entities exist, they define the graph and
+                linked pages become source properties. Otherwise, Synthesix uses
+                the legacy saved-page and validated-candidate graph.
             </p>
             <div class="investigation-export-list">
                 {_export_cards(
@@ -1061,6 +1819,9 @@ def generate_investigation_page(
         (() => {{
             const investigationId = {json.dumps(str(investigation.get("id", "")))};
             const actionQueue = [];
+            const collapsedStorageKey = (
+                `synthesix:collapsed-results:${{investigationId}}`
+            );
             const resultCards = Array.from(
                 document.querySelectorAll(".investigation-result")
             );
@@ -1076,6 +1837,47 @@ def generate_investigation_page(
 
             const queueAction = (action, payload = {{}}) => {{
                 actionQueue.push({{ action, investigationId, ...payload }});
+            }};
+
+            const readCollapsedResults = () => {{
+                try {{
+                    const stored = JSON.parse(
+                        localStorage.getItem(collapsedStorageKey) || "[]"
+                    );
+                    return new Set(Array.isArray(stored) ? stored : []);
+                }} catch (_error) {{
+                    return new Set();
+                }}
+            }};
+
+            const collapsedResults = readCollapsedResults();
+
+            const saveCollapsedResults = () => {{
+                try {{
+                    localStorage.setItem(
+                        collapsedStorageKey,
+                        JSON.stringify(Array.from(collapsedResults))
+                    );
+                }} catch (_error) {{
+                    // Collapsing still works when file URL storage is unavailable.
+                }}
+            }};
+
+            const setResultCollapsed = (card, collapsed) => {{
+                const body = card.querySelector(".result-body");
+                const button = card.querySelector(".toggle-result-details");
+                if (!body || !button) {{
+                    return;
+                }}
+                body.hidden = collapsed;
+                card.classList.toggle("is-collapsed", collapsed);
+                button.setAttribute("aria-expanded", String(!collapsed));
+                button.textContent = collapsed ? "Expand" : "Collapse";
+                if (collapsed) {{
+                    collapsedResults.add(card.dataset.resultId);
+                }} else {{
+                    collapsedResults.delete(card.dataset.resultId);
+                }}
             }};
 
             const formatLocalDatetimes = () => {{
@@ -1141,7 +1943,101 @@ def generate_investigation_page(
                 }});
             }};
 
+            document.getElementById("graph-entity-create-form")?.addEventListener(
+                "submit",
+                (event) => {{
+                    event.preventDefault();
+                    const label = document.getElementById(
+                        "new-graph-entity-label"
+                    ).value.trim();
+                    if (!label) {{
+                        return;
+                    }}
+                    queueAction("create_graph_entity", {{
+                        entity: {{
+                            label,
+                            tags: document.getElementById(
+                                "new-graph-entity-tags"
+                            ).value.trim(),
+                            notes: document.getElementById(
+                                "new-graph-entity-notes"
+                            ).value.trim()
+                        }}
+                    }});
+                }}
+            );
+
+            document.querySelectorAll(".graph-entity-card").forEach((card) => {{
+                const entityId = card.dataset.graphEntityId;
+                card.querySelector(".save-graph-entity")?.addEventListener(
+                    "click",
+                    () => queueAction("update_graph_entity", {{
+                        entityId,
+                        entity: {{
+                            label: card.querySelector(
+                                "[data-graph-entity-label]"
+                            ).value.trim(),
+                            tags: card.querySelector(
+                                "[data-graph-entity-tags]"
+                            ).value.trim(),
+                            notes: card.querySelector(
+                                "[data-graph-entity-notes]"
+                            ).value.trim()
+                        }}
+                    }})
+                );
+                card.querySelector(".delete-graph-entity")?.addEventListener(
+                    "click",
+                    () => {{
+                        if (confirm("Delete this entity from the final graph?")) {{
+                            queueAction("delete_graph_entity", {{ entityId }});
+                        }}
+                    }}
+                );
+                card.querySelector(".add-graph-property")?.addEventListener(
+                    "click",
+                    () => {{
+                        const key = card.querySelector(
+                            "[data-new-property-key]"
+                        ).value.trim();
+                        const value = card.querySelector(
+                            "[data-new-property-value]"
+                        ).value.trim();
+                        if (key && value) {{
+                            queueAction("set_graph_entity_property", {{
+                                entityId,
+                                property: {{ key, value }}
+                            }});
+                        }}
+                    }}
+                );
+                card.querySelectorAll(".delete-graph-property").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            queueAction("delete_graph_entity_property", {{
+                                entityId,
+                                key: button.dataset.propertyKey
+                            }});
+                        }});
+                    }}
+                );
+            }});
+
             resultCards.forEach((card) => {{
+                setResultCollapsed(
+                    card,
+                    collapsedResults.has(card.dataset.resultId)
+                );
+                card.querySelector(".toggle-result-details")?.addEventListener(
+                    "click",
+                    () => {{
+                        const collapsed = !card.querySelector(
+                            ".result-body"
+                        ).hidden;
+                        setResultCollapsed(card, collapsed);
+                        saveCollapsedResults();
+                    }}
+                );
                 card.querySelector("[data-result-status]")?.addEventListener(
                     "change",
                     () => saveResult(card)
@@ -1159,6 +2055,32 @@ def generate_investigation_page(
                     "click",
                     () => saveResult(card)
                 );
+                card.querySelector(".add-result-tag")?.addEventListener(
+                    "click",
+                    () => {{
+                        const select = card.querySelector(
+                            "[data-result-tag-suggestion]"
+                        );
+                        const input = card.querySelector("[data-result-tags]");
+                        const selected = select?.value.trim() || "";
+                        if (!selected || !input) {{
+                            return;
+                        }}
+                        const tags = input.value
+                            .split(",")
+                            .map((tag) => tag.trim())
+                            .filter(Boolean);
+                        if (
+                            !tags.some(
+                                (tag) => tag.toLowerCase() === selected.toLowerCase()
+                            )
+                        ) {{
+                            tags.push(selected);
+                            input.value = tags.join(", ");
+                        }}
+                        select.value = "";
+                    }}
+                );
                 card.querySelector(".start-page-monitor")?.addEventListener(
                     "click",
                     () => queueAction("create_page_monitor", {{
@@ -1171,6 +2093,60 @@ def generate_investigation_page(
                         resultId: card.dataset.resultId
                     }})
                 );
+                card.querySelector(".analyze-result-url")?.addEventListener(
+                    "click",
+                    () => {{
+                        window.synthesixPage.setStatus("Analyzing URL...");
+                        queueAction("analyze_result_url", {{
+                            resultId: card.dataset.resultId
+                        }});
+                    }}
+                );
+                card.querySelector(".link-result-entity")?.addEventListener(
+                    "click",
+                    () => {{
+                        const entityId = card.querySelector(
+                            "[data-link-graph-entity]"
+                        )?.value || "";
+                        if (entityId) {{
+                            queueAction("link_result_to_graph_entity", {{
+                                entityId,
+                                resultId: card.dataset.resultId
+                            }});
+                        }}
+                    }}
+                );
+                card.querySelector(".create-entity-from-result")
+                    ?.addEventListener("click", (event) => {{
+                        const form = event.currentTarget.closest(
+                            ".quick-entity-create"
+                        );
+                        const label = form.querySelector(
+                            "[data-quick-entity-label]"
+                        )?.value.trim() || "";
+                        const category = form.querySelector(
+                            "[data-quick-entity-category]"
+                        )?.value.trim() || "";
+                        if (label && category) {{
+                            queueAction("create_graph_entity_from_result", {{
+                                resultId: card.dataset.resultId,
+                                entity: {{ label, category }}
+                            }});
+                        }}
+                    }});
+                card.querySelectorAll(".unlink-result-entity").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const link = button.closest(
+                                "[data-graph-entity-id]"
+                            );
+                            queueAction("unlink_result_from_graph_entity", {{
+                                entityId: link.dataset.graphEntityId,
+                                resultId: card.dataset.resultId
+                            }});
+                        }});
+                    }}
+                );
                 card.querySelectorAll("[data-entity-status]").forEach(
                     (select) => {{
                         select.addEventListener("change", () => {{
@@ -1181,6 +2157,125 @@ def generate_investigation_page(
                                     status: select.value
                                 }});
                             }}
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".save-entity-metadata").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const item = button.closest("[data-entity-id]");
+                            if (item) {{
+                                queueAction("update_entity_metadata", {{
+                                    entityId: item.dataset.entityId,
+                                    entity: {{
+                                        entity_type: item.querySelector(
+                                            "[data-entity-type]"
+                                        ).value,
+                                        custom_label: item.querySelector(
+                                            "[data-entity-custom-label]"
+                                        ).value.trim(),
+                                        tags: item.querySelector(
+                                            "[data-entity-tags]"
+                                        ).value.trim()
+                                    }}
+                                }});
+                            }}
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".add-entity-tag").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const item = button.closest("[data-entity-id]");
+                            const select = item?.querySelector(
+                                "[data-entity-tag-suggestion]"
+                            );
+                            const input = item?.querySelector(
+                                "[data-entity-tags]"
+                            );
+                            const selected = select?.value.trim() || "";
+                            if (!selected || !input) {{
+                                return;
+                            }}
+                            const tags = input.value
+                                .split(",")
+                                .map((tag) => tag.trim())
+                                .filter(Boolean);
+                            if (
+                                !tags.some(
+                                    (tag) => tag.toLowerCase()
+                                        === selected.toLowerCase()
+                                )
+                            ) {{
+                                tags.push(selected);
+                                input.value = tags.join(", ");
+                            }}
+                            select.value = "";
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".attach-extracted-property").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const item = button.closest("[data-entity-id]");
+                            const graphEntityId = item.querySelector(
+                                "[data-property-graph-entity]"
+                            )?.value || "";
+                            const propertyKey = item.querySelector(
+                                "[data-property-key]"
+                            )?.value.trim() || "";
+                            if (graphEntityId && propertyKey) {{
+                                queueAction("attach_extracted_property", {{
+                                    extractedEntityId: item.dataset.entityId,
+                                    property: {{
+                                        graph_entity_id: graphEntityId,
+                                        property_key: propertyKey
+                                    }}
+                                }});
+                            }}
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".create-entity-from-property").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const item = button.closest("[data-entity-id]");
+                            const form = button.closest(
+                                ".quick-entity-create"
+                            );
+                            const label = form.querySelector(
+                                "[data-quick-entity-label]"
+                            )?.value.trim() || "";
+                            const category = form.querySelector(
+                                "[data-quick-entity-category]"
+                            )?.value.trim() || "";
+                            const propertyKey = form.querySelector(
+                                "[data-quick-property-key]"
+                            )?.value.trim() || "";
+                            if (item && label && category && propertyKey) {{
+                                queueAction(
+                                    "create_graph_entity_from_extracted",
+                                    {{
+                                        extractedEntityId:
+                                            item.dataset.entityId,
+                                        entity: {{
+                                            label,
+                                            category,
+                                            property_key: propertyKey
+                                        }}
+                                    }}
+                                );
+                            }}
+                        }});
+                    }}
+                );
+                card.querySelectorAll(".detach-extracted-property").forEach(
+                    (button) => {{
+                        button.addEventListener("click", () => {{
+                            const item = button.closest("[data-entity-id]");
+                            queueAction("detach_extracted_property", {{
+                                extractedEntityId: item.dataset.entityId
+                            }});
                         }});
                     }}
                 );

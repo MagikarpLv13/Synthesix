@@ -412,4 +412,154 @@ MIGRATIONS = (
             ADD COLUMN asset_count INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        11,
+        """
+        CREATE TABLE url_analyses (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL,
+            result_id TEXT NOT NULL,
+            requested_url TEXT NOT NULL,
+            final_url TEXT NOT NULL,
+            final_domain_unicode TEXT NOT NULL DEFAULT '',
+            final_domain_punycode TEXT NOT NULL DEFAULT '',
+            status_code INTEGER NOT NULL,
+            redirects_json TEXT NOT NULL DEFAULT '[]',
+            headers_json TEXT NOT NULL DEFAULT '{}',
+            content_type TEXT NOT NULL DEFAULT '',
+            content_length INTEGER,
+            bytes_read INTEGER NOT NULL DEFAULT 0,
+            content_sha256 TEXT NOT NULL DEFAULT '',
+            content_truncated INTEGER NOT NULL DEFAULT 0
+                CHECK (content_truncated IN (0, 1)),
+            elapsed_ms INTEGER NOT NULL DEFAULT 0,
+            tracking_parameters_json TEXT NOT NULL DEFAULT '[]',
+            cleaned_url TEXT NOT NULL DEFAULT '',
+            analyzed_at TEXT NOT NULL,
+            FOREIGN KEY (investigation_id, result_id)
+                REFERENCES investigation_results(investigation_id, result_id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_url_analyses_result
+            ON url_analyses(
+                investigation_id,
+                result_id,
+                analyzed_at DESC
+            );
+        """,
+    ),
+    (
+        12,
+        """
+        ALTER TABLE extracted_entities RENAME TO extracted_entities_v8;
+
+        CREATE TABLE extracted_entities (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL,
+            result_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            suggested_type TEXT NOT NULL,
+            custom_label TEXT NOT NULL DEFAULT '',
+            value_original TEXT NOT NULL,
+            value_normalized TEXT NOT NULL,
+            source_field TEXT NOT NULL,
+            source_text TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0,
+            confidence_reasons_json TEXT NOT NULL DEFAULT '[]',
+            attributes_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'proposed'
+                CHECK (status IN ('proposed', 'validated', 'rejected')),
+            first_observed_at TEXT NOT NULL,
+            last_observed_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            FOREIGN KEY (investigation_id, result_id)
+                REFERENCES investigation_results(investigation_id, result_id)
+                ON DELETE CASCADE,
+            UNIQUE(
+                investigation_id,
+                result_id,
+                suggested_type,
+                value_normalized
+            )
+        );
+
+        INSERT INTO extracted_entities(
+            id, investigation_id, result_id, entity_type, suggested_type,
+            custom_label, value_original, value_normalized, source_field,
+            source_text, confidence, confidence_reasons_json, attributes_json,
+            status, first_observed_at, last_observed_at, reviewed_at
+        )
+        SELECT
+            id, investigation_id, result_id, entity_type, entity_type,
+            '', value_original, value_normalized, source_field,
+            source_text, confidence, '[]', '{}',
+            status, first_observed_at, last_observed_at, reviewed_at
+        FROM extracted_entities_v8;
+
+        DROP TABLE extracted_entities_v8;
+
+        CREATE INDEX idx_extracted_entities_investigation
+            ON extracted_entities(
+                investigation_id,
+                status,
+                entity_type,
+                last_observed_at DESC
+            );
+        CREATE INDEX idx_extracted_entities_result
+            ON extracted_entities(result_id, entity_type);
+        """,
+    ),
+    (
+        13,
+        """
+        ALTER TABLE extracted_entities
+            ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
+        """,
+    ),
+    (
+        14,
+        """
+        CREATE TABLE investigation_entities (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            label TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            properties_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE investigation_entity_sources (
+            entity_id TEXT NOT NULL
+                REFERENCES investigation_entities(id) ON DELETE CASCADE,
+            investigation_id TEXT NOT NULL,
+            result_id TEXT NOT NULL,
+            linked_at TEXT NOT NULL,
+            PRIMARY KEY (entity_id, result_id),
+            FOREIGN KEY (investigation_id, result_id)
+                REFERENCES investigation_results(investigation_id, result_id)
+                ON DELETE CASCADE
+        );
+
+        ALTER TABLE extracted_entities
+            ADD COLUMN investigation_entity_id TEXT
+            REFERENCES investigation_entities(id) ON DELETE SET NULL;
+        ALTER TABLE extracted_entities
+            ADD COLUMN property_key TEXT NOT NULL DEFAULT '';
+
+        CREATE INDEX idx_investigation_entities_investigation
+            ON investigation_entities(investigation_id, updated_at DESC);
+        CREATE INDEX idx_investigation_entity_sources_result
+            ON investigation_entity_sources(
+                investigation_id,
+                result_id,
+                linked_at DESC
+            );
+        CREATE INDEX idx_extracted_entities_parent
+            ON extracted_entities(investigation_entity_id, property_key);
+        """,
+    ),
 )

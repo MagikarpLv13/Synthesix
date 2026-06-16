@@ -138,6 +138,28 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn("investigationId: investigationSelect.value", self.content)
         self.assertIn("setInvestigations", self.content)
         self.assertIn("setSelectedInvestigation", self.content)
+        self.assertEqual(
+            len(
+                self.tree.xpath(
+                    "//datalist[@id='tag-suggestions']/option"
+                )
+            ),
+            26,
+        )
+        self.assertEqual(
+            len(
+                self.tree.xpath(
+                    "//select[@id='investigation-tag-suggestion']"
+                )
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//button[@id='add-investigation-tag']")),
+            1,
+        )
+        self.assertNotIn("ZeroNeurone TagSet", self.content)
+        self.assertIn("tags.push(selected)", self.content)
 
     def test_local_archive_search_is_offline_and_filterable(self):
         self.assertEqual(

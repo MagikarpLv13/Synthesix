@@ -190,7 +190,15 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
                 exported.manifest_path.read_text(encoding="utf-8")
             )
             self.assertEqual(manifest["schema"], "synthesix-zeroneurone")
-            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(manifest["schema_version"], 4)
+            self.assertEqual(
+                manifest["compatibility"]["source_version_observed"],
+                "2.41.9",
+            )
+            self.assertEqual(
+                manifest["compatibility"]["tagset_count"],
+                26,
+            )
             self.assertEqual(
                 manifest["counts"],
                 {"nodes": 4, "edges": 4, "assets": 0},
@@ -259,8 +267,25 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             for element in dossier["elements"]
             if element["label"] == "https://example.org/profile"
         )
-        self.assertIn("person", result["tags"])
+        self.assertIn("Personne", result["tags"])
+        self.assertNotIn("person", result["tags"])
+        self.assertLess(
+            result["tags"].index("Personne"),
+            result["tags"].index("Site web"),
+        )
         self.assertEqual(result["visual"]["icon"], "User")
+        self.assertEqual(result["visual"]["shape"], "circle")
+        self.assertEqual(result["visual"]["color"], "#3b82f6")
+        investigation = next(
+            element
+            for element in dossier["elements"]
+            if element["tags"][0] == "Investigation"
+        )
+        self.assertEqual(investigation["label"], "Case One")
+        self.assertEqual(investigation["position"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(investigation["visual"]["shape"], "hexagon")
+        self.assertEqual(investigation["visual"]["size"], "large")
+        self.assertEqual(investigation["visual"]["icon"], "Network")
         properties = {
             item["key"]: item
             for item in result["properties"]
@@ -271,20 +296,26 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             properties["Date d'accès"]["value"],
             "2026-06-12T10:02:00+00:00",
         )
-        domain = next(
+        self.assertNotIn(
+            "example.org",
+            {element["label"] for element in dossier["elements"]},
+        )
+        email = next(
             element
             for element in dossier["elements"]
-            if element["label"] == "example.org"
+            if element["label"] == "jane@example.org"
         )
-        domain_properties = {
+        email_properties = {
             item["key"]: item["value"]
-            for item in domain["properties"]
+            for item in email["properties"]
         }
-        self.assertEqual(domain_properties["Domaine"], "example.org")
+        self.assertEqual(email["tags"][0], "Email")
+        self.assertEqual(email["visual"]["icon"], "Mail")
         self.assertEqual(
-            domain_properties["Date d'accès"],
-            "2026-06-12T10:02:00+00:00",
+            email_properties["Adresse"],
+            "jane@example.org",
         )
+        self.assertNotIn("Attributes", email_properties)
         evidence = next(
             element
             for element in dossier["elements"]
@@ -294,6 +325,214 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertIn("dossier.json", archived_names)
         self.assertTrue(
             any(name.startswith("assets/") for name in archived_names)
+        )
+
+    def test_curated_entities_replace_source_and_fact_nodes(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "company-1",
+                "label": "ACME SAS",
+                "notes": "Selected company",
+                "tags": ["Entreprise"],
+                "properties": {"Forme juridique": "SAS"},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-siret",
+                "result_id": "result-1",
+                "entity_type": "siret",
+                "value_original": "732 829 320 00074",
+                "value_normalized": "73282932000074",
+                "source_field": "description",
+                "source_text": "SIRET 732 829 320 00074",
+                "confidence": 0.99,
+                "status": "validated",
+                "investigation_entity_id": "company-1",
+                "property_key": "SIRET",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, edges = build_export_graph(
+            workspace,
+            include_evidence=True,
+        )
+
+        self.assertEqual(
+            {node.label for node in nodes},
+            {"Case One", "ACME SAS", "Profile header"},
+        )
+        self.assertEqual(
+            {edge.label for edge in edges},
+            {"CONTAINS", "SUPPORTED_BY"},
+        )
+        company = next(node for node in nodes if node.label == "ACME SAS")
+        self.assertEqual(company.tags[0], "Entreprise")
+        self.assertEqual(company.properties["SIRET"], "732 829 320 00074")
+        self.assertEqual(company.properties["Forme juridique"], "SAS")
+        self.assertEqual(
+            company.properties["Sources"],
+            "https://example.org/profile",
+        )
+
+    def test_date_candidates_default_to_event_elements(self):
+        workspace = export_workspace()
+        workspace["entities"].append(
+            {
+                "id": "entity-date",
+                "result_id": "result-1",
+                "entity_type": "date",
+                "value_original": "15/06/2026",
+                "value_normalized": "2026-06-15",
+                "source_field": "description",
+                "source_text": "Événement le 15/06/2026",
+                "confidence": 0.95,
+                "attributes": {"interpretations": ["2026-06-15"]},
+                "status": "validated",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        date_node = next(node for node in nodes if node.label == "15/06/2026")
+        self.assertEqual(date_node.tags[0], "Événement")
+        self.assertEqual(date_node.properties["Date/heure"], "2026-06-15")
+        self.assertEqual(len(date_node.events), 1)
+        self.assertEqual(
+            date_node.events[0]["date"],
+            "2026-06-15T00:00:00Z",
+        )
+        self.assertEqual(
+            date_node.events[0]["dateEnd"],
+            "2026-06-15T00:00:00Z",
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        native_date = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "15/06/2026"
+        )
+        self.assertEqual(native_date["events"], list(date_node.events))
+
+    def test_date_property_becomes_event_on_curated_entity(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "company-1",
+                "label": "ACME SAS",
+                "tags": ["Entreprise"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-date",
+                "result_id": "result-1",
+                "entity_type": "date",
+                "custom_label": "Création",
+                "value_original": "15/06/2026",
+                "value_normalized": "2026-06-15",
+                "source_field": "description",
+                "source_text": "Créée le 15/06/2026",
+                "confidence": 0.95,
+                "attributes": {"interpretations": ["2026-06-15"]},
+                "status": "validated",
+                "investigation_entity_id": "company-1",
+                "property_key": "Date de création",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        company = next(node for node in nodes if node.label == "ACME SAS")
+        self.assertEqual(len(company.events), 1)
+        self.assertEqual(company.events[0]["label"], "Création")
+        self.assertEqual(
+            company.events[0]["source"],
+            "https://example.org/profile",
+        )
+        self.assertNotIn("Date de création", company.properties)
+
+    def test_coordinate_property_becomes_native_curated_location(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "company-1",
+                "label": "ACME SAS",
+                "tags": ["Entreprise"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-coordinates",
+                "result_id": "result-1",
+                "entity_type": "other",
+                "suggested_type": "other",
+                "tags": ["Coordonnées"],
+                "value_original": "48.8566, 2.3522",
+                "value_normalized": "48.856600,2.352200",
+                "source_field": "description",
+                "source_text": "Siège : 48.8566, 2.3522",
+                "confidence": 0.9,
+                "attributes": {
+                    "latitude": 48.8566,
+                    "longitude": 2.3522,
+                },
+                "status": "validated",
+                "investigation_entity_id": "company-1",
+                "property_key": "Coordonnées",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        company = next(node for node in nodes if node.label == "ACME SAS")
+        self.assertEqual(company.latitude, 48.8566)
+        self.assertEqual(company.longitude, 2.3522)
+        self.assertNotIn("Coordonnées", company.properties)
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        native_company = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "ACME SAS"
+        )
+        self.assertEqual(
+            native_company["geo"],
+            {
+                "type": "point",
+                "lat": 48.8566,
+                "lng": 2.3522,
+            },
         )
 
     def test_node_ids_are_stable_between_exports(self):
@@ -326,6 +565,112 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             if row["label"] == "https://example.org/profile"
         )
         self.assertTrue(result_row["notes"].startswith("'="))
+
+    def test_company_alias_uses_enterprise_tagset(self):
+        workspace = export_workspace()
+        workspace["results"][0]["tags"] = ["Company", "Offshore"]
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        result = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "https://example.org/profile"
+        )
+        self.assertEqual(
+            result["tags"][:3],
+            ["Entreprise", "Offshore", "Site web"],
+        )
+        self.assertEqual(result["visual"]["icon"], "Building2")
+        self.assertEqual(result["visual"]["shape"], "square")
+        self.assertEqual(result["visual"]["color"], "#8b5cf6")
+
+    def test_native_entity_properties_match_tagset_fields(self):
+        workspace = export_workspace()
+        workspace["entities"].extend(
+            [
+                {
+                    "id": "entity-address",
+                    "result_id": "result-1",
+                    "entity_type": "address",
+                    "value_original": "10 rue de la Paix, 75002 Paris",
+                    "value_normalized": "10 rue de la paix 75002 paris",
+                    "source_field": "archive_text:capture-1",
+                    "source_text": "Siège: 10 rue de la Paix, 75002 Paris.",
+                    "confidence": 0.82,
+                    "confidence_reasons": ["Postal code and locality"],
+                    "attributes": {
+                        "postal_code": "75002",
+                        "locality": "Paris",
+                        "country": "FR",
+                    },
+                    "status": "validated",
+                    "last_observed_at": "2026-06-12T10:02:00+00:00",
+                },
+                {
+                    "id": "entity-siret",
+                    "result_id": "result-1",
+                    "entity_type": "siret",
+                    "tags": ["Company", "custom entity tag"],
+                    "value_original": "732 829 320 00074",
+                    "value_normalized": "73282932000074",
+                    "source_field": "description",
+                    "source_text": "SIRET 732 829 320 00074",
+                    "confidence": 0.99,
+                    "attributes": {"siren": "732829320"},
+                    "status": "validated",
+                    "last_observed_at": "2026-06-12T10:02:00+00:00",
+                },
+            ]
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        address = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "10 rue de la Paix, 75002 Paris"
+        )
+        address_properties = {
+            item["key"]: item["value"]
+            for item in address["properties"]
+        }
+        self.assertEqual(address["tags"][0], "Lieu")
+        self.assertEqual(address["visual"]["icon"], "MapPin")
+        self.assertEqual(address_properties["Code postal"], "75002")
+        self.assertEqual(address_properties["Ville"], "Paris")
+        self.assertEqual(address_properties["Pays"], "FR")
+
+        siret = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "732 829 320 00074"
+        )
+        siret_properties = {
+            item["key"]: item["value"]
+            for item in siret["properties"]
+        }
+        self.assertEqual(siret_properties["SIRET"], "73282932000074")
+        self.assertEqual(siret_properties["SIREN"], "732829320")
+        self.assertEqual(
+            siret["tags"][:2],
+            ["Entreprise", "custom entity tag"],
+        )
+        self.assertEqual(siret["visual"]["icon"], "Building2")
 
 
 if __name__ == "__main__":

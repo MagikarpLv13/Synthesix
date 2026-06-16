@@ -2035,7 +2035,8 @@ async def _retry_search_combination(
 async def main():
     settings = get_settings()
     investigation_service = InvestigationService(
-        InvestigationRepository(settings.database_path)
+        InvestigationRepository(settings.database_path),
+        base_dir=settings.base_dir,
     )
     imported_history = investigation_service.initialize(settings.history_json_path)
     if imported_history:
@@ -2559,6 +2560,111 @@ async def main():
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
+            if result["action"] in {
+                "create_graph_entity",
+                "create_graph_entity_from_result",
+                "create_graph_entity_from_extracted",
+                "update_graph_entity",
+                "delete_graph_entity",
+                "set_graph_entity_property",
+                "delete_graph_entity_property",
+                "link_result_to_graph_entity",
+                "unlink_result_from_graph_entity",
+                "attach_extracted_property",
+                "detach_extracted_property",
+            }:
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    action = result["action"]
+                    entity_id = str(
+                        result.get("entityId", "") or ""
+                    ).strip()
+                    if action == "create_graph_entity":
+                        investigation_service.create_graph_entity(
+                            investigation_id,
+                            result.get("entity", {}),
+                        )
+                    elif action == "create_graph_entity_from_result":
+                        investigation_service.create_graph_entity_from_result(
+                            investigation_id,
+                            str(result.get("resultId", "") or "").strip(),
+                            result.get("entity", {}),
+                        )
+                    elif action == "create_graph_entity_from_extracted":
+                        investigation_service.create_graph_entity_from_extracted(
+                            investigation_id,
+                            str(
+                                result.get("extractedEntityId", "") or ""
+                            ).strip(),
+                            result.get("entity", {}),
+                        )
+                    elif action == "update_graph_entity":
+                        investigation_service.update_graph_entity(
+                            investigation_id,
+                            entity_id,
+                            result.get("entity", {}),
+                        )
+                    elif action == "delete_graph_entity":
+                        investigation_service.delete_graph_entity(
+                            investigation_id,
+                            entity_id,
+                        )
+                    elif action == "set_graph_entity_property":
+                        investigation_service.set_graph_entity_property(
+                            investigation_id,
+                            entity_id,
+                            result.get("property", {}),
+                        )
+                    elif action == "delete_graph_entity_property":
+                        investigation_service.delete_graph_entity_property(
+                            investigation_id,
+                            entity_id,
+                            str(result.get("key", "") or ""),
+                        )
+                    elif action == "link_result_to_graph_entity":
+                        investigation_service.link_result_to_graph_entity(
+                            investigation_id,
+                            entity_id,
+                            str(result.get("resultId", "") or "").strip(),
+                        )
+                    elif action == "unlink_result_from_graph_entity":
+                        investigation_service.unlink_result_from_graph_entity(
+                            investigation_id,
+                            entity_id,
+                            str(result.get("resultId", "") or "").strip(),
+                        )
+                    elif action == "attach_extracted_property":
+                        investigation_service.attach_extracted_property(
+                            investigation_id,
+                            str(
+                                result.get("extractedEntityId", "") or ""
+                            ).strip(),
+                            result.get("property", {}),
+                        )
+                    else:
+                        investigation_service.detach_extracted_property(
+                            investigation_id,
+                            str(
+                                result.get("extractedEntityId", "") or ""
+                            ).strip(),
+                        )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
             if result["action"] == "extract_result_entities":
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -2588,6 +2694,40 @@ async def main():
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
+            if result["action"] == "analyze_result_url":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                result_id = str(result.get("resultId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    analysis = await asyncio.to_thread(
+                        investigation_service.analyze_result_url,
+                        investigation_id,
+                        result_id,
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_page_status(
+                        source_tab,
+                        (
+                            f"URL analysis completed: HTTP "
+                            f"{analysis['status_code']}, "
+                            f"{len(analysis['redirects'])} redirect(s)."
+                        ),
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
             if result["action"] == "update_entity_status":
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -2599,6 +2739,32 @@ async def main():
                         investigation_id,
                         entity_id,
                         result.get("status", ""),
+                    )
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "update_entity_metadata":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                entity_id = str(result.get("entityId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.update_entity_metadata(
+                        investigation_id,
+                        entity_id,
+                        result.get("entity", {}),
                     )
                     page_path = _generate_investigation_page(
                         investigation_service,

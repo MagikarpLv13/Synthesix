@@ -74,6 +74,98 @@ class EntityExtractionTestCase(unittest.TestCase):
             )
         )
 
+    def test_extracts_valid_french_business_identifiers(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "SIREN 732 829 320. SIRET 732 829 320 00074. "
+                    "Numéro de TVA : FR44 732829320."
+                )
+            }
+        )
+        by_type = {
+            candidate.entity_type: candidate
+            for candidate in candidates
+        }
+
+        self.assertEqual(by_type["siren"].normalized_value, "732829320")
+        self.assertEqual(
+            by_type["siret"].normalized_value,
+            "73282932000074",
+        )
+        self.assertEqual(
+            by_type["vat_number"].normalized_value,
+            "FR44732829320",
+        )
+        self.assertTrue(by_type["siret"].attributes["checksum_valid"])
+        self.assertEqual(
+            by_type["vat_number"].attributes["siren"],
+            "732829320",
+        )
+        self.assertFalse(
+            any(candidate.entity_type == "phone" for candidate in candidates)
+        )
+
+    def test_rejects_invalid_french_business_identifiers(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "SIREN 732 829 321. SIRET 732 829 320 00075. "
+                    "TVA FR45 732829320."
+                )
+            }
+        )
+
+        self.assertFalse(
+            any(
+                candidate.entity_type in {"siren", "siret", "vat_number"}
+                for candidate in candidates
+            )
+        )
+
+    def test_extracts_dates_and_preserves_ambiguity(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Created on 2025-06-14, reviewed on 14 juin 2025, "
+                    "and filed on 04/05/2025."
+                )
+            }
+        )
+        dates = [
+            candidate
+            for candidate in candidates
+            if candidate.entity_type == "date"
+        ]
+        normalized = {candidate.normalized_value for candidate in dates}
+
+        self.assertIn("2025-06-14", normalized)
+        ambiguous = next(
+            candidate
+            for candidate in dates
+            if candidate.normalized_value.startswith("ambiguous:")
+        )
+        self.assertTrue(ambiguous.attributes["ambiguous"])
+        self.assertEqual(len(ambiguous.attributes["interpretations"]), 2)
+
+    def test_extracts_structured_french_postal_address(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Siège social : 10 rue de la Paix, 75002 Paris."
+                )
+            }
+        )
+        address = next(
+            candidate
+            for candidate in candidates
+            if candidate.entity_type == "address"
+        )
+
+        self.assertEqual(address.attributes["postal_code"], "75002")
+        self.assertEqual(address.attributes["locality"], "Paris")
+        self.assertEqual(address.attributes["country"], "FR")
+
 
 if __name__ == "__main__":
     unittest.main()

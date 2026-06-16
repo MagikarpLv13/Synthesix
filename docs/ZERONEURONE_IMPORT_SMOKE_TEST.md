@@ -1,8 +1,8 @@
 # ZeroNeurone import smoke test
 
-Compatibility target checked on 2026-06-12:
+Compatibility target checked on 2026-06-15:
 
-- ZeroNeurone website version: 2.41.6
+- ZeroNeurone source version: 2.41.9
 - import documentation version: 2.19.0
 - documented formats: GraphML and unified CSV
 - native archive structure reference: user-supplied ZeroNeurone `1.1.0`
@@ -26,7 +26,19 @@ Compatibility target checked on 2026-06-12:
 3. Verify:
    - elements are arranged in readable type columns;
    - every link resolves through `fromId` and `toId`;
-   - Synthesix tags are present, including a `person` or `Personne` test tag;
+   - recognized Synthesix aliases use exact ZeroNeurone TagSet names:
+     `Person`/`Personne` becomes `Personne`, `Company`/`Organisation` becomes
+     `Entreprise`, while custom tags remain unchanged;
+   - the first recognized analyst TagSet controls the exported native visual;
+   - all 26 built-in ZeroNeurone 2.41.9 TagSets are available as Synthesix tag
+     suggestions on investigations, saved pages, and extracted entities;
+   - the investigation root displays only its title and is visually identifiable
+     as the large central hexagon at the graph origin;
+   - when explicit investigation entities exist, linked saved pages appear as
+     source properties rather than URL or domain nodes;
+   - extracted SIREN/SIRET values attached to a company appear as properties on
+     that company;
+   - standalone date candidates use the `Événement` TagSet;
    - person, company, site, account, search, and evidence elements use distinct
      shapes, colors, or icons;
    - URL elements expose `URL`, `Domaine`, and `Date d'accès` properties;

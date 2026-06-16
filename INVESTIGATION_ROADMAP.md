@@ -70,13 +70,42 @@ Phase P2 - variantes et couverture :
 Phase P2 - entites et export :
 
 - extraction deterministe depuis les pages retenues : realisee ;
+- extraction depuis le texte des archives HTML explicites : realisee ;
 - passage source, valeur originale et valeur normalisee : realises ;
+- adresses postales francaises : realisees ;
+- SIREN, SIRET et numeros de TVA : realises ;
+- dates explicites avec conservation des ambiguites : realisees ;
+- type suggere modifiable et libelle analyste libre : realises ;
+- raisons de confiance et attributs structures : realises ;
 - validation et rejet explicites par l'analyste : realises ;
 - conservation des decisions lors d'une nouvelle extraction : realisee ;
 - relations observees : realisees ;
 - export ZIP natif, GraphML, CSV et manifeste : realise ;
+- mapping des 26 TagSets ZeroNeurone 2.41.9 : realise ;
+- alias bilingues et visuels TagSet natifs : realises ;
+- suggestions TagSet sur les investigations, pages et entites : realisees ;
+- tags libres conserves en parallele des TagSets : realises ;
+- noeud racine central et identifiable dans ZeroNeurone : realise ;
+- entites principales creees par l'analyste : realisees ;
+- rattachement des pages et captures comme sources : realise ;
+- rattachement des candidats extraits comme proprietes : realise ;
+- export organise sans noeuds URL/domaine redondants : realise ;
+- dates autonomes exportees comme Evenement : realise ;
 - validation automatique du schema documente : realisee ;
 - smoke test manuel dans l'application ZeroNeurone : a faire.
+
+Phase P3 - analyse URL et documents :
+
+- analyse technique explicite des URL retenues : realisee ;
+- validation des destinations publiques et des redirections : realisee ;
+- statut HTTP, redirections et en-tetes non sensibles : realises ;
+- domaines Unicode/punycode et parametres de tracking connus : realises ;
+- hash SHA-256 du contenu jusqu'a 5 Mio : realise ;
+- historique local des analyses URL : realise ;
+- metadata et extraction de texte des fichiers : a faire ;
+- OCR optionnel et detection de doublons documentaires : a faire.
+
+Phase 8 - formats avances : differee, sans implementation pour le moment.
 
 ## 1. Objectif
 
@@ -433,6 +462,10 @@ Types initiaux :
 - pseudo probable ;
 - identifiant technique ;
 - coordonnees geographiques explicites.
+- adresse postale ;
+- SIREN et SIRET ;
+- numero de TVA ;
+- date explicite.
 
 Types plus ambigus, a ajouter ensuite :
 
@@ -444,7 +477,7 @@ Types plus ambigus, a ajouter ensuite :
 
 Pipeline :
 
-1. extraire le texte visible ;
+1. extraire les champs de la page et le texte des archives explicites ;
 2. detecter les candidats ;
 3. normaliser sans perdre la valeur originale ;
 4. conserver le passage source ;
@@ -455,6 +488,10 @@ Regles :
 
 - utiliser d'abord des extracteurs deterministes ;
 - ne pas imposer de dependance IA ;
+- valider les cles SIREN, SIRET et TVA francaise lorsque possible ;
+- conserver toutes les interpretations d'une date numerique ambigue ;
+- separer le type suggere du type retenu par l'analyste ;
+- permettre un libelle libre sans remplacer la taxonomie standard ;
 - ne pas fusionner deux personnes sur la seule similarite de nom ;
 - conserver les faux positifs rejetes pour eviter de les reproposer.
 
@@ -729,8 +766,8 @@ Livrable : transfert fiable vers ZeroNeurone pour l'analyse visuelle.
 
 ### Phase 7 - Analyse URL et documents
 
-- redirections et en-tetes ;
-- hashes de contenu ;
+- redirections et en-tetes : realises pour les URL retenues ;
+- hashes de contenu : realises jusqu'a 5 Mio ;
 - metadata fichiers ;
 - extraction de texte ;
 - OCR optionnel ;
@@ -739,6 +776,8 @@ Livrable : transfert fiable vers ZeroNeurone pour l'analyse visuelle.
 Livrable : enrichissement technique des resultats selectionnes.
 
 ### Phase 8 - Formats avances
+
+Phase differee pour le moment.
 
 - GeoJSON ;
 - STIX 2.1 ;

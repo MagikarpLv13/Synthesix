@@ -336,6 +336,35 @@
         </section>
     </main>
 
+    <datalist id="tag-suggestions">
+        <option value="Personne"></option>
+        <option value="Entreprise"></option>
+        <option value="Compte bancaire"></option>
+        <option value="Véhicule"></option>
+        <option value="Téléphone"></option>
+        <option value="Email"></option>
+        <option value="Site web"></option>
+        <option value="Compte en ligne"></option>
+        <option value="Wallet crypto"></option>
+        <option value="Document d'identité"></option>
+        <option value="Lieu"></option>
+        <option value="Transaction"></option>
+        <option value="Événement"></option>
+        <option value="Dirigeant"></option>
+        <option value="Militaire"></option>
+        <option value="Fonctionnaire"></option>
+        <option value="Élu"></option>
+        <option value="Avocat"></option>
+        <option value="PEP"></option>
+        <option value="Sanctionné"></option>
+        <option value="Suspect"></option>
+        <option value="Témoin"></option>
+        <option value="Victime"></option>
+        <option value="Filiale"></option>
+        <option value="Offshore"></option>
+        <option value="Zone"></option>
+    </datalist>
+
     <dialog id="investigation-dialog" class="investigation-dialog">
         <form id="investigation-form" class="investigation-form">
             <div class="dialog-header">
@@ -366,8 +395,48 @@
                     <input
                         id="investigation-tags"
                         type="text"
-                        placeholder="priority, person, company"
+                        list="tag-suggestions"
+                        placeholder="Personne, Suspect, custom tag..."
                     >
+                    <span class="field-hint">
+                        Choose a suggested tag or enter custom comma-separated tags.
+                    </span>
+                    <span class="tag-suggestion-controls">
+                        <select id="investigation-tag-suggestion">
+                            <option value="">Add suggested tag...</option>
+                            <option value="Personne">Personne</option>
+                            <option value="Entreprise">Entreprise</option>
+                            <option value="Compte bancaire">Compte bancaire</option>
+                            <option value="Véhicule">Véhicule</option>
+                            <option value="Téléphone">Téléphone</option>
+                            <option value="Email">Email</option>
+                            <option value="Site web">Site web</option>
+                            <option value="Compte en ligne">Compte en ligne</option>
+                            <option value="Wallet crypto">Wallet crypto</option>
+                            <option value="Document d'identité">Document d'identité</option>
+                            <option value="Lieu">Lieu</option>
+                            <option value="Transaction">Transaction</option>
+                            <option value="Événement">Événement</option>
+                            <option value="Dirigeant">Dirigeant</option>
+                            <option value="Militaire">Militaire</option>
+                            <option value="Fonctionnaire">Fonctionnaire</option>
+                            <option value="Élu">Élu</option>
+                            <option value="Avocat">Avocat</option>
+                            <option value="PEP">PEP</option>
+                            <option value="Sanctionné">Sanctionné</option>
+                            <option value="Suspect">Suspect</option>
+                            <option value="Témoin">Témoin</option>
+                            <option value="Victime">Victime</option>
+                            <option value="Filiale">Filiale</option>
+                            <option value="Offshore">Offshore</option>
+                            <option value="Zone">Zone</option>
+                        </select>
+                        <button
+                            id="add-investigation-tag"
+                            class="secondary-button"
+                            type="button"
+                        >Add tag</button>
+                    </span>
                 </label>
             </div>
             <div class="dialog-actions">
@@ -401,6 +470,12 @@
             const investigationReference = document.getElementById("investigation-reference");
             const investigationDescription = document.getElementById("investigation-description");
             const investigationTags = document.getElementById("investigation-tags");
+            const investigationTagSuggestion = document.getElementById(
+                "investigation-tag-suggestion"
+            );
+            const addInvestigationTagButton = document.getElementById(
+                "add-investigation-tag"
+            );
             const closeInvestigationDialogButton = document.getElementById("close-investigation-dialog");
             const cancelInvestigationDialogButton = document.getElementById("cancel-investigation-dialog");
             const clearSynthesixHistoryButton = document.getElementById("clear-synthesix-history");
@@ -628,6 +703,7 @@
                 investigationReference.value = investigation ? investigation.reference : "";
                 investigationDescription.value = investigation ? investigation.description : "";
                 investigationTags.value = investigation ? (investigation.tags || []).join(", ") : "";
+                investigationTagSuggestion.value = "";
                 investigationDialog.showModal();
                 investigationTitle.focus();
             };
@@ -1103,6 +1179,26 @@
                     queueAction("create_investigation", payload);
                 }
                 closeInvestigationDialog();
+            });
+            addInvestigationTagButton.addEventListener("click", () => {
+                const selected = investigationTagSuggestion.value.trim();
+                if (!selected) {
+                    return;
+                }
+                const tags = investigationTags.value
+                    .split(",")
+                    .map((tag) => tag.trim())
+                    .filter(Boolean);
+                if (
+                    !tags.some(
+                        (tag) => tag.toLowerCase() === selected.toLowerCase()
+                    )
+                ) {
+                    tags.push(selected);
+                    investigationTags.value = tags.join(", ");
+                }
+                investigationTagSuggestion.value = "";
+                investigationTags.focus();
             });
             closeInvestigationDialogButton.addEventListener(
                 "click",

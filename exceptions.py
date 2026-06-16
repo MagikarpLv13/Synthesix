@@ -10,6 +10,10 @@ class EvidenceCaptureError(InvestigationError):
     """Raised when an evidence artifact cannot be captured or persisted."""
 
 
+class UrlAnalysisError(InvestigationError):
+    """Raised when a saved URL cannot be analyzed safely."""
+
+
 class InvestigationValidationError(InvestigationError):
     """Raised when investigation input does not satisfy application rules."""
 
