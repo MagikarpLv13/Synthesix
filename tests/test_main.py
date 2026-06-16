@@ -12,10 +12,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from main import (
     _archive_page,
+    _attach_selection_to_graph_entity,
     _apply_settings_to_tabs,
     _cached_history_payload,
     _capture_evidence,
     _consume_settings_change,
+    _create_graph_entity_from_selection,
     _default_capture_name,
     _delete_evidence_capture,
     _delete_investigation_export,
@@ -515,7 +517,19 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         tab = FakeTab()
         action = await _install_and_consume_save_overlay(
             tab,
-            {"id": "case-1", "title": "Case One"},
+            {
+                "id": "case-1",
+                "title": "Case One",
+                "tags": ["Prioritaire"],
+                "graph_entities": [
+                    {
+                        "id": "entity-1",
+                        "label": "Jane Doe",
+                        "tags": ["Entreprise", "Source confidentielle"],
+                        "properties": {"Alias": "JD"},
+                    }
+                ],
+            },
         )
 
         self.assertTrue(_is_external_web_tab(tab))
@@ -535,7 +549,144 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Select area", tab.script)
         self.assertIn("capture_evidence_to_investigation", tab.script)
         self.assertIn("__synthesix-evidence-selection", tab.script)
+        self.assertIn("Ajouter à l'enquête", tab.script)
+        self.assertIn("Créer une entité", tab.script)
+        self.assertIn("entityTrigger", tab.script)
+        self.assertIn("__synthesix-entity-type-suggestions", tab.script)
+        self.assertIn("Type d'entité", tab.script)
+        self.assertIn("Ajouter comme propriété", tab.script)
+        self.assertIn("__synthesix-property-suggestions", tab.script)
+        self.assertIn("tagsetProperties", tab.script)
+        self.assertIn("propertySuggestionsForEntity", tab.script)
+        self.assertIn("updatePropertySuggestions", tab.script)
+        self.assertIn("datalist.dataset.signature", tab.script)
+        self.assertIn("entityTagSignature", tab.script)
+        self.assertIn("graphEntitySignature", tab.script)
+        self.assertIn("event.stopPropagation", tab.script)
+        self.assertIn("SIREN", tab.script)
+        self.assertIn("Alias", tab.script)
+        self.assertIn("attach_selection_to_graph_entity", tab.script)
+        self.assertIn("__synthesixSetGraphEntities", tab.script)
+        self.assertIn("__synthesixSetEntityTagsets", tab.script)
+        self.assertIn("mergedEntityTags", tab.script)
+        self.assertIn("Source confidentielle", tab.script)
+        self.assertIn("selectedEntityId", tab.script)
+        self.assertIn('document.addEventListener("mouseup"', tab.script)
+        self.assertIn("event.composedPath().includes(host)", tab.script)
+        self.assertNotIn('document.addEventListener("contextmenu"', tab.script)
+        self.assertIn("window.getSelection", tab.script)
+        self.assertIn("create_graph_entity_from_selection", tab.script)
+        self.assertIn("selectedEntityText", tab.script)
+        self.assertIn("Personne", tab.script)
         self.assertFalse(_is_external_web_tab(SimpleNamespace(url="file:///index.html")))
+
+    def test_selection_entity_helper_saves_page_and_links_source(self):
+        service = Mock()
+        investigation = SimpleNamespace(id="case-1", status="active")
+        saved = SimpleNamespace(
+            id="result-1",
+            url="https://example.com/profile",
+            title="Profile",
+        )
+        service.get.return_value = investigation
+        service.save_page.return_value = saved
+        service.create_graph_entity_from_result.return_value = {
+            "id": "entity-1",
+            "label": "Jane Doe",
+            "tags": ["Personne"],
+            "linked_result_ids": ["result-1"],
+        }
+
+        returned_investigation, returned_saved, entity = (
+            _create_graph_entity_from_selection(
+                service,
+                "case-1",
+                {
+                    "entity": {
+                        "label": "Jane Doe",
+                        "category": "Person",
+                    },
+                    "page": {
+                        "url": "https://example.com/profile",
+                        "title": "Profile",
+                    },
+                },
+            )
+        )
+
+        self.assertIs(returned_investigation, investigation)
+        self.assertIs(returned_saved, saved)
+        self.assertEqual(entity["label"], "Jane Doe")
+        service.save_page.assert_called_once_with(
+            "case-1",
+            {
+                "url": "https://example.com/profile",
+                "title": "Profile",
+            },
+        )
+        service.create_graph_entity_from_result.assert_called_once_with(
+            "case-1",
+            "result-1",
+            {
+                "label": "Jane Doe",
+                "category": "Person",
+                "notes": (
+                    "Created from selected text on "
+                    "https://example.com/profile"
+                ),
+            },
+        )
+
+    def test_attach_selection_helper_links_source_and_appends_property(self):
+        service = Mock()
+        investigation = SimpleNamespace(id="case-1", status="active")
+        saved = SimpleNamespace(
+            id="result-1",
+            url="https://example.com/profile",
+            title="Profile",
+        )
+        service.get.return_value = investigation
+        service.workspace_payload.return_value = {
+            "graph_entities": [
+                {
+                    "id": "entity-1",
+                    "label": "Jane Doe",
+                    "properties": {"Alias": "J. Doe"},
+                }
+            ]
+        }
+        service.save_page.return_value = saved
+        service.set_graph_entity_property.return_value = {
+            "id": "entity-1",
+            "label": "Jane Doe",
+            "properties": {"Alias": "J. Doe; JD"},
+        }
+
+        returned_investigation, returned_saved, entity = (
+            _attach_selection_to_graph_entity(
+                service,
+                "case-1",
+                "entity-1",
+                {
+                    "property": {"key": "Alias", "value": "JD"},
+                    "page": {"url": "https://example.com/profile"},
+                },
+            )
+        )
+
+        self.assertIs(returned_investigation, investigation)
+        self.assertIs(returned_saved, saved)
+        self.assertEqual(entity["properties"]["Alias"], "J. Doe; JD")
+        service.link_result_to_graph_entity.assert_called_once_with(
+            "case-1",
+            "entity-1",
+            "result-1",
+        )
+        service.set_graph_entity_property.assert_called_once_with(
+            "case-1",
+            "entity-1",
+            {"key": "Alias", "value": "J. Doe; JD"},
+        )
 
     async def test_external_page_overlay_can_focus_home_without_active_case(self):
         class FakeTab:

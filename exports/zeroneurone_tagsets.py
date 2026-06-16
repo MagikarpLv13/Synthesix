@@ -86,6 +86,178 @@ ZERONEURONE_TAGSET_VISUALS = {
     "Zone": {"color": "#10b981", "shape": "hexagon", "icon": "MapPin"},
 }
 
+ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES = {
+    "Personne": (
+        ("Date de naissance", "date"),
+        ("Lieu de naissance", "text"),
+        ("Nationalité", "country"),
+        ("Alias", "text"),
+        ("Adresse", "text"),
+        ("Téléphone", "text"),
+        ("Email", "text"),
+        ("Profession", "text"),
+    ),
+    "Entreprise": (
+        ("SIREN", "text"),
+        ("SIRET", "text"),
+        ("Forme juridique", "text"),
+        ("Date de création", "date"),
+        ("Capital social", "number"),
+        ("Adresse siège", "text"),
+        ("Secteur d'activité", "text"),
+        ("Statut", "choice"),
+    ),
+    "Compte bancaire": (
+        ("IBAN", "text"),
+        ("BIC", "text"),
+        ("Banque", "text"),
+        ("Titulaire", "text"),
+        ("Type", "choice"),
+    ),
+    "Véhicule": (
+        ("Immatriculation", "text"),
+        ("Marque", "text"),
+        ("Modèle", "text"),
+        ("Couleur", "text"),
+        ("VIN", "text"),
+        ("Date mise en circulation", "date"),
+    ),
+    "Téléphone": (
+        ("Numéro", "text"),
+        ("Opérateur", "text"),
+        ("Type", "choice"),
+        ("IMEI", "text"),
+    ),
+    "Email": (
+        ("Adresse", "text"),
+        ("Fournisseur", "text"),
+    ),
+    "Site web": (
+        ("URL", "link"),
+        ("Domaine", "text"),
+        ("Registrar", "text"),
+        ("Date création", "date"),
+        ("Date expiration", "date"),
+        ("IP", "text"),
+        ("Hébergeur", "text"),
+    ),
+    "Compte en ligne": (
+        ("Plateforme", "choice"),
+        ("Username", "text"),
+        ("URL profil", "link"),
+        ("Nom affiché", "text"),
+        ("Followers", "number"),
+    ),
+    "Wallet crypto": (
+        ("Adresse", "text"),
+        ("Blockchain", "choice"),
+        ("Type", "choice"),
+        ("Plateforme", "text"),
+    ),
+    "Document d'identité": (
+        ("Type", "choice"),
+        ("Numéro", "text"),
+        ("Pays émetteur", "country"),
+        ("Date émission", "date"),
+        ("Date expiration", "date"),
+    ),
+    "Lieu": (
+        ("Adresse", "text"),
+        ("Code postal", "text"),
+        ("Ville", "text"),
+        ("Pays", "country"),
+        ("Type", "choice"),
+    ),
+    "Transaction": (
+        ("Date", "datetime"),
+        ("Montant", "number"),
+        ("Devise", "choice"),
+        ("Émetteur", "text"),
+        ("Bénéficiaire", "text"),
+        ("Référence", "text"),
+        ("Motif", "text"),
+    ),
+    "Événement": (
+        ("Date/heure", "datetime"),
+        ("Lieu", "text"),
+        ("Type", "text"),
+        ("Description", "text"),
+    ),
+    "Dirigeant": (
+        ("Fonction", "text"),
+        ("Organisation", "text"),
+        ("Date de prise de fonction", "date"),
+        ("Date de fin de fonction", "date"),
+    ),
+    "Militaire": (
+        ("Grade", "text"),
+        ("Arme", "choice"),
+        ("Unité", "text"),
+        ("Matricule", "text"),
+        ("Date d'incorporation", "date"),
+    ),
+    "Fonctionnaire": (
+        ("Administration", "text"),
+        ("Corps", "text"),
+        ("Grade", "text"),
+        ("Affectation", "text"),
+    ),
+    "Élu": (
+        ("Mandat", "text"),
+        ("Circonscription", "text"),
+        ("Parti", "text"),
+        ("Date d'élection", "date"),
+        ("Fin de mandat", "date"),
+    ),
+    "Avocat": (
+        ("Barreau", "text"),
+        ("Spécialité", "text"),
+        ("Cabinet", "text"),
+        ("Date d'inscription", "date"),
+    ),
+    "PEP": (
+        ("Type PEP", "choice"),
+        ("Fonction exposante", "text"),
+        ("Pays", "country"),
+        ("Source", "text"),
+    ),
+    "Sanctionné": (
+        ("Liste", "choice"),
+        ("Motif", "text"),
+        ("Date d'inscription", "date"),
+        ("Référence", "text"),
+    ),
+    "Suspect": (
+        ("Infractions supposées", "text"),
+        ("Niveau de suspicion", "choice"),
+    ),
+    "Témoin": (
+        ("Type", "choice"),
+        ("Fiabilité", "choice"),
+    ),
+    "Victime": (
+        ("Préjudice", "text"),
+        ("Date des faits", "date"),
+        ("Plainte déposée", "boolean"),
+    ),
+    "Filiale": (
+        ("Société mère", "text"),
+        ("Pourcentage détenu", "number"),
+        ("Date d'acquisition", "date"),
+    ),
+    "Offshore": (
+        ("Juridiction", "choice"),
+        ("Agent enregistré", "text"),
+        ("Bénéficiaire effectif", "text"),
+    ),
+    "Zone": (
+        ("Type de zone", "choice"),
+        ("Surface", "text"),
+        ("Adresse", "text"),
+        ("Responsable", "text"),
+    ),
+}
+
 
 def _tag_key(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value or "").strip())
@@ -158,3 +330,16 @@ def zeroneurone_tagset_visual(tag: object) -> dict[str, object] | None:
     canonical = canonical_zeroneurone_tag(tag)
     visual = ZERONEURONE_TAGSET_VISUALS.get(canonical)
     return dict(visual) if visual is not None else None
+
+
+def zeroneurone_tagset_suggested_properties(
+    tag: object,
+) -> tuple[dict[str, object], ...]:
+    canonical = canonical_zeroneurone_tag(tag)
+    return tuple(
+        {"key": key, "type": property_type}
+        for key, property_type in ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES.get(
+            canonical,
+            (),
+        )
+    )

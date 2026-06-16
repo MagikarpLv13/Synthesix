@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 import sys
+from typing import Mapping
 from urllib.parse import urlsplit
 from uuid import uuid4
 from browser_manager import HeadlessBrowserManager
@@ -30,6 +31,10 @@ from exceptions import (
     SynthesixError,
 )
 from exports import export_zeroneurone_bundle
+from exports.zeroneurone_tagsets import (
+    ZERONEURONE_TAGSETS,
+    zeroneurone_tagset_suggested_properties,
+)
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
 from investigations.monitoring_view import generate_page_comparison_report
@@ -327,10 +332,62 @@ async def _install_and_consume_save_overlay(
     investigation: dict | None = None,
 ):
     investigation = investigation or {}
+    tagsets_json = json.dumps(list(ZERONEURONE_TAGSETS), ensure_ascii=True)
+    tagset_properties_json = json.dumps(
+        {
+            tag: [
+                str(property_.get("key", "") or "")
+                for property_ in zeroneurone_tagset_suggested_properties(tag)
+                if str(property_.get("key", "") or "").strip()
+            ]
+            for tag in ZERONEURONE_TAGSETS
+        },
+        ensure_ascii=True,
+    )
     context_json = json.dumps(
         {
             "id": str(investigation.get("id", "")),
             "title": str(investigation.get("title", "")),
+            "existingTags": sorted(
+                {
+                    str(tag).strip()
+                    for tag in (
+                        *investigation.get("tags", []),
+                        *(
+                            tag
+                            for entity in investigation.get(
+                                "graph_entities",
+                                [],
+                            )
+                            for tag in entity.get("tags", [])
+                        ),
+                    )
+                    if str(tag).strip()
+                },
+                key=str.casefold,
+            ),
+            "graphEntities": [
+                {
+                    "id": str(entity.get("id", "")),
+                    "label": str(entity.get("label", "")),
+                    "tags": [
+                        str(tag)
+                        for tag in entity.get("tags", [])
+                        if str(tag).strip()
+                    ],
+                    "propertyKeys": [
+                        str(key)
+                        for key in (
+                            entity.get("properties", {})
+                            if isinstance(entity.get("properties", {}), Mapping)
+                            else {}
+                        )
+                        if str(key).strip()
+                    ],
+                }
+                for entity in investigation.get("graph_entities", [])
+                if str(entity.get("id", "")).strip()
+            ],
         },
         ensure_ascii=True,
     )
@@ -339,6 +396,8 @@ async def _install_and_consume_save_overlay(
             f"""
             (() => {{
                 const context = {context_json};
+                const entityTagsets = {tagsets_json};
+                const tagsetProperties = {tagset_properties_json};
                 const hostId = "__synthesix-save-overlay";
                 let host = document.getElementById(hostId);
                 if (!host) {{
@@ -1005,6 +1064,524 @@ async def _install_and_consume_save_overlay(
                         );
                         captureButton.style.transform = "translateY(0)";
                     }});
+
+                    const entityTrigger = document.createElement("button");
+                    entityTrigger.type = "button";
+                    entityTrigger.textContent = "Ajouter à l'enquête";
+                    Object.assign(entityTrigger.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "none",
+                        position: "fixed",
+                        left: "0",
+                        top: "0",
+                        padding: "7px 9px",
+                        border: "1px solid #1D4ED8",
+                        borderRadius: "999px",
+                        background: "#2563EB",
+                        color: "#FFFFFF",
+                        boxShadow: "0 10px 26px rgba(15, 23, 42, 0.26)",
+                        cursor: "pointer",
+                        font: "700 12px Arial, sans-serif",
+                        zIndex: "2147483647",
+                        whiteSpace: "nowrap"
+                    }});
+                    const entityMenu = document.createElement("div");
+                    Object.assign(entityMenu.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "none",
+                        position: "fixed",
+                        left: "0",
+                        top: "0",
+                        width: "300px",
+                        maxHeight: "390px",
+                        padding: "6px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "8px",
+                        background: "#FFFFFF",
+                        boxShadow: "0 14px 34px rgba(15, 23, 42, 0.28)",
+                        color: "#0F172A",
+                        font: "600 13px Arial, sans-serif",
+                        zIndex: "2147483647"
+                    }});
+                    const entityTitle = document.createElement("div");
+                    entityTitle.textContent = "Ajouter à l'enquête";
+                    Object.assign(entityTitle.style, {{
+                        padding: "4px 6px 2px",
+                        color: "#475569",
+                        font: "700 12px Arial, sans-serif",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em"
+                    }});
+                    const entityPreview = document.createElement("div");
+                    Object.assign(entityPreview.style, {{
+                        overflow: "hidden",
+                        padding: "0 6px 5px",
+                        color: "#0F172A",
+                        font: "700 13px Arial, sans-serif",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                    }});
+                    const createTitle = document.createElement("div");
+                    createTitle.textContent = "Créer une entité";
+                    Object.assign(createTitle.style, {{
+                        padding: "2px 6px 4px",
+                        color: "#475569",
+                        font: "700 12px Arial, sans-serif"
+                    }});
+                    const customTypeRow = document.createElement("div");
+                    Object.assign(customTypeRow.style, {{
+                        display: "flex",
+                        gap: "5px",
+                        padding: "5px 0 4px"
+                    }});
+                    const entityTypeDatalist = document.createElement("datalist");
+                    entityTypeDatalist.id = "__synthesix-entity-type-suggestions";
+                    const customTypeInput = document.createElement("input");
+                    customTypeInput.type = "text";
+                    customTypeInput.maxLength = 50;
+                    customTypeInput.placeholder = "Type d'entité...";
+                    customTypeInput.setAttribute("list", entityTypeDatalist.id);
+                    Object.assign(customTypeInput.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        flex: "1",
+                        minWidth: "0",
+                        padding: "6px 7px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "5px",
+                        color: "#0F172A",
+                        font: "500 13px Arial, sans-serif"
+                    }});
+                    const customTypeButton = document.createElement("button");
+                    customTypeButton.type = "button";
+                    customTypeButton.textContent = "Créer";
+                    Object.assign(customTypeButton.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        padding: "6px 9px",
+                        borderRadius: "5px",
+                        background: "#2563EB",
+                        color: "#FFFFFF",
+                        cursor: "pointer",
+                        font: "700 13px Arial, sans-serif"
+                    }});
+                    customTypeRow.append(
+                        customTypeInput,
+                        customTypeButton,
+                        entityTypeDatalist
+                    );
+
+                    const attachSection = document.createElement("div");
+                    Object.assign(attachSection.style, {{
+                        marginTop: "5px",
+                        paddingTop: "6px",
+                        borderTop: "1px solid #E2E8F0"
+                    }});
+                    const attachTitle = document.createElement("div");
+                    attachTitle.textContent = "Ajouter comme propriété";
+                    Object.assign(attachTitle.style, {{
+                        padding: "0 0 4px",
+                        color: "#475569",
+                        font: "700 12px Arial, sans-serif"
+                    }});
+                    const existingEntitySelect = document.createElement("select");
+                    Object.assign(existingEntitySelect.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "block",
+                        width: "100%",
+                        marginBottom: "5px",
+                        padding: "6px 7px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "5px",
+                        background: "#FFFFFF",
+                        color: "#0F172A",
+                        font: "500 13px Arial, sans-serif"
+                    }});
+                    const attachPropertyInput = document.createElement("input");
+                    attachPropertyInput.type = "text";
+                    attachPropertyInput.maxLength = 100;
+                    attachPropertyInput.placeholder = "Type de l'information";
+                    const propertyDatalist = document.createElement("datalist");
+                    propertyDatalist.id = "__synthesix-property-suggestions";
+                    attachPropertyInput.setAttribute("list", propertyDatalist.id);
+                    Object.assign(attachPropertyInput.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "block",
+                        width: "100%",
+                        marginBottom: "5px",
+                        padding: "6px 7px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "5px",
+                        color: "#0F172A",
+                        font: "500 13px Arial, sans-serif"
+                    }});
+                    const attachButton = document.createElement("button");
+                    attachButton.type = "button";
+                    attachButton.textContent = "Rattacher";
+                    Object.assign(attachButton.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "block",
+                        width: "100%",
+                        padding: "7px 9px",
+                        borderRadius: "5px",
+                        background: "#0F172A",
+                        color: "#FFFFFF",
+                        cursor: "pointer",
+                        font: "700 13px Arial, sans-serif",
+                        textAlign: "center"
+                    }});
+                    attachSection.append(
+                        attachTitle,
+                        existingEntitySelect,
+                        attachPropertyInput,
+                        propertyDatalist,
+                        attachButton
+                    );
+                    entityMenu.append(
+                        entityTitle,
+                        entityPreview,
+                        createTitle,
+                        customTypeRow,
+                        attachSection
+                    );
+
+                    const selectedText = () => (
+                        String(window.getSelection()?.toString() || "")
+                            .replace(/\\s+/g, " ")
+                            .trim()
+                            .slice(0, 200)
+                    );
+                    const closeEntityMenu = () => {{
+                        entityMenu.style.display = "none";
+                    }};
+                    const closeEntityTools = () => {{
+                        closeEntityMenu();
+                        entityTrigger.style.display = "none";
+                        customTypeInput.value = "";
+                        existingEntitySelect.value = "";
+                        attachPropertyInput.value = "";
+                        updatePropertySuggestions("");
+                    }};
+                    const positionEntityMenu = (left, top) => {{
+                        const maxLeft = Math.max(
+                            8,
+                            window.innerWidth - 316
+                        );
+                        const maxTop = Math.max(
+                            8,
+                            window.innerHeight - 320
+                        );
+                        entityMenu.style.left = (
+                            `${{Math.min(Math.max(left, 8), maxLeft)}}px`
+                        );
+                        entityMenu.style.top = (
+                            `${{Math.min(Math.max(top, 8), maxTop)}}px`
+                        );
+                    }};
+                    const openEntityMenu = (left, top) => {{
+                        const label = selectedText();
+                        if (!label) {{
+                            closeEntityTools();
+                            return;
+                        }}
+                        host.dataset.selectedEntityText = label;
+                        entityPreview.textContent = label;
+                        customTypeInput.value = "";
+                        existingEntitySelect.value = "";
+                        attachPropertyInput.value = "";
+                        updatePropertySuggestions("");
+                        positionEntityMenu(left, top);
+                        entityTrigger.style.display = "none";
+                        entityMenu.style.display = "block";
+                    }};
+                    const showEntityTrigger = () => {{
+                        const label = selectedText();
+                        const selection = window.getSelection();
+                        if (
+                            !label
+                            || !selection
+                            || selection.rangeCount === 0
+                        ) {{
+                            closeEntityTools();
+                            return;
+                        }}
+                        const rect = (
+                            selection.getRangeAt(0).getBoundingClientRect()
+                        );
+                        if (!rect || (!rect.width && !rect.height)) {{
+                            closeEntityTools();
+                            return;
+                        }}
+                        host.dataset.selectedEntityText = label;
+                        const left = Math.min(
+                            Math.max(rect.left, 8),
+                            Math.max(8, window.innerWidth - 150)
+                        );
+                        const top = Math.max(8, rect.top - 38);
+                        entityTrigger.style.left = `${{left}}px`;
+                        entityTrigger.style.top = `${{top}}px`;
+                        entityTrigger.style.display = "block";
+                    }};
+                    const queueSelectedEntity = (category) => {{
+                        const label = String(
+                            host.dataset.selectedEntityText || ""
+                        ).trim();
+                        closeEntityTools();
+                        if (!label) {{
+                            return;
+                        }}
+                        if (!host.dataset.investigationId) {{
+                            window.__synthesixSavePageAction = {{
+                                action: "focus_home"
+                            }};
+                            return;
+                        }}
+                        window.__synthesixSavePageAction = {{
+                            action: "create_graph_entity_from_selection",
+                            investigationId: host.dataset.investigationId,
+                            entity: {{
+                                label,
+                                category
+                            }},
+                            page: host.__synthesixPagePayload()
+                        }};
+                    }};
+                    const attachSelectedEntity = () => {{
+                        const label = String(
+                            host.dataset.selectedEntityText || ""
+                        ).trim();
+                        const graphEntityId = existingEntitySelect.value;
+                        const propertyKey = attachPropertyInput.value.trim();
+                        closeEntityTools();
+                        if (!label || !graphEntityId || !propertyKey) {{
+                            return;
+                        }}
+                        if (!host.dataset.investigationId) {{
+                            window.__synthesixSavePageAction = {{
+                                action: "focus_home"
+                            }};
+                            return;
+                        }}
+                        window.__synthesixSavePageAction = {{
+                            action: "attach_selection_to_graph_entity",
+                            investigationId: host.dataset.investigationId,
+                            entityId: graphEntityId,
+                            property: {{
+                                key: propertyKey,
+                                value: label
+                            }},
+                            page: host.__synthesixPagePayload()
+                        }};
+                    }};
+                    const renderDatalistOptions = (datalist, values) => {{
+                        const seen = new Set();
+                        const normalized = (Array.isArray(values) ? values : [])
+                            .map((value) => String(value || "").trim())
+                            .filter((value) => {{
+                                const key = value.toLowerCase();
+                                if (!value || seen.has(key)) {{
+                                    return false;
+                                }}
+                                seen.add(key);
+                                return true;
+                            }});
+                        const signature = JSON.stringify(normalized);
+                        if (datalist.dataset.signature === signature) {{
+                            return;
+                        }}
+                        datalist.dataset.signature = signature;
+                        datalist.replaceChildren();
+                        normalized.forEach((value) => {{
+                            const option = document.createElement("option");
+                            option.value = value;
+                            datalist.appendChild(option);
+                        }});
+                    }};
+                    const mergedEntityTags = (tags) => {{
+                        const seen = new Set();
+                        return [
+                            ...entityTagsets,
+                            ...(Array.isArray(tags) ? tags : [])
+                        ]
+                            .map((tag) => String(tag || "").trim())
+                            .filter((tag) => {{
+                                const key = tag.toLowerCase();
+                                if (!tag || seen.has(key)) {{
+                                    return false;
+                                }}
+                                seen.add(key);
+                                return true;
+                            }});
+                    }};
+                    const renderEntityTagChoices = (tags) => {{
+                        const mergedTags = mergedEntityTags(tags);
+                        const signature = JSON.stringify(mergedTags);
+                        if (host.dataset.entityTagSignature === signature) {{
+                            return;
+                        }}
+                        host.dataset.entityTagSignature = signature;
+                        renderDatalistOptions(entityTypeDatalist, mergedTags);
+                    }};
+                    host.__synthesixSetEntityTagsets = renderEntityTagChoices;
+                    host.__synthesixSetEntityTagsets([]);
+                    customTypeButton.addEventListener("click", () => {{
+                        const category = customTypeInput.value.trim();
+                        if (category) {{
+                            queueSelectedEntity(category);
+                        }}
+                    }});
+                    customTypeInput.addEventListener("keydown", (event) => {{
+                        if (event.key === "Enter") {{
+                            event.preventDefault();
+                            const category = customTypeInput.value.trim();
+                            if (category) {{
+                                queueSelectedEntity(category);
+                            }}
+                        }}
+                    }});
+                    attachButton.addEventListener("click", attachSelectedEntity);
+                    attachPropertyInput.addEventListener(
+                        "keydown",
+                        (event) => {{
+                            if (event.key === "Enter") {{
+                                event.preventDefault();
+                                attachSelectedEntity();
+                            }}
+                        }}
+                    );
+                    const propertySuggestionsForEntity = (entityId) => {{
+                        const entity = (host.__synthesixGraphEntities || [])
+                            .find((item) => {{
+                                return String(item.id || "").trim()
+                                    === String(entityId || "").trim();
+                            }});
+                        if (!entity) {{
+                            return [];
+                        }}
+                        const suggestions = [];
+                        (Array.isArray(entity.tags) ? entity.tags : [])
+                            .forEach((tag) => {{
+                                const tagProperties = (
+                                    tagsetProperties[String(tag || "").trim()]
+                                    || []
+                                );
+                                suggestions.push(...tagProperties);
+                            }});
+                        if (Array.isArray(entity.propertyKeys)) {{
+                            suggestions.push(...entity.propertyKeys);
+                        }}
+                        return suggestions;
+                    }};
+                    const updatePropertySuggestions = (entityId) => {{
+                        const suggestions = propertySuggestionsForEntity(
+                            entityId
+                        );
+                        renderDatalistOptions(propertyDatalist, suggestions);
+                    }};
+                    existingEntitySelect.addEventListener("change", () => {{
+                        updatePropertySuggestions(existingEntitySelect.value);
+                    }});
+                    host.__synthesixSetGraphEntities = (graphEntities) => {{
+                        const selectedEntityId = existingEntitySelect.value;
+                        const normalizedGraphEntities = (
+                            Array.isArray(graphEntities) ? graphEntities : []
+                        );
+                        const graphSignature = JSON.stringify(
+                            normalizedGraphEntities.map((entity) => ({{
+                                id: String(entity.id || "").trim(),
+                                label: String(entity.label || "").trim(),
+                                tags: Array.isArray(entity.tags)
+                                    ? entity.tags.map((tag) => String(tag || ""))
+                                    : [],
+                                propertyKeys: Array.isArray(entity.propertyKeys)
+                                    ? entity.propertyKeys.map((key) => String(key || ""))
+                                    : []
+                            }}))
+                        );
+                        if (host.dataset.graphEntitySignature === graphSignature) {{
+                            return;
+                        }}
+                        host.dataset.graphEntitySignature = graphSignature;
+                        host.__synthesixGraphEntities = normalizedGraphEntities;
+                        existingEntitySelect.replaceChildren();
+                        const emptyOption = document.createElement("option");
+                        emptyOption.value = "";
+                        emptyOption.textContent = "Choisir une entité...";
+                        existingEntitySelect.appendChild(emptyOption);
+                        normalizedGraphEntities.forEach((entity) => {{
+                                const id = String(entity.id || "").trim();
+                                if (!id) {{
+                                    return;
+                                }}
+                                const option = document.createElement("option");
+                                option.value = id;
+                                option.textContent = (
+                                    String(entity.label || id)
+                                );
+                                existingEntitySelect.appendChild(option);
+                            }});
+                        const hasEntities = existingEntitySelect.options.length > 1;
+                        if (
+                            selectedEntityId
+                            && Array.from(existingEntitySelect.options)
+                                .some((option) => option.value === selectedEntityId)
+                        ) {{
+                            existingEntitySelect.value = selectedEntityId;
+                        }}
+                        updatePropertySuggestions(existingEntitySelect.value);
+                        existingEntitySelect.disabled = !hasEntities;
+                        attachButton.disabled = !hasEntities;
+                        attachButton.style.opacity = hasEntities ? "1" : "0.55";
+                        attachButton.style.cursor = (
+                            hasEntities ? "pointer" : "not-allowed"
+                        );
+                    }};
+                    entityTrigger.addEventListener("click", () => {{
+                        const rect = entityTrigger.getBoundingClientRect();
+                        openEntityMenu(rect.left, rect.bottom + 6);
+                    }});
+                    entityMenu.addEventListener("mousedown", (event) => {{
+                        event.stopPropagation();
+                    }});
+                    entityMenu.addEventListener("mouseup", (event) => {{
+                        event.stopPropagation();
+                    }});
+                    entityMenu.addEventListener("click", (event) => {{
+                        event.stopPropagation();
+                    }});
+                    entityTrigger.addEventListener("mouseup", (event) => {{
+                        event.stopPropagation();
+                    }});
+                    entityTrigger.addEventListener("click", (event) => {{
+                        event.stopPropagation();
+                    }});
+                    shadow.append(entityTrigger, entityMenu);
+                    document.addEventListener("mouseup", (event) => {{
+                        if (event.composedPath().includes(host)) {{
+                            return;
+                        }}
+                        window.setTimeout(showEntityTrigger, 0);
+                    }});
+                    document.addEventListener("click", (event) => {{
+                        const path = event.composedPath();
+                        if (
+                            !path.includes(host)
+                            && !path.includes(entityMenu)
+                            && !path.includes(entityTrigger)
+                        ) {{
+                            closeEntityTools();
+                        }}
+                    }});
+                    document.addEventListener("keydown", (event) => {{
+                        if (event.key === "Escape") {{
+                            closeEntityTools();
+                        }}
+                    }}, true);
                     toolbar.append(button, archiveButton, captureButton);
                     shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);
@@ -1014,6 +1591,16 @@ async def _install_and_consume_save_overlay(
                 const contextChanged = host.dataset.pageKey !== pageKey;
                 host.dataset.investigationId = context.id;
                 host.dataset.pageKey = pageKey;
+                if (host.__synthesixSetGraphEntities) {{
+                    host.__synthesixSetGraphEntities(
+                        context.graphEntities || []
+                    );
+                }}
+                if (host.__synthesixSetEntityTagsets) {{
+                    host.__synthesixSetEntityTagsets(
+                        context.existingTags || []
+                    );
+                }}
                 const button = host.shadowRoot.querySelector("button");
                 const statusUntil = Number(host.dataset.statusUntil || 0);
                 const captureStatusUntil = Number(
@@ -1580,6 +2167,126 @@ async def _archive_page(
     return investigation, saved, capture, comparison
 
 
+def _create_graph_entity_from_selection(
+    service: InvestigationService,
+    investigation_id: str,
+    payload: Mapping,
+) -> tuple[object, object, dict]:
+    entity_payload = payload.get("entity", {})
+    if not isinstance(entity_payload, Mapping):
+        entity_payload = {}
+    page_payload = payload.get("page", {})
+    if not isinstance(page_payload, Mapping):
+        page_payload = {}
+
+    label = str(
+        entity_payload.get("label")
+        or payload.get("text")
+        or ""
+    ).strip()
+    category = str(
+        entity_payload.get("category")
+        or entity_payload.get("tags")
+        or "Entité"
+    ).strip()
+    if not label:
+        raise InvestigationValidationError("Selected text is required.")
+    if not category:
+        raise InvestigationValidationError("Entity category is required.")
+
+    investigation = service.get(investigation_id)
+    saved = service.save_page(investigation_id, page_payload)
+    entity = service.create_graph_entity_from_result(
+        investigation_id,
+        saved.id,
+        {
+            "label": label,
+            "category": category,
+            "notes": (
+                f"Created from selected text on {saved.url}"
+                if saved.url
+                else "Created from selected text."
+            ),
+        },
+    )
+    return investigation, saved, entity
+
+
+def _append_property_text(current: object, value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return str(current or "").strip()
+    values = [
+        item.strip()
+        for item in str(current or "").split(";")
+        if item.strip()
+    ]
+    if text not in values:
+        values.append(text)
+    return "; ".join(values)
+
+
+def _attach_selection_to_graph_entity(
+    service: InvestigationService,
+    investigation_id: str,
+    entity_id: str,
+    payload: Mapping,
+) -> tuple[object, object, dict]:
+    property_payload = payload.get("property", {})
+    if not isinstance(property_payload, Mapping):
+        property_payload = {}
+    page_payload = payload.get("page", {})
+    if not isinstance(page_payload, Mapping):
+        page_payload = {}
+
+    key = str(property_payload.get("key", "") or "").strip()
+    value = str(
+        property_payload.get("value")
+        or payload.get("text")
+        or ""
+    ).strip()
+    if not entity_id:
+        raise InvestigationValidationError("Select an investigation entity.")
+    if not key:
+        raise InvestigationValidationError("Property type is required.")
+    if not value:
+        raise InvestigationValidationError("Selected text is required.")
+
+    investigation = service.get(investigation_id)
+    workspace = service.workspace_payload(investigation_id)
+    graph_entity = next(
+        (
+            entity
+            for entity in workspace.get("graph_entities", [])
+            if str(entity.get("id", "")) == entity_id
+        ),
+        None,
+    )
+    if graph_entity is None:
+        raise InvestigationValidationError(
+            f"Investigation entity not found: {entity_id}"
+        )
+    properties = graph_entity.get("properties", {})
+    if not isinstance(properties, Mapping):
+        properties = {}
+
+    saved = service.save_page(investigation_id, page_payload)
+    service.link_result_to_graph_entity(
+        investigation_id,
+        entity_id,
+        saved.id,
+    )
+    entity = service.set_graph_entity_property(
+        investigation_id,
+        entity_id,
+        {
+            "key": key,
+            "value": _append_property_text(properties.get(key), value),
+        },
+    )
+    return investigation, saved, entity
+
+
 async def _delete_evidence_capture(
     service: InvestigationService,
     settings: AppSettings,
@@ -2058,20 +2765,43 @@ async def main():
             investigations_json, investigations_version = _investigation_payload(
                 investigation_service
             )
+            overlay_investigation = None
+            if active_investigation is not None:
+                workspace = investigation_service.workspace_payload(
+                    active_investigation.id
+                )
+                overlay_investigation = {
+                    "id": active_investigation.id,
+                    "title": active_investigation.title,
+                    "tags": list(active_investigation.tags),
+                    "graph_entities": [
+                        {
+                            "id": str(entity.get("id", "") or ""),
+                            "label": str(entity.get("label", "") or ""),
+                            "tags": [
+                                str(tag)
+                                for tag in entity.get("tags", [])
+                                if str(tag).strip()
+                            ],
+                            "properties": (
+                                dict(entity.get("properties", {}))
+                                if isinstance(
+                                    entity.get("properties", {}),
+                                    Mapping,
+                                )
+                                else {}
+                            ),
+                        }
+                        for entity in workspace.get("graph_entities", [])
+                    ],
+                }
             result = await wait_for_home_action(
                 browser,
                 index_url,
                 settings=settings,
                 investigations_json=investigations_json,
                 investigations_version=investigations_version,
-                overlay_investigation=(
-                    {
-                        "id": active_investigation.id,
-                        "title": active_investigation.title,
-                    }
-                    if active_investigation is not None
-                    else None
-                ),
+                overlay_investigation=overlay_investigation,
             )
 
             # Quit the browser if the user wants to
@@ -2441,6 +3171,107 @@ async def main():
                     await _set_evidence_overlay_status(
                         source_tab,
                         "Capture failed",
+                        is_error=True,
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        str(exc),
+                        is_error=True,
+                    )
+                continue
+            if result["action"] == "create_graph_entity_from_selection":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation, saved, entity = (
+                        _create_graph_entity_from_selection(
+                            investigation_service,
+                            investigation_id,
+                            result,
+                        )
+                    )
+                    active_investigation = investigation
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_save_overlay_status(
+                        source_tab,
+                        "Entity created",
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        (
+                            f'Entity "{entity["label"]}" created from '
+                            f"{saved.title or saved.url}."
+                        ),
+                    )
+                except InvestigationError as exc:
+                    await _set_save_overlay_status(
+                        source_tab,
+                        "Entity failed",
+                        is_error=True,
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        str(exc),
+                        is_error=True,
+                    )
+                continue
+            if result["action"] == "attach_selection_to_graph_entity":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation, saved, entity = (
+                        _attach_selection_to_graph_entity(
+                            investigation_service,
+                            investigation_id,
+                            str(result.get("entityId", "") or "").strip(),
+                            result,
+                        )
+                    )
+                    active_investigation = investigation
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_save_overlay_status(
+                        source_tab,
+                        "Text attached",
+                    )
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        (
+                            f'Text attached to "{entity["label"]}" from '
+                            f"{saved.title or saved.url}."
+                        ),
+                    )
+                except InvestigationError as exc:
+                    await _set_save_overlay_status(
+                        source_tab,
+                        "Attach failed",
                         is_error=True,
                     )
                     await _set_home_status(

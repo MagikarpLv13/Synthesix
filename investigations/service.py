@@ -9,7 +9,10 @@ from typing import Iterable, Mapping
 from analysis.entities import extract_entity_candidates
 from analysis.urls import analyze_url
 from exceptions import InvestigationValidationError
-from exports.zeroneurone_tagsets import canonical_zeroneurone_tag
+from exports.zeroneurone_tagsets import (
+    canonical_zeroneurone_tag,
+    zeroneurone_tagset_suggested_properties,
+)
 from investigations.models import (
     ANALYST_STATUSES,
     ENTITY_STATUSES,
@@ -93,6 +96,19 @@ def _normalize_tags(value) -> tuple[str, ...]:
         if len(tags) >= MAX_TAG_COUNT:
             break
     return tuple(tags)
+
+
+def _tagset_default_properties(tags: Iterable[object]) -> dict[str, str]:
+    properties: dict[str, str] = {}
+    for tag in tags:
+        for suggested in zeroneurone_tagset_suggested_properties(tag):
+            key = _clean_text(
+                suggested.get("key"),
+                max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+            )
+            if key:
+                properties.setdefault(key, "")
+    return properties
 
 
 class InvestigationService:
@@ -312,6 +328,7 @@ class InvestigationService:
         )
         if not label:
             raise InvestigationValidationError("Entity name is required.")
+        tags = _normalize_tags(payload.get("tags", ()))
         return self.repository.create_investigation_entity(
             investigation_id,
             label=label,
@@ -319,7 +336,8 @@ class InvestigationService:
                 payload.get("notes"),
                 max_length=MAX_INVESTIGATION_ENTITY_NOTES_LENGTH,
             ),
-            tags=_normalize_tags(payload.get("tags", ())),
+            tags=tags,
+            properties=_tagset_default_properties(tags),
         ).to_payload()
 
     def create_graph_entity_from_result(

@@ -659,7 +659,10 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         curated = workspace["graph_entities"][0]
         self.assertEqual(curated["label"], "ACME SAS")
         self.assertEqual(curated["tags"], ["Entreprise"])
-        self.assertEqual(curated["properties"], {"Forme juridique": "SAS"})
+        self.assertEqual(curated["properties"]["Forme juridique"], "SAS")
+        self.assertEqual(curated["properties"]["SIREN"], "")
+        self.assertEqual(curated["properties"]["SIRET"], "")
+        self.assertEqual(curated["properties"]["Date de création"], "")
         self.assertEqual(curated["linked_result_ids"], [saved.id])
         self.assertEqual(attached["status"], "validated")
         self.assertEqual(
@@ -681,6 +684,42 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         )
         self.assertIsNone(detached["investigation_entity_id"])
         self.assertEqual(detached["property_key"], "")
+
+    def test_builtin_tags_seed_default_entity_properties(self):
+        investigation = self.service.create({"title": "Legal case"})
+
+        lawyer = self.service.create_graph_entity(
+            investigation.id,
+            {
+                "label": "Me Dupont",
+                "tags": "Avocat",
+            },
+        )
+
+        self.assertEqual(lawyer["tags"], ["Avocat"])
+        self.assertEqual(
+            lawyer["properties"],
+            {
+                "Barreau": "",
+                "Spécialité": "",
+                "Cabinet": "",
+                "Date d'inscription": "",
+            },
+        )
+
+    def test_custom_graph_entity_tag_is_preserved_without_default_properties(self):
+        investigation = self.service.create({"title": "Custom tag case"})
+
+        entity = self.service.create_graph_entity(
+            investigation.id,
+            {
+                "label": "Custom target",
+                "tags": "Source confidentielle",
+            },
+        )
+
+        self.assertEqual(entity["tags"], ["Source confidentielle"])
+        self.assertEqual(entity["properties"], {})
 
     def test_creates_graph_entities_directly_from_results_and_properties(self):
         investigation = self.service.create({"title": "Quick entities"})

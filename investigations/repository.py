@@ -1043,6 +1043,7 @@ class InvestigationRepository:
         label: str,
         notes: str,
         tags: Iterable[str],
+        properties: Mapping[str, str] | None = None,
     ) -> InvestigationEntity:
         investigation = self.get_investigation(investigation_id)
         if investigation.status != "active":
@@ -1058,7 +1059,7 @@ class InvestigationRepository:
                     id, investigation_id, label, notes, tags_json,
                     properties_json, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, '{}', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entity_id,
@@ -1066,6 +1067,7 @@ class InvestigationRepository:
                     label,
                     notes,
                     _json_dump(list(tags)),
+                    _json_dump(dict(properties or {})),
                     now,
                     now,
                 ),
@@ -1128,7 +1130,7 @@ class InvestigationRepository:
                         {
                             str(key): str(value)
                             for key, value in properties.items()
-                            if str(key).strip() and str(value).strip()
+                            if str(key).strip() and value is not None
                         }
                         if isinstance(properties, dict)
                         else {}

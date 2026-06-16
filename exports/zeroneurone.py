@@ -17,6 +17,7 @@ from xml.etree import ElementTree
 from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSETS,
     canonical_zeroneurone_tag,
+    zeroneurone_tagset_suggested_properties,
     zeroneurone_tagset_visual,
 )
 
@@ -1264,6 +1265,32 @@ def _native_properties(
     return result
 
 
+def _native_suggested_property_settings(
+    tags: Iterable[str],
+) -> tuple[list[dict[str, object]], dict[str, list[dict[str, object]]]]:
+    properties_by_key: dict[str, dict[str, object]] = {}
+    associations: dict[str, list[dict[str, object]]] = {}
+    for tag in sorted(tags, key=str.casefold):
+        canonical = canonical_zeroneurone_tag(tag)
+        tag_properties = []
+        for suggested in zeroneurone_tagset_suggested_properties(canonical):
+            key = str(suggested.get("key", "") or "").strip()
+            if not key:
+                continue
+            definition = {
+                "key": key,
+                "type": str(suggested.get("type", "text") or "text"),
+            }
+            choices = suggested.get("choices")
+            if isinstance(choices, list):
+                definition["choices"] = choices
+            properties_by_key.setdefault(key, definition)
+            tag_properties.append(definition)
+        if tag_properties:
+            associations[canonical] = tag_properties
+    return list(properties_by_key.values()), associations
+
+
 def _native_visual(node: GraphNode) -> dict[str, object]:
     node_type = str(node.properties.get("synthesix_type", "") or "")
     entity_type = str(node.properties.get("entity_type", "") or "")
@@ -1543,6 +1570,9 @@ def _write_native_dossier(
             }
         )
 
+    suggested_properties, tag_property_associations = (
+        _native_suggested_property_settings(all_tags)
+    )
     dossier_path = staging_dir / "dossier.json"
     dossier = {
         "version": ZERONEURONE_DOSSIER_VERSION,
@@ -1571,9 +1601,9 @@ def _write_native_dossier(
             "settings": {
                 "defaultElementVisual": {},
                 "defaultLinkVisual": {},
-                "suggestedProperties": [],
+                "suggestedProperties": suggested_properties,
                 "existingTags": sorted(all_tags, key=str.casefold),
-                "tagPropertyAssociations": {},
+                "tagPropertyAssociations": tag_property_associations,
                 "showConfidenceIndicator": True,
                 "displayedProperties": [
                     "URL",

@@ -2,9 +2,11 @@ import unittest
 
 from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSETS,
+    ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES,
     ZERONEURONE_TAGSET_VISUALS,
     canonical_zeroneurone_tag,
     canonical_zeroneurone_tags,
+    zeroneurone_tagset_suggested_properties,
     zeroneurone_tagset_visual,
 )
 
@@ -83,6 +85,21 @@ class ZeroNeuroneTagSetTestCase(unittest.TestCase):
                 "shape": "circle",
                 "icon": "User",
             },
+        )
+
+    def test_exposes_default_properties_for_tagsets(self):
+        self.assertEqual(
+            set(ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES),
+            set(ZERONEURONE_TAGSETS),
+        )
+        self.assertEqual(
+            zeroneurone_tagset_suggested_properties("Avocat"),
+            (
+                {"key": "Barreau", "type": "text"},
+                {"key": "Spécialité", "type": "text"},
+                {"key": "Cabinet", "type": "text"},
+                {"key": "Date d'inscription", "type": "date"},
+            ),
         )
         self.assertEqual(
             zeroneurone_tagset_visual("Entreprise"),

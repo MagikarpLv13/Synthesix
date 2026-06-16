@@ -276,6 +276,21 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertEqual(result["visual"]["icon"], "User")
         self.assertEqual(result["visual"]["shape"], "circle")
         self.assertEqual(result["visual"]["color"], "#3b82f6")
+        settings = dossier["dossier"]["settings"]
+        suggested_properties = {
+            item["key"]: item["type"]
+            for item in settings["suggestedProperties"]
+        }
+        self.assertEqual(suggested_properties["Date de naissance"], "date")
+        self.assertEqual(suggested_properties["URL"], "link")
+        self.assertIn(
+            {"key": "Date de naissance", "type": "date"},
+            settings["tagPropertyAssociations"]["Personne"],
+        )
+        self.assertIn(
+            {"key": "URL", "type": "link"},
+            settings["tagPropertyAssociations"]["Site web"],
+        )
         investigation = next(
             element
             for element in dossier["elements"]
@@ -671,6 +686,59 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             ["Entreprise", "custom entity tag"],
         )
         self.assertEqual(siret["visual"]["icon"], "Building2")
+
+    def test_native_dossier_includes_lawyer_default_property_settings(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "lawyer-1",
+                "label": "Me Dupont",
+                "notes": "",
+                "tags": ["Avocat"],
+                "properties": {
+                    "Barreau": "",
+                    "Spécialité": "",
+                    "Cabinet": "",
+                    "Date d'inscription": "",
+                },
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        settings = dossier["dossier"]["settings"]
+        self.assertIn("Avocat", settings["existingTags"])
+        self.assertEqual(
+            settings["tagPropertyAssociations"]["Avocat"],
+            [
+                {"key": "Barreau", "type": "text"},
+                {"key": "Spécialité", "type": "text"},
+                {"key": "Cabinet", "type": "text"},
+                {"key": "Date d'inscription", "type": "date"},
+            ],
+        )
+        lawyer = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "Me Dupont"
+        )
+        lawyer_properties = {
+            item["key"]: item["value"]
+            for item in lawyer["properties"]
+        }
+        self.assertNotIn("Barreau", lawyer_properties)
+        self.assertNotIn("Spécialité", lawyer_properties)
+        self.assertNotIn("Cabinet", lawyer_properties)
+        self.assertNotIn("Date d'inscription", lawyer_properties)
 
 
 if __name__ == "__main__":

@@ -137,7 +137,7 @@ def workspace_payload(*, status="active"):
                 "investigation_id": "case-123",
                 "label": "Example SAS",
                 "notes": "Primary company",
-                "tags": ["Entreprise"],
+                "tags": ["Entreprise", "Source confidentielle"],
                 "properties": {
                     "SIREN": "732829320",
                     "Forme juridique": "SAS",
@@ -419,6 +419,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('id="tag-suggestions"', content)
         self.assertIn('<option value="Personne"></option>', content)
         self.assertIn('<option value="Offshore"></option>', content)
+        self.assertIn('<option value="Source confidentielle"></option>', content)
         self.assertIn('list="tag-suggestions"', content)
         self.assertIn("Choose a suggested tag or enter custom tags", content)
         self.assertIn("data-result-tag-suggestion", content)

@@ -4,7 +4,7 @@ import os
 import json
 from html import escape
 from pathlib import Path
-from typing import Mapping
+from typing import Iterable, Mapping
 
 from exports.zeroneurone_tagsets import ZERONEURONE_TAGSETS
 
@@ -119,10 +119,23 @@ def _entity_type_options(selected: str) -> str:
     )
 
 
-def _tag_datalist_options() -> str:
+def _tag_values_with_custom(values: Iterable[object] = ()) -> tuple[str, ...]:
+    tags = []
+    seen = set()
+    for value in (*ZERONEURONE_TAGSETS, *values):
+        tag = str(value or "").strip()
+        key = tag.casefold()
+        if not tag or key in seen:
+            continue
+        tags.append(tag)
+        seen.add(key)
+    return tuple(tags)
+
+
+def _tag_datalist_options(values: Iterable[object] = ()) -> str:
     return "".join(
         f'<option value="{_html(tag)}"></option>'
-        for tag in ZERONEURONE_TAGSETS
+        for tag in _tag_values_with_custom(values)
     )
 
 
@@ -1465,6 +1478,21 @@ def generate_investigation_page(
         },
         key=str.casefold,
     )
+    suggested_tags = sorted(
+        {
+            str(tag)
+            for source in (
+                [investigation],
+                results,
+                entities,
+                graph_entities,
+            )
+            for item in source
+            for tag in item.get("tags", [])
+            if str(tag).strip()
+        },
+        key=str.casefold,
+    )
     source_options = "".join(
         f'<option value="{_html(source.casefold())}">{_html(source)}</option>'
         for source in all_sources
@@ -1473,7 +1501,7 @@ def generate_investigation_page(
         f'<option value="{_html(tag.casefold())}">{_html(tag)}</option>'
         for tag in all_tags
     )
-    tag_datalist_options = _tag_datalist_options()
+    tag_datalist_options = _tag_datalist_options(suggested_tags)
     investigation_tags = "".join(
         f'<span class="result-tag">{_html(tag)}</span>'
         for tag in investigation.get("tags", [])
