@@ -51,7 +51,17 @@ class LocalSearchViewTestCase(unittest.TestCase):
             " ".join(tree.text_content().split()),
         )
         self.assertIn("Already observed", content)
-        self.assertIn("2 evidence capture(s)", content)
+        self.assertIn("Evidence", content)
+        self.assertIn("2 capture(s)", content)
+        self.assertIn("local-archive-result", content)
+        self.assertIn("status-badge--confirmed", content)
+        self.assertEqual(
+            tree.xpath(
+                "count(//*[contains(concat(' ', normalize-space(@class), ' '), "
+                "' result-tag ')])"
+            ),
+            3.0,
+        )
         self.assertIn("&lt;script&gt;Registry&lt;/script&gt;", content)
         self.assertNotIn("<script>Registry</script>", content)
         self.assertEqual(
@@ -83,6 +93,26 @@ class LocalSearchViewTestCase(unittest.TestCase):
         self.assertEqual(
             tree.xpath("//a[contains(@class, 'result-title')]/@href"),
             ["#"],
+        )
+
+    def test_empty_report_uses_archive_empty_state(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "history" / "local_search.html"
+            generate_local_search_page(
+                [],
+                {},
+                output_path,
+                base_dir=base_dir,
+                investigation_pages_dir=base_dir / "cases",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        empty_states = tree.xpath("//*[contains(@class, 'local-search-empty')]")
+        self.assertEqual(len(empty_states), 1)
+        self.assertIn(
+            "No stored observation matches these filters.",
+            " ".join(empty_states[0].text_content().split()),
         )
 
 

@@ -1182,6 +1182,86 @@ a:focus-visible {
     color: var(--text);
 }
 
+.local-archive-results {
+    gap: 14px;
+}
+
+.local-archive-result {
+    box-shadow: var(--shadow-soft);
+}
+
+.local-result-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.status-badge--confirmed {
+    border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+    background: color-mix(in srgb, var(--success) 14%, var(--surface));
+    color: var(--success);
+}
+
+.status-badge--relevant {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--accent);
+}
+
+.status-badge--discarded {
+    border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+    color: var(--danger);
+}
+
+.status-badge--to-verify,
+.status-badge--unreviewed {
+    border-color: color-mix(in srgb, var(--warning) 40%, var(--line));
+    background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+    color: var(--warning);
+}
+
+.local-result-provenance {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px 14px;
+}
+
+.local-result-provenance span {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.local-result-chip-row {
+    display: grid;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.local-result-chip-row > strong {
+    color: var(--text);
+    font-size: 12px;
+}
+
+.local-search-empty {
+    background: var(--surface);
+}
+
 .result-evidence {
     margin-top: 12px;
     padding: 10px 12px;
@@ -2232,6 +2312,14 @@ table.dataTable.no-footer {
 
     .report-result-score .score-breakdown {
         text-align: left;
+    }
+
+    .local-result-state {
+        justify-content: flex-start;
+    }
+
+    .local-result-provenance {
+        grid-template-columns: 1fr;
     }
 
     .result-review-controls {

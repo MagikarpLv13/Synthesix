@@ -51,6 +51,21 @@ def _filter_summary(filters: Mapping) -> str:
     return "".join(items) or '<span class="meta-pill">All local observations</span>'
 
 
+def _string_items(values: object) -> list[str]:
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _status_class(value: str) -> str:
+    return {
+        "a_verifier": "to-verify",
+        "pertinent": "relevant",
+        "ecarte": "discarded",
+        "confirme": "confirmed",
+    }.get(value, "unreviewed")
+
+
 def _result_markup(
     result: Mapping,
     *,
@@ -74,15 +89,15 @@ def _result_markup(
             f"{_html(investigation_title)}</a>"
         )
 
-    sources = ", ".join(
-        str(source)
-        for source in result.get("sources", [])
-        if str(source).strip()
-    ) or "Unknown source"
-    tags = ", ".join(
-        str(tag)
-        for tag in result.get("tags", [])
-        if str(tag).strip()
+    source_items = _string_items(result.get("sources", []))
+    tag_items = _string_items(result.get("tags", []))
+    sources_markup = "".join(
+        f'<span class="result-tag">{_html(source)}</span>'
+        for source in source_items
+    ) or '<span class="result-tag">Unknown source</span>'
+    tags_markup = "".join(
+        f'<span class="result-tag">{_html(tag)}</span>'
+        for tag in tag_items
     )
     status_value = str(result.get("analyst_status", "") or "")
     status = STATUS_LABELS.get(status_value, "Not reviewed")
@@ -93,14 +108,19 @@ def _result_markup(
         if notes
         else ""
     )
-    tags_markup = (
-        f'<span>Tags: {_html(tags)}</span>'
-        if tags
+    tag_block = (
+        f"""
+        <div class="local-result-chip-row" aria-label="Tags">
+            <strong>Tags</strong>
+            <div class="result-tags">{tags_markup}</div>
+        </div>
+        """
+        if tags_markup
         else ""
     )
 
     return f"""
-    <article class="investigation-result">
+    <article class="investigation-result local-archive-result">
         <div class="result-heading">
             <div class="result-title-block">
                 <a
@@ -111,19 +131,26 @@ def _result_markup(
                 >{_html(result.get("title") or result.get("url"))}</a>
                 <div class="result-url">{_html(result.get("url"))}</div>
             </div>
-            <span class="meta-pill">Already observed</span>
+            <div class="local-result-state">
+                <span class="status-badge status-badge--{_status_class(status_value)}">
+                    {_html(status)}
+                </span>
+                <span class="meta-pill">Already observed</span>
+            </div>
         </div>
         <p class="result-description">{_html(result.get("description"))}</p>
         {notes_markup}
-        <div class="result-metadata">
-            <span>Context: {context_markup}</span>
-            <span>Engines: {_html(sources)}</span>
-            <span>Status: {_html(status)}</span>
-            <span>First seen: {_html(result.get("first_observed_at"))}</span>
-            <span>Last seen: {_html(result.get("last_observed_at"))}</span>
-            <span>{evidence_count} evidence capture(s)</span>
-            {tags_markup}
+        <div class="result-provenance local-result-provenance">
+            <span><strong>Context</strong> {context_markup}</span>
+            <span><strong>First seen</strong> {_html(result.get("first_observed_at"))}</span>
+            <span><strong>Last seen</strong> {_html(result.get("last_observed_at"))}</span>
+            <span><strong>Evidence</strong> {evidence_count} capture(s)</span>
         </div>
+        <div class="local-result-chip-row" aria-label="Sources">
+            <strong>Sources</strong>
+            <div class="result-tags">{sources_markup}</div>
+        </div>
+        {tag_block}
     </article>
     """
 
@@ -162,7 +189,9 @@ def generate_local_search_page(
         )
     else:
         results_markup = (
-            '<div class="empty-state">No stored observation matches these filters.</div>'
+            '<div class="investigation-empty local-search-empty">'
+            "No stored observation matches these filters."
+            "</div>"
         )
 
     content = f"""<!DOCTYPE html>
@@ -203,7 +232,7 @@ def generate_local_search_page(
                 This report uses only the local SQLite index. No external search
                 engine was contacted.
             </p>
-            <div class="investigation-results">
+            <div class="investigation-results local-archive-results">
                 {results_markup}
             </div>
         </section>
