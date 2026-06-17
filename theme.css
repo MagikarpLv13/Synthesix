@@ -1301,6 +1301,30 @@ a:focus-visible {
     background: var(--surface);
 }
 
+.comparison-report {
+    padding-top: 0;
+}
+
+.comparison-url {
+    margin: -6px 0 16px;
+    overflow-wrap: anywhere;
+}
+
+.comparison-facts {
+    margin-bottom: 14px;
+}
+
+.comparison-diff {
+    max-height: 560px;
+    overflow: auto;
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--brand-navy);
+    color: var(--surface-3);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
 .result-evidence {
     margin-top: 12px;
     padding: 10px 12px;
