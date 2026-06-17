@@ -898,14 +898,27 @@ def _score_markup(result: Mapping) -> str:
         items.append(f"<li>+{component_score:.1f} {_html(label)}</li>")
 
     if not items:
-        return f"<span>Score {score:.1f}</span>"
+        return _result_fact("Score", f"{score:.1f}")
     return (
-        '<details class="score-breakdown">'
-        f"<summary>Score {score:.1f}</summary>"
+        '<details class="score-breakdown result-fact">'
+        f"<summary><strong>Score</strong><span>{score:.1f}</span></summary>"
         f"<ul>{''.join(items)}</ul>"
         "<p>Multi-engine consensus confirms repeated retrieval, "
         "not factual accuracy.</p>"
         "</details>"
+    )
+
+
+def _result_fact(label: str, value: object) -> str:
+    return _result_fact_markup(label, _html(value))
+
+
+def _result_fact_markup(label: str, markup: str) -> str:
+    return (
+        '<span class="result-fact">'
+        f"<strong>{_html(label)}</strong>"
+        f"<span>{markup}</span>"
+        "</span>"
     )
 
 
@@ -1117,6 +1130,19 @@ def _result_cards(
             ", ".join(_html(source) for source in displayed_sources)
             or "Unknown source"
         )
+        result_facts = (
+            _result_fact_markup("Sources", source_markup)
+            + _score_markup(result)
+            + _result_fact(
+                "Observations",
+                int(result.get("observation_count", 0) or 0),
+            )
+            + _result_fact_markup(
+                "First seen",
+                _local_datetime(result.get("first_observed_at")),
+            )
+            + _result_fact_markup("Last seen", _local_datetime(latest_observed))
+        )
         discovery_method = str(result.get("discovery_method", "manual_browsing"))
         discovery_query = str(result.get("discovery_query", ""))
         discovery_referrer = str(result.get("discovery_referrer", ""))
@@ -1242,12 +1268,8 @@ def _result_cards(
                     class="result-body"
                 >
                     <p class="result-description">{_html(description)}</p>
-                    <div class="result-metadata">
-                        <span>{source_markup}</span>
-                        {_score_markup(result)}
-                        <span>{int(result.get("observation_count", 0) or 0)} observation(s)</span>
-                        <span>First seen {_local_datetime(result.get("first_observed_at"))}</span>
-                        <span>Last seen {_local_datetime(latest_observed)}</span>
+                    <div class="result-metadata result-facts">
+                        {result_facts}
                     </div>
                     <div class="result-tags" data-result-tags-display>
                         {tag_markup}

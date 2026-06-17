@@ -337,6 +337,19 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("not factual accuracy", content)
         self.assertIn("data-local-datetime", content)
         self.assertIn("Intl.DateTimeFormat", content)
+        fact_labels = [
+            value.strip()
+            for value in tree.xpath(
+                "//article[@data-result-id='result-123']"
+                "//div[contains(@class, 'result-facts')]"
+                "/*[contains(concat(' ', normalize-space(@class), ' '), "
+                "' result-fact ')]//strong[1]/text()"
+            )
+        ]
+        self.assertEqual(
+            fact_labels,
+            ["Sources", "Score", "Observations", "First seen", "Last seen"],
+        )
         self.assertIn('src="../../i18n.js"', content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
         self.assertIn("Evidence (1)", content)

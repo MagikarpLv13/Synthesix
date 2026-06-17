@@ -1144,10 +1144,49 @@ a:focus-visible {
     font-size: 12px;
 }
 
+.result-facts {
+    gap: 8px;
+    align-items: stretch;
+}
+
+.result-fact {
+    display: grid;
+    gap: 3px;
+    min-height: 46px;
+    min-width: 118px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+}
+
+.result-fact strong {
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.result-fact span,
+.result-fact time {
+    color: var(--muted);
+}
+
 .score-breakdown summary {
     cursor: pointer;
     color: var(--text);
     font-weight: 700;
+}
+
+.score-breakdown.result-fact summary {
+    display: grid;
+    gap: 3px;
+    list-style: none;
+}
+
+.score-breakdown.result-fact summary::-webkit-details-marker {
+    display: none;
 }
 
 .score-breakdown ul {
