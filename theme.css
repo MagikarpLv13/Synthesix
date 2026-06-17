@@ -1884,6 +1884,97 @@ a:focus-visible {
     padding: 5px 10px;
 }
 
+.report-results {
+    display: grid;
+    gap: 12px;
+}
+
+.report-result-card {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+}
+
+.report-result-score {
+    display: grid;
+    gap: 4px;
+    justify-items: end;
+    min-width: 118px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.score-label {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.score-value,
+.report-result-score .score-breakdown summary {
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.report-result-score .score-breakdown {
+    text-align: right;
+}
+
+.report-result-score .score-breakdown ul {
+    text-align: left;
+}
+
+.report-query-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--secondary);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.report-query-list strong {
+    color: var(--text);
+}
+
+.report-query-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+}
+
+.report-query-values code {
+    max-width: 100%;
+    padding: 3px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.report-empty {
+    padding: 28px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 18px;
+    text-align: center;
+}
+
 .page-title {
     margin: 0;
     font-size: 32px;
@@ -2132,6 +2223,15 @@ table.dataTable.no-footer {
 
     .result-heading {
         grid-template-columns: 1fr;
+    }
+
+    .report-result-score {
+        justify-items: start;
+        width: fit-content;
+    }
+
+    .report-result-score .score-breakdown {
+        text-align: left;
     }
 
     .result-review-controls {

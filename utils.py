@@ -542,9 +542,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search Results for: {safe_search_term}</title>
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     {_theme_assets(asset_prefix)}
 </head>
 <body>
@@ -568,32 +565,16 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 </div>
             </div>
             {coverage_html}
-            <div class="table-shell">
-                <table id="results" class="data-table display">
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Description</th>
-                            <th>Link</th>
-                            <th>Source</th>
-                            <th>Exact query</th>
-                            <th>Score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+            <div id="results" class="report-results" role="list">
 """
 
     if nb_results == 0:
         rows_html = """
-        <tr>
-            <td colspan="6" class="empty-row">
+                <div class="report-empty" role="status">
                 No relevant results found
-            </td>
-        </tr>
+                </div>
         """
         html_footer = """
-                    </tbody>
-                </table>
             </div>
         </section>
     </main>
@@ -620,10 +601,12 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         query_variants = row.get("query_variants", [])
         if not isinstance(query_variants, (list, tuple)):
             query_variants = []
-        variants_markup = "<br>".join(
+        variants_markup = "".join(
             f"<code>{_html_escape(query)}</code>"
             for query in query_variants
         )
+        if not variants_markup:
+            variants_markup = "<span>No query variant recorded</span>"
         score_breakdown = row.get("score_breakdown", [])
         breakdown_items = []
         if isinstance(score_breakdown, list):
@@ -643,35 +626,35 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 "not factual accuracy.</small></details>"
             )
         else:
-            score_markup = score
-        link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
+            score_markup = f'<span class="score-value">{score}</span>'
         rows.append(f"""
-        <tr>
-            <td>{title}</td>
-            <td class="description">{desc}</td>
-            <td class="link">{link_html}</td>
-            <td>{source}</td>
-            <td>{variants_markup}</td>
-            <td data-order="{numeric_score:.6f}">{score_markup}</td>
-        </tr>
+                <article class="report-result-card" role="listitem" data-score="{numeric_score:.6f}">
+                    <div class="result-heading">
+                        <div class="result-title-block">
+                            <a class="result-title" href="{link}" target="_blank" rel="noopener noreferrer">{title}</a>
+                            <a class="result-url" href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>
+                        </div>
+                        <div class="report-result-score" aria-label="Relevance score {score}">
+                            <span class="score-label">Score</span>
+                            {score_markup}
+                        </div>
+                    </div>
+                    <p class="result-description">{desc}</p>
+                    <div class="result-metadata" aria-label="Result metadata">
+                        <span class="meta-pill">Source: {source}</span>
+                    </div>
+                    <div class="report-query-list">
+                        <strong>Exact query</strong>
+                        <div class="report-query-values">{variants_markup}</div>
+                    </div>
+                </article>
         """)
     rows_html = "".join(rows)
 
     html_footer = """
-                    </tbody>
-                </table>
             </div>
         </section>
     </main>
-    <script>
-        $(document).ready(function() {
-            $('#results').DataTable({
-                pageLength: 50,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                order: [[5, 'desc']]
-            });
-        });
-    </script>
 """ + _home_navigation_script() + """
 </body>
 </html>
