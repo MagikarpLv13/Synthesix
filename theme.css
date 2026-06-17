@@ -22,7 +22,16 @@
     --warning: #D97706;
     --danger: #DC2626;
     --shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+    --shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.08);
     --focus: 0 0 0 3px rgba(37, 99, 235, 0.24);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
 }
 
 :root[data-theme="dark"] {
@@ -54,7 +63,9 @@ body {
     min-height: 100vh;
     margin: 0;
     font-family: Arial, sans-serif;
-    background: var(--bg);
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 72%, transparent), transparent 360px),
+        var(--bg);
     color: var(--text);
 }
 
@@ -88,6 +99,10 @@ a:focus-visible {
     padding: 28px 0 36px;
 }
 
+.app--home {
+    width: min(1180px, calc(100% - 32px));
+}
+
 .app--wide {
     width: min(1320px, calc(100% - 32px));
 }
@@ -97,7 +112,7 @@ a:focus-visible {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 56px;
+    margin-bottom: 38px;
 }
 
 .brand {
@@ -197,11 +212,45 @@ a:focus-visible {
     margin: 0 auto;
 }
 
+.home-workspace {
+    width: min(980px, 100%);
+}
+
+.home-hero {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 760px;
+    margin-bottom: var(--space-5);
+}
+
 .search-title {
     margin: 0 0 18px;
     font-size: 34px;
     line-height: 1.15;
     letter-spacing: 0;
+}
+
+.home-hero .search-title {
+    margin: 0;
+    font-size: 40px;
+}
+
+.home-subtitle {
+    max-width: 680px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.home-primary-panel {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface) 94%, var(--surface-2));
+    box-shadow: var(--shadow-soft);
 }
 
 .investigation-bar {
@@ -214,6 +263,12 @@ a:focus-visible {
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--surface-2);
+}
+
+.home-primary-panel .investigation-bar {
+    margin-bottom: 0;
+    border-color: color-mix(in srgb, var(--line) 72%, transparent);
+    box-shadow: none;
 }
 
 .investigation-context {
@@ -267,6 +322,10 @@ a:focus-visible {
     border-radius: 8px;
     background: var(--surface);
     box-shadow: var(--shadow);
+}
+
+.home-primary-panel .search-form {
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.10);
 }
 
 .search-row {
@@ -390,6 +449,38 @@ a:focus-visible {
     margin-top: 18px;
 }
 
+.search-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    margin-top: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+}
+
+.engine-control-block {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.control-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.search-control-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 .osint-panel {
     margin-top: 14px;
     border: 1px solid var(--line);
@@ -404,6 +495,71 @@ a:focus-visible {
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
+}
+
+.workflow-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.workflow-card {
+    min-width: 0;
+    margin-top: 0;
+    overflow: hidden;
+    box-shadow: none;
+}
+
+.workflow-card summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    list-style: none;
+}
+
+.workflow-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.workflow-card summary::after {
+    content: "+";
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: var(--muted);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.workflow-card[open] summary::after {
+    content: "-";
+}
+
+.workflow-card summary span {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.workflow-card summary small {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.workflow-card[open] {
+    grid-column: 1 / -1;
+}
+
+.data-panel {
+    grid-column: 1 / -1;
 }
 
 .query-variants-body {
@@ -523,6 +679,14 @@ a:focus-visible {
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 14px;
+}
+
+.data-panel .data-actions {
+    padding: 0 14px 14px;
+}
+
+.data-panel .session-note {
+    padding: 0 14px 14px;
 }
 
 .data-actions__label {
@@ -1898,6 +2062,14 @@ table.dataTable.no-footer {
         font-size: 26px;
     }
 
+    .home-hero .search-title {
+        font-size: 30px;
+    }
+
+    .home-primary-panel {
+        padding: 12px;
+    }
+
     .search-row {
         grid-template-columns: 1fr;
     }
@@ -1913,6 +2085,15 @@ table.dataTable.no-footer {
 
     .controls {
         align-items: stretch;
+    }
+
+    .search-controls,
+    .workflow-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .search-control-cluster {
+        justify-content: stretch;
     }
 
     .investigation-bar {
@@ -2015,10 +2196,16 @@ table.dataTable.no-footer {
         align-items: stretch;
     }
 
+    .search-control-cluster .engine-option,
+    .result-control,
     .data-actions__label,
     .secondary-button,
     .danger-button {
         width: 100%;
+    }
+
+    .result-control {
+        justify-content: space-between;
     }
 
     .data-table td.link,

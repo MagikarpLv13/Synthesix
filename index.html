@@ -12,7 +12,7 @@
     <script src="i18n.js"></script>
 </head>
 <body>
-    <main class="app">
+    <main class="app app--home">
         <header class="topbar">
             <div class="brand">
                 <img class="brand-logo" src="assets/synthesix-mark.svg" alt="">
@@ -36,55 +36,94 @@
             </div>
         </header>
 
-        <section class="workspace" aria-label="Search workspace">
-            <h2 class="search-title">Search, compare, synthesize.</h2>
-            <div class="investigation-bar" aria-label="Active investigation">
-                <div class="investigation-context">
-                    <label for="investigation-select">Investigation</label>
-                    <select id="investigation-select">
-                        <option value="">No investigation</option>
-                    </select>
-                    <span id="investigation-summary" class="investigation-summary"></span>
-                </div>
-                <div class="investigation-actions">
-                    <button id="open-investigation" class="primary-button" type="button" disabled>
-                        Open
-                    </button>
-                    <button id="new-investigation" class="secondary-button" type="button">
-                        New
-                    </button>
-                    <button id="edit-investigation" class="secondary-button" type="button" disabled>
-                        Edit
-                    </button>
-                    <button id="archive-investigation" class="secondary-button" type="button" disabled>
-                        Archive
-                    </button>
-                    <button id="delete-investigation" class="danger-button" type="button" disabled>
-                        Delete
-                    </button>
-                </div>
-            </div>
-            <div class="search-form">
-                <div class="search-row">
-                    <label for="search-field" class="sr-only">Search query</label>
-                    <input
-                        type="text"
-                        id="search-field"
-                        class="search-input"
-                        required
-                        autocomplete="off"
-                        aria-autocomplete="list"
-                        aria-expanded="false"
-                        aria-controls="history-panel"
-                        placeholder="What are you investigating?"
-                    >
-                    <button id="search-button" class="search-button" type="button">Search</button>
-                </div>
-                <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
+        <section class="workspace home-workspace" aria-label="Search workspace">
+            <div class="home-hero">
+                <p class="section-eyebrow">Investigation search</p>
+                <h2 class="search-title">Find sources. Keep provenance.</h2>
+                <p class="home-subtitle">
+                    Run exact multi-engine searches, collect useful pages, and keep
+                    the investigation context visible.
+                </p>
             </div>
 
-            <details class="osint-panel">
-                <summary>OSINT filters</summary>
+            <section class="home-primary-panel" aria-label="Search and active investigation">
+                <div class="investigation-bar" aria-label="Active investigation">
+                    <div class="investigation-context">
+                        <label for="investigation-select">Active investigation</label>
+                        <select id="investigation-select">
+                            <option value="">No investigation</option>
+                        </select>
+                        <span id="investigation-summary" class="investigation-summary"></span>
+                    </div>
+                    <div class="investigation-actions">
+                        <button id="open-investigation" class="primary-button" type="button" disabled>
+                            Open workspace
+                        </button>
+                        <button id="new-investigation" class="secondary-button" type="button">
+                            New
+                        </button>
+                        <button id="edit-investigation" class="secondary-button" type="button" disabled>
+                            Edit
+                        </button>
+                        <button id="archive-investigation" class="secondary-button" type="button" disabled>
+                            Archive
+                        </button>
+                        <button id="delete-investigation" class="danger-button" type="button" disabled>
+                            Delete
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form">
+                    <div class="search-row">
+                        <label for="search-field" class="sr-only">Search query</label>
+                        <input
+                            type="text"
+                            id="search-field"
+                            class="search-input"
+                            required
+                            autocomplete="off"
+                            aria-autocomplete="list"
+                            aria-expanded="false"
+                            aria-controls="history-panel"
+                            placeholder="Person, company, domain, phone, exact phrase..."
+                        >
+                        <button id="search-button" class="search-button" type="button">Search</button>
+                    </div>
+                    <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
+                </div>
+
+                <div class="controls search-controls">
+                    <div class="engine-control-block">
+                        <span class="control-label">Engines</span>
+                        <div class="engine-group" aria-label="Search engines">
+                            <label class="engine-option"><input type="checkbox" id="engine-google" checked> Google</label>
+                            <label class="engine-option"><input type="checkbox" id="engine-bing" checked> Bing</label>
+                            <label class="engine-option"><input type="checkbox" id="engine-brave" checked> Brave</label>
+                            <label class="engine-option"><input type="checkbox" id="engine-duckduckgo" checked> DuckDuckGo</label>
+                        </div>
+                    </div>
+                    <div class="search-control-cluster">
+                        <label class="engine-option" title="Quote simple searches automatically for exact matching">
+                            <input type="checkbox" id="automatic-dorks" checked>
+                            Exact phrase
+                        </label>
+                        <label for="num-results" class="result-control">
+                            Results
+                            <input type="number" id="num-results" min="1" max="100" value="20">
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <div class="workflow-grid" aria-label="Secondary workflows">
+            <details class="osint-panel workflow-card">
+                <summary>
+                    <span>
+                        <strong>Advanced OSINT</strong>
+                        <small>Operators, dates, country targeting</small>
+                    </span>
+                </summary>
                 <div class="operator-grid" aria-label="OSINT search filters">
                     <label class="operator-field" for="filter-site">
                         <span>Site</span>
@@ -199,24 +238,13 @@
                 </datalist>
             </details>
 
-            <div class="controls">
-                <div class="engine-group" aria-label="Search engines">
-                    <label class="engine-option"><input type="checkbox" id="engine-google" checked> Google</label>
-                    <label class="engine-option"><input type="checkbox" id="engine-bing" checked> Bing</label>
-                    <label class="engine-option"><input type="checkbox" id="engine-brave" checked> Brave</label>
-                    <label class="engine-option"><input type="checkbox" id="engine-duckduckgo" checked> DuckDuckGo</label>
-                </div>
-                <label class="engine-option" title="Quote simple searches automatically for exact matching">
-                    <input type="checkbox" id="automatic-dorks" checked>
-                    Automatic dorks
-                </label>
-                <label for="num-results" class="result-control">
-                    Results
-                    <input type="number" id="num-results" min="1" max="100" value="20">
-                </label>
-            </div>
-            <details id="query-variants-panel" class="osint-panel">
-                <summary>Query variants (optional)</summary>
+            <details id="query-variants-panel" class="osint-panel workflow-card">
+                <summary>
+                    <span>
+                        <strong>Query variants</strong>
+                        <small>Optional exact alternatives</small>
+                    </span>
+                </summary>
                 <div class="query-variants-body">
                     <p class="panel-help">
                         The main query always runs. Suggested variants run only after
@@ -251,8 +279,13 @@
                     </div>
                 </div>
             </details>
-            <details class="osint-panel local-search-panel">
-                <summary>Search local archive</summary>
+            <details class="osint-panel workflow-card local-search-panel">
+                <summary>
+                    <span>
+                        <strong>Local archive</strong>
+                        <small>Search stored observations only</small>
+                    </span>
+                </summary>
                 <div class="operator-grid" aria-label="Local archive filters">
                     <label class="operator-field operator-field-wide" for="local-search-query">
                         <span>Stored content</span>
@@ -322,17 +355,25 @@
                     launches an external search engine.
                 </p>
             </details>
-            <div class="data-actions" aria-label="Data management">
-                <span class="data-actions__label">Data</span>
-                <button id="clear-synthesix-history" class="secondary-button" type="button">
-                    Clear Synthesix history
-                </button>
-                <button id="clear-browser-data" class="danger-button" type="button">
-                    Clear browser data
-                </button>
+            <details class="osint-panel workflow-card data-panel">
+                <summary>
+                    <span>
+                        <strong>Data and runtime</strong>
+                        <small>Maintenance actions</small>
+                    </span>
+                </summary>
+                <div class="data-actions" aria-label="Data management">
+                    <button id="clear-synthesix-history" class="secondary-button" type="button">
+                        Clear Synthesix history
+                    </button>
+                    <button id="clear-browser-data" class="danger-button" type="button">
+                        Clear browser data
+                    </button>
+                </div>
+                <p class="session-note">Closing all Synthesix tabs stops the program.</p>
+            </details>
             </div>
             <p id="action-status" class="action-status" role="status" aria-live="polite"></p>
-            <p class="session-note">Closing all Synthesix tabs stops the program.</p>
         </section>
     </main>
 

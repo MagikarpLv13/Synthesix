@@ -53,6 +53,33 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn("checkbox.checked = Boolean(selected)", self.content)
         self.assertIn("setQueryVariants", self.content)
 
+    def test_home_uses_progressive_disclosure_for_secondary_workflows(self):
+        primary_panels = self.tree.xpath(
+            "//*[contains(@class, 'home-primary-panel')]"
+        )
+        workflow_cards = self.tree.xpath(
+            "//*[contains(@class, 'workflow-grid')]"
+            "/*[contains(@class, 'workflow-card')]"
+        )
+        advanced_details = self.tree.xpath(
+            "//details[contains(@class, 'workflow-card')]"
+            "[.//input[@id='filter-site']]"
+        )
+        local_archive_details = self.tree.xpath(
+            "//details[contains(@class, 'workflow-card')]"
+            "[.//input[@id='local-search-query']]"
+        )
+        data_details = self.tree.xpath(
+            "//details[contains(@class, 'workflow-card')]"
+            "[.//button[@id='clear-browser-data']]"
+        )
+
+        self.assertEqual(len(primary_panels), 1)
+        self.assertGreaterEqual(len(workflow_cards), 4)
+        self.assertEqual(len(advanced_details), 1)
+        self.assertEqual(len(local_archive_details), 1)
+        self.assertEqual(len(data_details), 1)
+
     def test_vpn_status_uses_browser_public_ip_and_exposes_all_states(self):
         status_buttons = self.tree.xpath("//button[@id='vpn-status']")
 
