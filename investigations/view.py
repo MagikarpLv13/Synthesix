@@ -5,6 +5,7 @@ import json
 from html import escape
 from pathlib import Path
 from typing import Iterable, Mapping
+from urllib.parse import quote
 
 from exports.zeroneurone_tagsets import ZERONEURONE_TAGSETS
 
@@ -55,6 +56,13 @@ def _compact_url(value: str, *, max_length: int = 160) -> str:
     tail_length = 36
     head_length = max_length - tail_length - 3
     return f"{text[:head_length]}...{text[-tail_length:]}"
+
+
+def _wayback_url(value: str) -> str:
+    text = str(value or "").strip()
+    if not text.startswith(("http://", "https://")):
+        return ""
+    return f"https://web.archive.org/web/*/{quote(text, safe=':/?#[]@!$&()*+,;=%')}"
 
 
 def _relative_href(target: Path, from_dir: Path) -> str:
@@ -206,6 +214,84 @@ def _default_entity_category(entity_type: str) -> str:
     }.get(entity_type, "Entité")
 
 
+def _source_field_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.startswith("archive_text:"):
+        return ""
+    return {
+        "url": "URL",
+        "title": "title",
+        "description": "description",
+        "notes": "notes",
+    }.get(text, text.replace("_", " "))
+
+
+def _entity_source_heading(entity: Mapping) -> str:
+    entity_type = str(entity.get("suggested_type") or entity.get("entity_type") or "")
+    label = ENTITY_TYPE_LABELS.get(entity_type, entity_type)
+    source_label = _source_field_label(entity.get("source_field"))
+    if source_label:
+        return f"Suggested {label} from {source_label}"
+    return f"Suggested {label}"
+
+
+def _entity_property_key(entity: Mapping) -> str:
+    existing = str(entity.get("property_key", "") or "").strip()
+    custom_label = str(entity.get("custom_label", "") or "").strip()
+    attributes = entity.get("attributes", {})
+    inferred = ""
+    if isinstance(attributes, Mapping):
+        inferred = str(
+            attributes.get("property_key")
+            or attributes.get("field_label")
+            or ""
+        ).strip()
+    default = _default_property_key(str(entity.get("entity_type", "") or ""))
+    if custom_label and (
+        not existing or existing in {inferred, default}
+    ):
+        return custom_label
+    if existing:
+        return existing
+    if custom_label:
+        return custom_label
+    if inferred:
+        return inferred
+    return default
+
+
+def _highlight_entity_source_text(entity: Mapping) -> str:
+    source_text = str(entity.get("source_text", "") or "")
+    if not source_text:
+        return ""
+    value = str(
+        entity.get("value_original")
+        or entity.get("value_normalized")
+        or ""
+    ).strip()
+    if not value:
+        return _html(source_text)
+    source_folded = source_text.casefold()
+    value_options = [
+        value,
+        value.rstrip(".,;:!?)]}"),
+        " ".join(value.split()),
+    ]
+    for candidate in dict.fromkeys(value_options):
+        if not candidate:
+            continue
+        start = source_folded.find(candidate.casefold())
+        if start < 0:
+            continue
+        end = start + len(candidate)
+        return (
+            f"{_html(source_text[:start])}"
+            f"<strong>{_html(source_text[start:end])}</strong>"
+            f"{_html(source_text[end:])}"
+        )
+    return _html(source_text)
+
+
 def _entity_markup(
     entities: list[Mapping],
     *,
@@ -222,9 +308,6 @@ def _entity_markup(
     items = []
     for entity in entities:
         entity_type = str(entity.get("entity_type", "") or "")
-        suggested_type = str(
-            entity.get("suggested_type", entity_type) or entity_type
-        )
         status = str(entity.get("status", "proposed") or "proposed")
         confidence = max(
             0.0,
@@ -257,9 +340,7 @@ def _entity_markup(
         parent_id = str(
             entity.get("investigation_entity_id", "") or ""
         )
-        property_key = str(
-            entity.get("property_key", "") or ""
-        ) or _default_property_key(entity_type)
+        property_key = _entity_property_key(entity)
         quick_entity_name = str(
             entity.get("custom_label")
             or entity.get("value_original")
@@ -419,10 +500,9 @@ def _entity_markup(
                 </label>
                 <p class="entity-source">
                     <strong>
-                        Suggested {_html(ENTITY_TYPE_LABELS.get(suggested_type, suggested_type))}
-                        from {_html(entity.get("source_field", ""))}
+                        {_html(_entity_source_heading(entity))}
                     </strong>
-                    {_html(entity.get("source_text", ""))}
+                    {_highlight_entity_source_text(entity)}
                 </p>
                 <details class="entity-details">
                     <summary>Detection details</summary>
@@ -999,6 +1079,13 @@ def _result_cards(
         description = str(result.get("description", ""))
         url = str(result.get("url", ""))
         compact_url = _compact_url(url)
+        wayback_url = _wayback_url(url)
+        wayback_link = (
+            f'<a class="secondary-link" href="{_html(wayback_url)}" '
+            'target="_blank" rel="noopener noreferrer">Wayback Machine</a>'
+            if wayback_url
+            else ""
+        )
         sources = [str(item) for item in result.get("sources", []) if str(item).strip()]
         discovery_sources = [
             str(item)
@@ -1113,6 +1200,7 @@ def _result_cards(
                         <div class="result-url" title="{_html(url)}">
                             {_html(compact_url)}
                         </div>
+                        {wayback_link}
                     </div>
                     <div class="result-review-controls">
                         <button

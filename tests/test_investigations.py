@@ -661,7 +661,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(curated["tags"], ["Entreprise"])
         self.assertEqual(curated["properties"]["Forme juridique"], "SAS")
         self.assertEqual(curated["properties"]["SIREN"], "")
-        self.assertEqual(curated["properties"]["SIRET"], "")
+        self.assertEqual(curated["properties"]["SIRET"], "732 829 320 00074")
         self.assertEqual(curated["properties"]["Date de création"], "")
         self.assertEqual(curated["linked_result_ids"], [saved.id])
         self.assertEqual(attached["status"], "validated")
@@ -779,6 +779,54 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(attached["property_key"], "SIRET")
         self.assertEqual(attached["status"], "validated")
 
+    def test_analyst_label_overrides_inferred_property_key(self):
+        investigation = self.service.create({"title": "Property labels"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/company",
+                "title": "ACME SAS",
+                "description": "Date de création : 2025-06-14",
+                "referrer": "",
+            },
+        )
+        date_entity = next(
+            entity
+            for entity in self.service.extract_entities(
+                investigation.id,
+                saved.id,
+            )
+            if entity["entity_type"] == "date"
+        )
+        self.service.update_entity_metadata(
+            investigation.id,
+            date_entity["id"],
+            {
+                "entity_type": "date",
+                "custom_label": "Créée le",
+                "tags": "",
+            },
+        )
+
+        company = self.service.create_graph_entity_from_extracted(
+            investigation.id,
+            date_entity["id"],
+            {
+                "label": "ACME SAS",
+                "category": "Company",
+            },
+        )
+        attached = next(
+            entity
+            for entity in self.service.workspace_payload(
+                investigation.id
+            )["entities"]
+            if entity["id"] == date_entity["id"]
+        )
+
+        self.assertEqual(attached["property_key"], "Créée le")
+        self.assertEqual(company["properties"]["Créée le"], "2025-06-14")
+
     def test_extracts_and_reviews_entities_without_resetting_analyst_status(self):
         investigation = self.service.create({"title": "Entity case"})
         saved = self.service.save_page(
@@ -803,6 +851,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             investigation.id,
             saved.id,
         )
+        self.assertNotIn("url", {entity["entity_type"] for entity in extracted})
         email = next(
             entity
             for entity in extracted
@@ -914,6 +963,18 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
                 }
             ],
         )
+        company = self.service.create_graph_entity(
+            investigation.id,
+            {
+                "label": "ACME SAS",
+                "tags": "Company",
+            },
+        )
+        self.service.link_result_to_graph_entity(
+            investigation.id,
+            company["id"],
+            saved.id,
+        )
 
         extracted = self.service.extract_entities(
             investigation.id,
@@ -929,7 +990,24 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertTrue(
             address["source_field"].startswith("archive_text:")
         )
+        self.assertEqual(address["property_key"], "Siège social")
+        self.assertEqual(address["investigation_entity_id"], company["id"])
         self.assertEqual(address["attributes"]["postal_code"], "75002")
+        refreshed_company = next(
+            entity
+            for entity in self.service.workspace_payload(
+                investigation.id
+            )["graph_entities"]
+            if entity["id"] == company["id"]
+        )
+        self.assertEqual(
+            refreshed_company["properties"]["SIRET"],
+            "732 829 320 00074",
+        )
+        self.assertEqual(
+            refreshed_company["properties"]["Siège social"],
+            "10 rue de la Paix, 75002 Paris",
+        )
 
     def test_archived_investigation_rejects_entity_extraction(self):
         investigation = self.service.create({"title": "Archived case"})

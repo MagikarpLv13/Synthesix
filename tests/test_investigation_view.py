@@ -118,13 +118,19 @@ def workspace_payload(*, status="active"):
                 "entity_type": "email",
                 "suggested_type": "email",
                 "custom_label": "Primary contact",
+                "investigation_entity_id": "",
+                "property_key": "Email",
                 "value_original": "analyst@example.com",
                 "value_normalized": "analyst@example.com",
                 "source_field": "notes",
                 "source_text": "Contact analyst@example.com for verification.",
                 "confidence": 0.99,
                 "confidence_reasons": ["Email syntax", "Domain syntax"],
-                "attributes": {"domain": "example.com"},
+                "attributes": {
+                    "domain": "example.com",
+                    "field_label": "Email",
+                    "property_key": "Email",
+                },
                 "status": "proposed",
                 "first_observed_at": "2026-06-10T10:00:00+00:00",
                 "last_observed_at": "2026-06-10T10:00:00+00:00",
@@ -324,6 +330,8 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         self.assertIn("Found through search", content)
         self.assertIn("example company", content)
+        self.assertIn("Wayback Machine", content)
+        self.assertIn("web.archive.org/web/*/https://example.com/", content)
         self.assertIn("Exact query term in title", content)
         self.assertIn("Returned by 2 search engines", content)
         self.assertIn("not factual accuracy", content)
@@ -339,8 +347,13 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Linked entities", content)
         self.assertIn("Use as property", content)
         self.assertIn("analyst@example.com", content)
+        self.assertIn("<strong>analyst@example.com</strong>", content)
         self.assertIn("99% deterministic confidence", content)
         self.assertIn("Primary contact", content)
+        self.assertEqual(
+            tree.xpath("//input[@data-quick-property-key]/@value"),
+            ["Primary contact"],
+        )
         self.assertIn("Suggested Email", content)
         self.assertIn("from notes", content)
         self.assertIn("Email syntax", content)
@@ -455,6 +468,24 @@ class InvestigationViewTestCase(unittest.TestCase):
             len([script for script in inline_scripts if script.strip()]),
             1,
         )
+
+    def test_hides_raw_archive_text_source_in_entity_summary(self):
+        workspace = workspace_payload()
+        workspace["entities"][0]["source_field"] = "archive_text:capture-123"
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("Suggested Email", content)
+        self.assertNotIn("from archive_text", content)
 
     def test_uses_discovery_source_when_observation_sources_are_empty(self):
         workspace = workspace_payload()

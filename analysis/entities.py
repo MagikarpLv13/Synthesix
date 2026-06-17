@@ -131,6 +131,29 @@ VAT_CONTEXT_PATTERN = re.compile(
 )
 SIREN_CONTEXT_PATTERN = re.compile(r"\bsiren\b", re.IGNORECASE)
 SIRET_CONTEXT_PATTERN = re.compile(r"\bsiret\b", re.IGNORECASE)
+FIELD_LABEL_PATTERN = re.compile(
+    r"([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9'’/(). -]{1,60})"
+    r"\s*(?::|=|：)\s*$",
+    re.IGNORECASE,
+)
+FIELD_LABEL_KEYWORDS = (
+    (
+        re.compile(r"\bdate\s+de\s+cr[ée]ation\b", re.IGNORECASE),
+        "Date de création",
+    ),
+    (re.compile(r"\bcr[ée]ation\b", re.IGNORECASE), "Création"),
+    (re.compile(r"\bradi[ée]e?\b|\bradiation\b", re.IGNORECASE), "Radiation"),
+)
+FIELD_LABEL_STATUS_PATTERNS = (
+    (
+        re.compile(
+            r"\bradi[ée]e?\s+(?:depuis|le|au|à compter du|a compter du)"
+            r"(?:\s+le)?\s*$",
+            re.IGNORECASE,
+        ),
+        "Radiation",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -150,6 +173,27 @@ def _source_passage(text: str, start: int, end: int) -> str:
     right = min(len(text), end + 80)
     passage = " ".join(text[left:right].split())
     return passage[:MAX_SOURCE_TEXT_LENGTH]
+
+
+def _inferred_field_label(text: str, start: int) -> str:
+    prefix = text[max(0, start - 90):start]
+    prefix = re.split(r"[\n.;!?]", prefix)[-1]
+    normalized_prefix = " ".join(prefix.split())
+    for pattern, label in FIELD_LABEL_STATUS_PATTERNS:
+        if pattern.search(normalized_prefix):
+            return label
+    match = FIELD_LABEL_PATTERN.search(prefix)
+    if not match:
+        return ""
+    label = " ".join(match.group(1).split())
+    label = re.sub(r"\([^)]*\)", " ", label)
+    label = " ".join(label.split()).strip(" -/")
+    for pattern, canonical_label in FIELD_LABEL_KEYWORDS:
+        if pattern.search(label):
+            return canonical_label
+    if len(label) > 60:
+        return ""
+    return label
 
 
 def _normalized_url(value: str) -> str:
@@ -205,6 +249,11 @@ def _append_match(
 ) -> None:
     if not normalized_value:
         return
+    field_label = _inferred_field_label(text, start)
+    merged_attributes = dict(attributes or {})
+    if field_label:
+        merged_attributes.setdefault("field_label", field_label)
+        merged_attributes.setdefault("property_key", field_label)
     candidates.append(
         EntityCandidate(
             entity_type=entity_type,
@@ -214,13 +263,17 @@ def _append_match(
             source_text=_source_passage(text, start, end),
             confidence=confidence,
             confidence_reasons=confidence_reasons,
-            attributes=attributes or {},
+            attributes=merged_attributes,
         )
     )
 
 
 def _digits(value: str) -> str:
     return re.sub(r"\D", "", value)
+
+
+def _clean_matched_value(value: str) -> str:
+    return value.strip().rstrip(".,;:!?)]}")
 
 
 def _luhn_valid(value: str) -> bool:
@@ -336,7 +389,7 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
         _append_match(
             candidates,
             entity_type="siret",
-            value=match.group(0).strip(),
+            value=_clean_matched_value(match.group(0)),
             normalized_value=value,
             source_field=source_field,
             text=text,
@@ -373,7 +426,7 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
         _append_match(
             candidates,
             entity_type="siren",
-            value=match.group(0).strip(),
+            value=_clean_matched_value(match.group(0)),
             normalized_value=value,
             source_field=source_field,
             text=text,
@@ -408,7 +461,7 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
         _append_match(
             candidates,
             entity_type="vat_number",
-            value=match.group(0).strip(),
+            value=_clean_matched_value(match.group(0)),
             normalized_value=normalized,
             source_field=source_field,
             text=text,

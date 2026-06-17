@@ -111,6 +111,79 @@ def _tagset_default_properties(tags: Iterable[object]) -> dict[str, str]:
     return properties
 
 
+def _append_property_value(current: object, value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return str(current or "").strip()
+    values = [
+        item.strip()
+        for item in str(current or "").split(";")
+        if item.strip()
+    ]
+    if text not in values:
+        values.append(text)
+    return "; ".join(values)
+
+
+def _extracted_property_key(entity) -> str:
+    custom_label = _clean_text(
+        getattr(entity, "custom_label", ""),
+        max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+    )
+    attributes = getattr(entity, "attributes", {})
+    if not isinstance(attributes, Mapping):
+        attributes = {}
+    suggested = _clean_text(
+        attributes.get("property_key") or attributes.get("field_label"),
+        max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+    )
+    default = _default_property_key(str(getattr(entity, "entity_type", "") or ""))
+    existing = _clean_text(
+        getattr(entity, "property_key", ""),
+        max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+    )
+    if custom_label and (
+        not existing or existing in {suggested, default}
+    ):
+        return custom_label
+    if existing:
+        return existing
+    if custom_label:
+        return custom_label
+    if suggested:
+        return suggested
+    return default
+
+
+def _extracted_property_value(entity) -> str:
+    return _clean_text(
+        getattr(entity, "value_original", "")
+        or getattr(entity, "value_normalized", ""),
+        max_length=MAX_ENTITY_PROPERTY_VALUE_LENGTH,
+    )
+
+
+def _is_auto_property_candidate(entity) -> bool:
+    if str(getattr(entity, "status", "") or "") == "rejected":
+        return False
+    if str(getattr(entity, "entity_type", "") or "") in {"url", "domain"}:
+        return False
+    try:
+        confidence = float(getattr(entity, "confidence", 0) or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return confidence >= 0.8
+
+
+def _is_auto_property_recipient(entity) -> bool:
+    tags = {
+        canonical_zeroneurone_tag(tag).casefold()
+        for tag in getattr(entity, "tags", ())
+        if str(tag).strip()
+    }
+    return "site web" not in tags
+
+
 class InvestigationService:
     def __init__(
         self,
@@ -389,7 +462,7 @@ class InvestigationService:
             )
         property_key = _clean_text(
             payload.get("property_key")
-            or _default_property_key(extracted.entity_type),
+            or _extracted_property_key(extracted),
             max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
         )
         entity_payload = {
@@ -404,7 +477,7 @@ class InvestigationService:
             entity_payload,
         )
         entity_id = str(entity["id"])
-        self.link_result_to_graph_entity(
+        self.repository.link_result_to_investigation_entity(
             investigation_id,
             entity_id,
             extracted.result_id,
@@ -508,11 +581,23 @@ class InvestigationService:
         entity_id: str,
         result_id: str,
     ) -> dict:
-        return self.repository.link_result_to_investigation_entity(
+        linked = self.repository.link_result_to_investigation_entity(
             investigation_id,
             entity_id,
             result_id,
-        ).to_payload()
+        )
+        self._auto_attach_result_properties(
+            investigation_id,
+            result_id,
+            preferred_entity_id=entity_id,
+        )
+        return next(
+            entity.to_payload()
+            for entity in self.repository.list_investigation_entities(
+                investigation_id
+            )
+            if entity.id == linked.id
+        )
 
     def unlink_result_from_graph_entity(
         self,
@@ -546,12 +631,19 @@ class InvestigationService:
             )
         if not property_key:
             raise InvestigationValidationError("Property name is required.")
-        return self.repository.attach_extracted_entity_property(
+        entity = self.repository.attach_extracted_entity_property(
             investigation_id,
             extracted_entity_id,
             graph_entity_id,
             property_key=property_key,
-        ).to_payload()
+        )
+        self._sync_extracted_property_to_graph_entity(
+            investigation_id,
+            graph_entity_id,
+            entity,
+            property_key,
+        )
+        return entity.to_payload()
 
     def detach_extracted_property(
         self,
@@ -599,6 +691,7 @@ class InvestigationService:
             investigation_id,
             result_id,
         )
+        sources.pop("url", None)
         remaining_chars = MAX_ENTITY_SOURCE_TOTAL_CHARS
         captures = self.repository.list_evidence_captures(investigation_id)
         for capture in captures:
@@ -628,14 +721,104 @@ class InvestigationService:
                     sources[f"archive_text:{capture.id}"] = content
                     remaining_chars -= len(content)
         candidates = extract_entity_candidates(sources)
+        self.repository.upsert_extracted_entities(
+            investigation_id,
+            result_id,
+            (asdict(candidate) for candidate in candidates),
+        )
+        self._auto_attach_result_properties(investigation_id, result_id)
         return [
             entity.to_payload()
-            for entity in self.repository.upsert_extracted_entities(
-                investigation_id,
-                result_id,
-                (asdict(candidate) for candidate in candidates),
+            for entity in self.repository.list_extracted_entities(
+                investigation_id
             )
+            if entity.result_id == result_id
         ]
+
+    def _sync_extracted_property_to_graph_entity(
+        self,
+        investigation_id: str,
+        graph_entity_id: str,
+        extracted_entity,
+        property_key: str,
+    ) -> None:
+        value = _extracted_property_value(extracted_entity)
+        key = _clean_text(
+            property_key or _extracted_property_key(extracted_entity),
+            max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+        )
+        if not key or not value:
+            return
+        graph_entity = next(
+            (
+                entity
+                for entity in self.repository.list_investigation_entities(
+                    investigation_id
+                )
+                if entity.id == graph_entity_id
+            ),
+            None,
+        )
+        if graph_entity is None:
+            return
+        self.repository.set_investigation_entity_property(
+            investigation_id,
+            graph_entity_id,
+            key=key,
+            value=_append_property_value(
+                graph_entity.properties.get(key),
+                value,
+            ),
+        )
+
+    def _auto_attach_result_properties(
+        self,
+        investigation_id: str,
+        result_id: str,
+        *,
+        preferred_entity_id: str | None = None,
+    ) -> None:
+        graph_entities = [
+            entity
+            for entity in self.repository.list_investigation_entities(
+                investigation_id
+            )
+            if result_id in entity.linked_result_ids
+            and _is_auto_property_recipient(entity)
+        ]
+        if preferred_entity_id:
+            graph_entities = [
+                entity
+                for entity in graph_entities
+                if entity.id == preferred_entity_id
+            ]
+        if len(graph_entities) != 1:
+            return
+        target = graph_entities[0]
+        extracted_entities = [
+            entity
+            for entity in self.repository.list_extracted_entities(
+                investigation_id
+            )
+            if entity.result_id == result_id
+            and _is_auto_property_candidate(entity)
+        ]
+        for entity in extracted_entities:
+            property_key = _extracted_property_key(entity)
+            if not property_key:
+                continue
+            attached = self.repository.attach_extracted_entity_property(
+                investigation_id,
+                entity.id,
+                target.id,
+                property_key=property_key,
+            )
+            self._sync_extracted_property_to_graph_entity(
+                investigation_id,
+                target.id,
+                attached,
+                property_key,
+            )
 
     def update_entity_status(
         self,

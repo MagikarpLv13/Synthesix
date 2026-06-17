@@ -166,6 +166,60 @@ class EntityExtractionTestCase(unittest.TestCase):
         self.assertEqual(address.attributes["locality"], "Paris")
         self.assertEqual(address.attributes["country"], "FR")
 
+    def test_infers_property_label_from_nearby_field_name(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Date de création : 2025-06-14. "
+                    "Siège social : 10 rue de la Paix, 75002 Paris."
+                )
+            }
+        )
+        date_candidate = next(
+            candidate
+            for candidate in candidates
+            if candidate.entity_type == "date"
+        )
+        address = next(
+            candidate
+            for candidate in candidates
+            if candidate.entity_type == "address"
+        )
+
+        self.assertEqual(
+            date_candidate.attributes["property_key"],
+            "Date de création",
+        )
+        self.assertEqual(address.attributes["property_key"], "Siège social")
+
+    def test_infers_canonical_date_property_labels(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Radiée depuis le 21/01/2008. "
+                    "arié (donnée 2008) Création : 01/10/2008."
+                )
+            }
+        )
+        dates = [
+            candidate
+            for candidate in candidates
+            if candidate.entity_type == "date"
+        ]
+        by_value = {
+            candidate.value: candidate
+            for candidate in dates
+        }
+
+        self.assertEqual(
+            by_value["21/01/2008"].attributes["property_key"],
+            "Radiation",
+        )
+        self.assertEqual(
+            by_value["01/10/2008"].attributes["property_key"],
+            "Création",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
