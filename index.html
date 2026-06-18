@@ -7,7 +7,7 @@
     <meta name="keywords" content="search, multi-engine, google, bing, brave, duckduckgo, synthesix">
     <title>Synthesix</title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="theme.css?ux=workflow-cards">
     <script src="theme.js"></script>
     <script src="i18n.js"></script>
 </head>
@@ -117,12 +117,13 @@
             </section>
 
             <div class="workflow-grid" aria-label="Secondary workflows">
-            <details class="osint-panel workflow-card">
+            <details class="osint-panel workflow-card" data-workflow="advanced">
                 <summary>
-                    <span>
+                    <span class="workflow-summary-copy">
                         <strong>Advanced OSINT</strong>
                         <small>Operators, dates, country targeting</small>
                     </span>
+                    <span class="workflow-card-meta">Build query</span>
                 </summary>
                 <div class="operator-grid" aria-label="OSINT search filters">
                     <label class="operator-field" for="filter-site">
@@ -238,12 +239,17 @@
                 </datalist>
             </details>
 
-            <details id="query-variants-panel" class="osint-panel workflow-card">
+            <details
+                id="query-variants-panel"
+                class="osint-panel workflow-card"
+                data-workflow="variants"
+            >
                 <summary>
-                    <span>
+                    <span class="workflow-summary-copy">
                         <strong>Query variants</strong>
                         <small>Optional exact alternatives</small>
                     </span>
+                    <span class="workflow-card-meta">Expand coverage</span>
                 </summary>
                 <div class="query-variants-body">
                     <p class="panel-help">
@@ -279,12 +285,16 @@
                     </div>
                 </div>
             </details>
-            <details class="osint-panel workflow-card local-search-panel">
+            <details
+                class="osint-panel workflow-card local-search-panel"
+                data-workflow="archive"
+            >
                 <summary>
-                    <span>
+                    <span class="workflow-summary-copy">
                         <strong>Local archive</strong>
                         <small>Search stored observations only</small>
                     </span>
+                    <span class="workflow-card-meta">Offline</span>
                 </summary>
                 <div class="operator-grid" aria-label="Local archive filters">
                     <label class="operator-field operator-field-wide" for="local-search-query">
@@ -355,12 +365,16 @@
                     launches an external search engine.
                 </p>
             </details>
-            <details class="osint-panel workflow-card data-panel">
+            <details
+                class="osint-panel workflow-card data-panel"
+                data-workflow="runtime"
+            >
                 <summary>
-                    <span>
+                    <span class="workflow-summary-copy">
                         <strong>Data and runtime</strong>
                         <small>Maintenance actions</small>
                     </span>
+                    <span class="workflow-card-meta">Admin</span>
                 </summary>
                 <div class="data-actions" aria-label="Data management">
                     <button id="clear-synthesix-history" class="secondary-button" type="button">

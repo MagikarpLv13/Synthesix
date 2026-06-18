@@ -73,12 +73,29 @@ class HomeUiTestCase(unittest.TestCase):
             "//details[contains(@class, 'workflow-card')]"
             "[.//button[@id='clear-browser-data']]"
         )
+        workflow_kinds = self.tree.xpath(
+            "//*[contains(@class, 'workflow-grid')]"
+            "/*[contains(@class, 'workflow-card')]/@data-workflow"
+        )
+        workflow_meta = self.tree.xpath(
+            "//*[contains(@class, 'workflow-grid')]"
+            "/*[contains(@class, 'workflow-card')]"
+            "//span[contains(@class, 'workflow-card-meta')]/text()"
+        )
 
         self.assertEqual(len(primary_panels), 1)
         self.assertGreaterEqual(len(workflow_cards), 4)
         self.assertEqual(len(advanced_details), 1)
         self.assertEqual(len(local_archive_details), 1)
         self.assertEqual(len(data_details), 1)
+        self.assertEqual(
+            workflow_kinds,
+            ["advanced", "variants", "archive", "runtime"],
+        )
+        self.assertEqual(
+            workflow_meta,
+            ["Build query", "Expand coverage", "Offline", "Admin"],
+        )
 
     def test_vpn_status_uses_browser_public_ip_and_exposes_all_states(self):
         status_buttons = self.tree.xpath("//button[@id='vpn-status']")

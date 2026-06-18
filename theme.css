@@ -505,17 +505,53 @@ a:focus-visible {
 }
 
 .workflow-card {
+    position: relative;
     min-width: 0;
     margin-top: 0;
     overflow: hidden;
-    box-shadow: none;
+    background:
+        linear-gradient(90deg, var(--workflow-accent, var(--accent)) 0 4px, transparent 4px),
+        var(--surface);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        transform 140ms ease;
+}
+
+.workflow-card:hover {
+    border-color: color-mix(in srgb, var(--workflow-accent, var(--accent)) 42%, var(--line));
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
+    transform: translateY(-1px);
+}
+
+.workflow-card[open] {
+    border-color: color-mix(in srgb, var(--workflow-accent, var(--accent)) 48%, var(--line));
+    box-shadow: var(--shadow-soft);
+    transform: none;
+}
+
+.workflow-card[data-workflow="advanced"] {
+    --workflow-accent: var(--accent);
+}
+
+.workflow-card[data-workflow="variants"] {
+    --workflow-accent: var(--secondary);
+}
+
+.workflow-card[data-workflow="archive"] {
+    --workflow-accent: var(--success);
+}
+
+.workflow-card[data-workflow="runtime"] {
+    --workflow-accent: var(--warning);
 }
 
 .workflow-card summary {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 10px;
     padding: 14px;
     list-style: none;
 }
@@ -542,16 +578,37 @@ a:focus-visible {
     content: "-";
 }
 
-.workflow-card summary span {
+.workflow-summary-copy {
     display: grid;
     gap: 3px;
     min-width: 0;
+}
+
+.workflow-card summary strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .workflow-card summary small {
     color: var(--muted);
     font-size: 12px;
     font-weight: 600;
+}
+
+.workflow-card-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--workflow-accent, var(--accent)) 28%, var(--line));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--workflow-accent, var(--accent)) 10%, var(--surface));
+    color: color-mix(in srgb, var(--workflow-accent, var(--accent)) 72%, var(--text));
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
 }
 
 .workflow-card[open] {
@@ -2340,6 +2397,21 @@ table.dataTable.no-footer {
     .search-controls,
     .workflow-grid {
         grid-template-columns: 1fr;
+    }
+
+    .workflow-card summary {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .workflow-card-meta {
+        grid-column: 1;
+        grid-row: 2;
+        width: fit-content;
+    }
+
+    .workflow-card summary::after {
+        grid-column: 2;
+        grid-row: 1 / span 2;
     }
 
     .search-control-cluster {
