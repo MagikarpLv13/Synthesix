@@ -110,6 +110,11 @@ class LocalSearchViewTestCase(unittest.TestCase):
 
         empty_states = tree.xpath("//*[contains(@class, 'local-search-empty')]")
         self.assertEqual(len(empty_states), 1)
+        self.assertIn("empty-state", empty_states[0].get("class"))
+        self.assertEqual(
+            empty_states[0].xpath(".//strong/text()"),
+            ["No matching local observation"],
+        )
         self.assertIn(
             "No stored observation matches these filters.",
             " ".join(empty_states[0].text_content().split()),

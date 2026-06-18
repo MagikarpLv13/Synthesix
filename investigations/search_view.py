@@ -189,8 +189,13 @@ def generate_local_search_page(
         )
     else:
         results_markup = (
-            '<div class="investigation-empty local-search-empty">'
-            "No stored observation matches these filters."
+            '<div class="investigation-empty empty-state local-search-empty" '
+            'role="status">'
+            '<span class="empty-state__mark" aria-hidden="true"></span>'
+            '<div class="empty-state__copy">'
+            "<strong>No matching local observation</strong>"
+            "<p>No stored observation matches these filters.</p>"
+            "</div>"
             "</div>"
         )
 
@@ -201,7 +206,7 @@ def generate_local_search_page(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local archive search</title>
     <link rel="icon" href="{_html(favicon_href)}" type="image/svg+xml">
-    <link rel="stylesheet" href="{_html(theme_href)}">
+    <link rel="stylesheet" href="{_html(theme_href)}?ux=empty-states">
     <script src="{_html(theme_script)}"></script>
     <script src="{_html(i18n_script)}"></script>
 </head>

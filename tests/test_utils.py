@@ -146,6 +146,30 @@ class UtilsTestCase(unittest.TestCase):
             finally:
                 os.chdir(current_dir)
 
+    def test_empty_html_report_uses_shared_empty_state(self):
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                df = pd.DataFrame(
+                    columns=[
+                        "title",
+                        "description",
+                        "link",
+                        "source",
+                        "relevance_score",
+                    ]
+                )
+
+                output_path = generate_html_report(df, '"missing"', 0.1, 0)
+                content = Path(output_path).read_text(encoding="utf-8")
+
+                self.assertIn('class="report-empty empty-state"', content)
+                self.assertIn("No relevant results found", content)
+                self.assertIn("Try another exact phrase", content)
+            finally:
+                os.chdir(current_dir)
+
     def test_coverage_errors_expose_targeted_retry_action(self):
         current_dir = os.getcwd()
         with TemporaryDirectory() as temp_dir:

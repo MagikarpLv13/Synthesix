@@ -21,7 +21,7 @@ def _html_escape(value) -> str:
 def _theme_assets(asset_prefix: str = "") -> str:
     return f"""
     <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="{asset_prefix}theme.css">
+    <link rel="stylesheet" href="{asset_prefix}theme.css?ux=empty-states">
     <script src="{asset_prefix}theme.js"></script>
     <script src="{asset_prefix}i18n.js"></script>
 """
@@ -570,8 +570,15 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
 
     if nb_results == 0:
         rows_html = """
-                <div class="report-empty" role="status">
-                No relevant results found
+                <div class="report-empty empty-state" role="status">
+                    <span class="empty-state__mark" aria-hidden="true"></span>
+                    <div class="empty-state__copy">
+                        <strong>No relevant results found</strong>
+                        <p>
+                            Try another exact phrase, enable more engines, or widen
+                            the OSINT filters.
+                        </p>
+                    </div>
                 </div>
         """
         html_footer = """

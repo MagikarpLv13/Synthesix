@@ -1064,6 +1064,23 @@ def _evidence_markup(
     )
 
 
+def _empty_state(title: str, message: str, *, class_name: str = "") -> str:
+    classes = " ".join(
+        item
+        for item in ("investigation-empty", "empty-state", class_name)
+        if item
+    )
+    return f"""
+        <div class="{classes}" role="status">
+            <span class="empty-state__mark" aria-hidden="true"></span>
+            <div class="empty-state__copy">
+                <strong>{_html(title)}</strong>
+                <p>{_html(message)}</p>
+            </div>
+        </div>
+    """
+
+
 def _result_cards(
     results: list[Mapping],
     *,
@@ -1077,11 +1094,10 @@ def _result_cards(
     read_only: bool,
 ) -> str:
     if not results:
-        return """
-            <div class="investigation-empty">
-                No page has been explicitly saved to this investigation yet.
-            </div>
-        """
+        return _empty_state(
+            "No saved pages",
+            "No page has been explicitly saved to this investigation yet.",
+        )
 
     cards = []
     disabled = " disabled" if read_only else ""
@@ -1342,12 +1358,13 @@ def _page_monitor_cards(
     read_only: bool,
 ) -> str:
     if not monitors:
-        return """
-            <div class="investigation-empty">
-                No page is monitored. Enable monitoring from a saved page,
-                then use the HTML archive button while browsing it.
-            </div>
-        """
+        return _empty_state(
+            "No monitored pages",
+            (
+                "No page is monitored. Enable monitoring from a saved page, "
+                "then use the HTML archive button while browsing it."
+            ),
+        )
 
     labels = {
         "unchanged": "No content change",
@@ -1461,11 +1478,10 @@ def _export_cards(
     read_only: bool,
 ) -> str:
     if not exports:
-        return """
-            <div class="investigation-empty">
-                No ZeroNeurone export has been generated yet.
-            </div>
-        """
+        return _empty_state(
+            "No export yet",
+            "No ZeroNeurone export has been generated yet.",
+        )
 
     cards = []
     disabled = " disabled" if read_only else ""
@@ -1652,7 +1668,7 @@ def generate_investigation_page(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{_html(investigation.get("title"))} - Synthesix</title>
     <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="{asset_prefix}theme.css">
+    <link rel="stylesheet" href="{asset_prefix}theme.css?ux=empty-states">
     <script src="{asset_prefix}theme.js"></script>
     <script src="{asset_prefix}i18n.js"></script>
 </head>

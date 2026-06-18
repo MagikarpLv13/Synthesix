@@ -587,6 +587,40 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("create_page_monitor"', content)
         self.assertIn("Screenshots are not compared automatically", content)
 
+    def test_empty_workspace_sections_use_shared_empty_state(self):
+        workspace = workspace_payload()
+        workspace["results"] = []
+        workspace["page_monitors"] = []
+        workspace["exports"] = []
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        empty_states = tree.xpath("//*[contains(@class, 'empty-state')]")
+        self.assertGreaterEqual(len(empty_states), 3)
+        empty_titles = [
+            value.strip()
+            for value in tree.xpath(
+                "//div[contains(@class, 'empty-state')]//strong/text()"
+            )
+        ]
+        self.assertIn(
+            "No saved pages",
+            empty_titles,
+        )
+        self.assertIn(
+            "No page has been explicitly saved to this investigation yet.",
+            " ".join(empty_states[0].text_content().split()),
+        )
+
     def test_archived_workspace_disables_analyst_mutations(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
