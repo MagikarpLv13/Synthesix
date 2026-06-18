@@ -148,6 +148,10 @@ class HomeUiTestCase(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            self.tree.xpath("normalize-space(//button[@id='open-investigation'])"),
+            "Workspace",
+        )
+        self.assertEqual(
             len(self.tree.xpath("//dialog[@id='investigation-dialog']")),
             1,
         )
@@ -205,6 +209,12 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn('queueAction("rebuild_local_search_index"', self.content)
         self.assertIn("never", self.content)
         self.assertIn("external search engine", self.content)
+
+    def test_primary_search_copy_stays_compact(self):
+        self.assertEqual(
+            self.tree.xpath("//input[@id='search-field']/@placeholder"),
+            ["Person, company, domain, phrase..."],
+        )
 
     def test_svg_brand_assets_are_valid_xml(self):
         assets_dir = Path(__file__).resolve().parents[1] / "assets"

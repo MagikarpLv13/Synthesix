@@ -2304,12 +2304,21 @@ table.dataTable.no-footer {
         padding: 12px;
     }
 
+    .home-primary-panel .investigation-bar {
+        gap: 10px;
+        padding: 10px;
+    }
+
     .search-row {
         grid-template-columns: 1fr;
     }
 
     .search-input {
         min-height: 58px;
+    }
+
+    .search-input::placeholder {
+        font-size: 15px;
     }
 
     .search-button {
@@ -2345,7 +2354,19 @@ table.dataTable.no-footer {
 
     .investigation-actions {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .investigation-actions button {
+        min-height: 36px;
+        padding: 0 8px;
+        font-size: 14px;
+    }
+
+    #open-investigation,
+    #delete-investigation {
+        grid-column: span 3;
     }
 
     .investigation-overview {
