@@ -1094,6 +1094,105 @@ async def _install_and_consume_save_overlay(
                         captureButton.style.transform = "translateY(0)";
                     }});
 
+                    const collapseButton = document.createElement("button");
+                    collapseButton.type = "button";
+                    collapseButton.setAttribute("data-synthesix-collapse", "");
+                    collapseButton.setAttribute(
+                        "aria-label",
+                        "Collapse Synthesix overlay"
+                    );
+                    collapseButton.setAttribute("aria-pressed", "false");
+                    Object.assign(collapseButton.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "32px",
+                        height: "42px",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "6px",
+                        background: "#F8FAFC",
+                        color: "#334155",
+                        cursor: "pointer",
+                        font: "800 13px Arial, sans-serif",
+                        lineHeight: "1",
+                        transition: (
+                            "background-color 140ms ease, border-color 140ms ease, "
+                            + "color 140ms ease, transform 140ms ease"
+                        )
+                    }});
+                    collapseButton.textContent = "<";
+                    collapseButton.title = "Collapse Synthesix overlay";
+                    host.__synthesixSetOverlayCollapsed = (collapsed) => {{
+                        host.dataset.overlayCollapsed = collapsed ? "1" : "0";
+                        const contextVisible = (
+                            !collapsed && Boolean(host.dataset.investigationId)
+                        );
+                        contextBadge.style.display = (
+                            contextVisible ? "inline-flex" : "none"
+                        );
+                        button.style.display = (
+                            collapsed ? "none" : "inline-flex"
+                        );
+                        archiveButton.style.display = (
+                            collapsed ? "none" : "inline-flex"
+                        );
+                        captureButton.style.display = (
+                            collapsed ? "none" : "inline-flex"
+                        );
+                        toolbar.style.gap = collapsed ? "0" : "6px";
+                        toolbar.style.padding = collapsed ? "4px" : "6px";
+                        toolbar.style.maxWidth = (
+                            collapsed ? "44px" : "min(92vw, 560px)"
+                        );
+                        toolbar.style.justifyContent = (
+                            collapsed ? "center" : "flex-start"
+                        );
+                        collapseButton.setAttribute(
+                            "aria-label",
+                            collapsed
+                                ? "Expand Synthesix overlay"
+                                : "Collapse Synthesix overlay"
+                        );
+                        collapseButton.setAttribute(
+                            "aria-pressed",
+                            collapsed ? "true" : "false"
+                        );
+                        collapseButton.title = collapsed
+                            ? "Expand Synthesix overlay"
+                            : "Collapse Synthesix overlay";
+                        collapseButton.textContent = collapsed ? "Sx" : "<";
+                        collapseButton.style.width = (
+                            collapsed ? "34px" : "32px"
+                        );
+                        collapseButton.style.height = (
+                            collapsed ? "34px" : "42px"
+                        );
+                        collapseButton.style.background = (
+                            collapsed ? "#2563EB" : "#F8FAFC"
+                        );
+                        collapseButton.style.borderColor = (
+                            collapsed ? "#1D4ED8" : "#CBD5E1"
+                        );
+                        collapseButton.style.color = (
+                            collapsed ? "#FFFFFF" : "#334155"
+                        );
+                    }};
+                    collapseButton.addEventListener("mouseenter", () => {{
+                        collapseButton.style.transform = "translateY(-1px)";
+                    }});
+                    collapseButton.addEventListener("mouseleave", () => {{
+                        collapseButton.style.transform = "translateY(0)";
+                    }});
+                    collapseButton.addEventListener("click", (event) => {{
+                        event.preventDefault();
+                        event.stopPropagation();
+                        host.__synthesixSetOverlayCollapsed(
+                            host.dataset.overlayCollapsed !== "1"
+                        );
+                    }});
+
                     const entityTrigger = document.createElement("button");
                     entityTrigger.type = "button";
                     entityTrigger.textContent = "Ajouter à l'enquête";
@@ -1615,7 +1714,8 @@ async def _install_and_consume_save_overlay(
                         contextBadge,
                         button,
                         archiveButton,
-                        captureButton
+                        captureButton,
+                        collapseButton
                     );
                     shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);
@@ -1643,7 +1743,14 @@ async def _install_and_consume_save_overlay(
                     contextBadge.textContent = context.title || "";
                     contextBadge.title = context.title || "";
                     contextBadge.style.display = (
-                        context.id ? "inline-flex" : "none"
+                        context.id && host.dataset.overlayCollapsed !== "1"
+                            ? "inline-flex"
+                            : "none"
+                    );
+                }}
+                if (host.__synthesixSetOverlayCollapsed) {{
+                    host.__synthesixSetOverlayCollapsed(
+                        host.dataset.overlayCollapsed === "1"
                     );
                 }}
                 const statusUntil = Number(host.dataset.statusUntil || 0);
