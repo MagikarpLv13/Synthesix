@@ -205,6 +205,15 @@ class HomeUiTestCase(unittest.TestCase):
             len(self.tree.xpath("//button[@id='rebuild-local-index']")),
             1,
         )
+        self.assertEqual(
+            len(
+                self.tree.xpath(
+                    "//*[contains(@class, 'local-search-actions')]"
+                    "[.//button[@id='local-search-button']]"
+                )
+            ),
+            1,
+        )
         self.assertIn('queueAction("local_archive_search"', self.content)
         self.assertIn('queueAction("rebuild_local_search_index"', self.content)
         self.assertIn("never", self.content)

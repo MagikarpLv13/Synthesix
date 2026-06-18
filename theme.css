@@ -669,6 +669,13 @@ a:focus-visible {
     margin-top: 14px;
 }
 
+.dialog-actions.local-search-actions {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+}
+
 .operator-field input::placeholder {
     color: var(--muted);
 }
@@ -2441,6 +2448,10 @@ table.dataTable.no-footer {
     }
 
     .query-variant-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .dialog-actions.local-search-actions {
         grid-template-columns: 1fr;
     }
 
