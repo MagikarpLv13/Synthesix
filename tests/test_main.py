@@ -536,6 +536,8 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(action["action"], "save_page_to_investigation")
         self.assertIn("__synthesix-save-overlay", tab.script)
         self.assertIn("Case One", tab.script)
+        self.assertIn("data-synthesix-context", tab.script)
+        self.assertIn("Active Synthesix investigation", tab.script)
         self.assertIn("Save page", tab.script)
         self.assertIn("observe_saved_page", tab.script)
         self.assertIn("M58 12 69 6l9 38-12 9-9-7z", tab.script)

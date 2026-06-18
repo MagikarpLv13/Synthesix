@@ -417,7 +417,38 @@ async def _install_and_consume_save_overlay(
                         all: "initial",
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px"
+                        gap: "6px",
+                        boxSizing: "border-box",
+                        maxWidth: "min(92vw, 560px)",
+                        padding: "6px",
+                        border: "1px solid rgba(203, 213, 225, 0.86)",
+                        borderRadius: "8px",
+                        background: "rgba(255, 255, 255, 0.96)",
+                        boxShadow: "0 14px 34px rgba(15, 23, 42, 0.22)",
+                        backdropFilter: "blur(10px)"
+                    }});
+                    const contextBadge = document.createElement("span");
+                    contextBadge.dataset.synthesixContext = "";
+                    contextBadge.setAttribute(
+                        "aria-label",
+                        "Active Synthesix investigation"
+                    );
+                    Object.assign(contextBadge.style, {{
+                        all: "initial",
+                        boxSizing: "border-box",
+                        display: "none",
+                        alignItems: "center",
+                        maxWidth: "180px",
+                        minHeight: "30px",
+                        padding: "0 9px",
+                        overflow: "hidden",
+                        border: "1px solid #CBD5E1",
+                        borderRadius: "6px",
+                        background: "#F8FAFC",
+                        color: "#475569",
+                        font: "700 12px Arial, sans-serif",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
                     }});
                     const button = document.createElement("button");
                     button.type = "button";
@@ -434,7 +465,7 @@ async def _install_and_consume_save_overlay(
                         borderRadius: "6px",
                         background: "#2563EB",
                         color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
+                        boxShadow: "none",
                         font: "700 14px Arial, sans-serif",
                         lineHeight: "1",
                         cursor: "pointer",
@@ -542,7 +573,7 @@ async def _install_and_consume_save_overlay(
                             );
                             button.style.transform = "translateY(-1px)";
                             button.style.boxShadow = (
-                                "0 12px 30px rgba(15, 23, 42, 0.34)"
+                                "0 8px 18px rgba(15, 23, 42, 0.22)"
                             );
                         }}
                     }});
@@ -552,9 +583,7 @@ async def _install_and_consume_save_overlay(
                             label.textContent
                         );
                         button.style.transform = "translateY(0)";
-                        button.style.boxShadow = (
-                            "0 10px 28px rgba(15, 23, 42, 0.28)"
-                        );
+                        button.style.boxShadow = "none";
                     }});
                     button.addEventListener("focus", () => {{
                         button.style.outline = "3px solid rgba(6, 182, 212, 0.55)";
@@ -599,7 +628,7 @@ async def _install_and_consume_save_overlay(
                         borderRadius: "6px",
                         background: "#0891B2",
                         color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
+                        boxShadow: "none",
                         cursor: "pointer",
                         transition: (
                             "background-color 140ms ease, border-color 140ms ease, "
@@ -710,7 +739,7 @@ async def _install_and_consume_save_overlay(
                         borderRadius: "6px",
                         background: "#0F172A",
                         color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
+                        boxShadow: "none",
                         cursor: "pointer",
                         transition: (
                             "background-color 140ms ease, border-color 140ms ease, "
@@ -1582,7 +1611,12 @@ async def _install_and_consume_save_overlay(
                             closeEntityTools();
                         }}
                     }}, true);
-                    toolbar.append(button, archiveButton, captureButton);
+                    toolbar.append(
+                        contextBadge,
+                        button,
+                        archiveButton,
+                        captureButton
+                    );
                     shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);
                 }}
@@ -1602,6 +1636,16 @@ async def _install_and_consume_save_overlay(
                     );
                 }}
                 const button = host.shadowRoot.querySelector("button");
+                const contextBadge = host.shadowRoot.querySelector(
+                    "[data-synthesix-context]"
+                );
+                if (contextBadge) {{
+                    contextBadge.textContent = context.title || "";
+                    contextBadge.title = context.title || "";
+                    contextBadge.style.display = (
+                        context.id ? "inline-flex" : "none"
+                    );
+                }}
                 const statusUntil = Number(host.dataset.statusUntil || 0);
                 const captureStatusUntil = Number(
                     host.dataset.captureStatusUntil || 0
