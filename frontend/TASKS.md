@@ -8,7 +8,7 @@ Détails dans `../COLLAB.md`.
 |---|---|---|---|---|
 | 0 | Scaffold toolchain (TS + Lit + esbuild) + pilote `sx-chip` | `frontend/*` | Claude | done |
 | 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
-| 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | — | à faire |
+| 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | in progress |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | — | à faire |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | — | à faire |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
