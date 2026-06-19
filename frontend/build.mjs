@@ -3,7 +3,6 @@
 //   assets/synthesix-ui.js       app components (ESM, loaded via <script type=module>)
 //   assets/synthesix-overlay.js  overlay (IIFE, injected into third-party pages by main.py)
 import { build, context } from "esbuild";
-import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,14 +34,6 @@ const configs = [
   },
 ];
 
-function normalizeOutput(path) {
-  const content = readFileSync(path, "utf8")
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .join("\n");
-  writeFileSync(path, `${content.trimEnd()}\n`, "utf8");
-}
-
 if (watch) {
   for (const config of configs) {
     const ctx = await context(config);
@@ -51,6 +42,5 @@ if (watch) {
   console.log("esbuild: watching frontend/src ...");
 } else {
   await Promise.all(configs.map(build));
-  configs.forEach((config) => normalizeOutput(config.outfile));
   console.log("esbuild: built assets/synthesix-ui.js + assets/synthesix-overlay.js");
 }

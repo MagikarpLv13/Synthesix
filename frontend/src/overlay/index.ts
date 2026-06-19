@@ -11,6 +11,7 @@
  * This placeholder only makes the bundle build until the migration starts.
  */
 import { tokensCss } from "../tokens";
+import "./sx-overlay-capture-menu";
 import "./sx-overlay-action";
 
 declare global {

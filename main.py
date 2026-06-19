@@ -579,43 +579,10 @@ async def _install_and_consume_save_overlay(
                     captureButton.setAttribute("icon-only", "");
                     host.__synthesixCaptureButton = captureButton;
 
-                    const captureMenu = document.createElement("div");
-                    Object.assign(captureMenu.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "none",
-                        position: "absolute",
-                        right: "0",
-                        bottom: "50px",
-                        width: "180px",
-                        padding: "6px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "6px",
-                        background: "#FFFFFF",
-                        boxShadow: "0 14px 32px rgba(15, 23, 42, 0.24)",
-                        font: "600 13px Arial, sans-serif"
-                    }});
-                    const captureNameInput = document.createElement("input");
-                    captureNameInput.type = "text";
-                    captureNameInput.maxLength = 120;
-                    captureNameInput.placeholder = "Capture name (optional)";
-                    captureNameInput.setAttribute(
-                        "aria-label",
-                        "Capture name"
+                    const captureMenu = document.createElement(
+                        "sx-overlay-capture-menu"
                     );
-                    Object.assign(captureNameInput.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "block",
-                        width: "100%",
-                        marginBottom: "5px",
-                        padding: "8px 9px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "4px",
-                        background: "#FFFFFF",
-                        color: "#0F172A",
-                        font: "500 13px Arial, sans-serif"
-                    }});
+                    captureMenu.setAttribute("data-synthesix-capture-menu", "");
                     host.__synthesixDefaultCaptureName = () => {{
                         const now = new Date();
                         const pad = (value) => String(value).padStart(2, "0");
@@ -628,32 +595,12 @@ async def _install_and_consume_save_overlay(
                             + `${{pad(now.getSeconds())}}`
                         );
                     }};
-
-                    const createCaptureChoice = (labelText, scope) => {{
-                        const choice = document.createElement("button");
-                        choice.type = "button";
-                        choice.textContent = labelText;
-                        Object.assign(choice.style, {{
-                            all: "initial",
-                            boxSizing: "border-box",
-                            display: "block",
-                            width: "100%",
-                            padding: "9px 10px",
-                            borderRadius: "4px",
-                            color: "#0F172A",
-                            font: "600 13px Arial, sans-serif",
-                            cursor: "pointer"
-                        }});
-                        choice.addEventListener("mouseenter", () => {{
-                            choice.style.background = "#EFF6FF";
-                            choice.style.color = "#1D4ED8";
-                        }});
-                        choice.addEventListener("mouseleave", () => {{
-                            choice.style.background = "transparent";
-                            choice.style.color = "#0F172A";
-                        }});
-                        choice.addEventListener("click", () => {{
-                            captureMenu.style.display = "none";
+                    captureMenu.addEventListener(
+                        "synthesix-capture-choice",
+                        (event) => {{
+                            const detail = event.detail || {{}};
+                            const scope = detail.scope || "";
+                            const captureName = detail.captureName || "";
                             if (!host.dataset.investigationId) {{
                                 window.__synthesixSavePageAction = {{
                                     action: "focus_home"
@@ -666,19 +613,13 @@ async def _install_and_consume_save_overlay(
                                     y: window.scrollY,
                                     width: window.innerWidth,
                                     height: window.innerHeight
-                                }}, captureNameInput.value);
-                            }} else {{
+                                }}, captureName);
+                            }} else if (scope === "region") {{
                                 host.__synthesixStartRegionSelection(
-                                    captureNameInput.value
+                                    captureName
                                 );
                             }}
-                        }});
-                        return choice;
-                    }};
-                    captureMenu.append(
-                        captureNameInput,
-                        createCaptureChoice("Visible area", "viewport"),
-                        createCaptureChoice("Select area", "region")
+                        }}
                     );
 
                     host.__synthesixSetCaptureState = (
@@ -712,7 +653,11 @@ async def _install_and_consume_save_overlay(
                                     selection,
                                     page: host.__synthesixPagePayload()
                                 }};
-                                captureNameInput.value = "";
+                                if (
+                                    typeof captureMenu.reset === "function"
+                                ) {{
+                                    captureMenu.reset();
+                                }}
                             }});
                         }});
                     }};
@@ -845,16 +790,11 @@ async def _install_and_consume_save_overlay(
                             }};
                             return;
                         }}
-                        captureMenu.style.display = (
-                            captureMenu.style.display === "none"
-                                ? "block"
-                                : "none"
-                        );
-                        if (
-                            captureMenu.style.display === "block"
-                            && !captureNameInput.value.trim()
-                        ) {{
-                            captureNameInput.value = (
+                        const nextOpen = !captureMenu.hasAttribute("open");
+                        captureMenu.open = nextOpen;
+                        captureMenu.toggleAttribute("open", nextOpen);
+                        if (nextOpen) {{
+                            captureMenu.ensureCaptureName?.(
                                 host.__synthesixDefaultCaptureName()
                             );
                         }}
