@@ -799,27 +799,13 @@ async def _install_and_consume_save_overlay(
                             );
                         }}
                     }});
-                    const entityTrigger = document.createElement("button");
-                    entityTrigger.type = "button";
-                    entityTrigger.textContent = "Ajouter à l'enquête";
-                    Object.assign(entityTrigger.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "none",
-                        position: "fixed",
-                        left: "0",
-                        top: "0",
-                        padding: "7px 9px",
-                        border: "1px solid #1D4ED8",
-                        borderRadius: "999px",
-                        background: "#2563EB",
-                        color: "#FFFFFF",
-                        boxShadow: "0 10px 26px rgba(15, 23, 42, 0.26)",
-                        cursor: "pointer",
-                        font: "700 12px Arial, sans-serif",
-                        zIndex: "2147483647",
-                        whiteSpace: "nowrap"
-                    }});
+                    const entityTrigger = document.createElement(
+                        "sx-overlay-selection-trigger"
+                    );
+                    entityTrigger.setAttribute(
+                        "label",
+                        "Ajouter à l'enquête"
+                    );
                     const entityMenu = document.createElement("div");
                     Object.assign(entityMenu.style, {{
                         all: "initial",

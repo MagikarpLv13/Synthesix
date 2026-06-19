@@ -538,6 +538,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SynthesixOverlay", tab.script)
         self.assertIn("sx-overlay-action", tab.script)
         self.assertIn("sx-overlay-capture-menu", tab.script)
+        self.assertIn("sx-overlay-selection-trigger", tab.script)
         self.assertIn("data-synthesix-save-page", tab.script)
         self.assertIn("data-synthesix-archive", tab.script)
         self.assertIn("data-synthesix-capture", tab.script)
