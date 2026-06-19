@@ -469,6 +469,45 @@ class InvestigationViewTestCase(unittest.TestCase):
             1,
         )
 
+    def test_overview_shows_next_actions_worklist(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        worklist = tree.xpath(
+            "//section[@id='overview']"
+            "//*[contains(@class, 'focus-summary')]"
+        )
+        self.assertEqual(len(worklist), 1)
+        items = tree.xpath(
+            "//*[contains(@class, 'focus-summary')]"
+            "/*[contains(@class, 'focus-item')]"
+        )
+        self.assertEqual(len(items), 4)
+        # 0 to review (pertinent), 1 monitored change, 1 proposed entity, 1 capture
+        self.assertEqual(
+            tree.xpath("//*[contains(@class, 'focus-item')]/strong/text()"),
+            ["0", "1", "1", "1"],
+        )
+        self.assertEqual(
+            tree.xpath("//*[contains(@class, 'focus-item')]/span/text()"),
+            [
+                "pages to review",
+                "monitored changes",
+                "proposed entities",
+                "captures",
+            ],
+        )
+        self.assertIn("Triage saved pages before exporting.", content := tree.text_content())
+        self.assertIn("Open changed pages and compare archives.", content)
+
     def test_hides_raw_archive_text_source_in_entity_summary(self):
         workspace = workspace_payload()
         workspace["entities"][0]["source_field"] = "archive_text:capture-123"

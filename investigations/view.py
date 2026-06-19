@@ -1623,6 +1623,36 @@ def generate_investigation_page(
         for monitor in page_monitors
     }
 
+    pages_to_review = sum(
+        1
+        for item in results
+        if str(item.get("analyst_status") or "a_verifier") == "a_verifier"
+    )
+    monitored_changes = sum(
+        1
+        for monitor in page_monitors
+        if monitor.get("comparison_status") == "changed"
+    )
+    proposed_entities = sum(
+        1 for entity in entities if entity.get("status") == "proposed"
+    )
+    focus_summary = (
+        '<div class="focus-summary" aria-label="Investigation next actions">'
+        f'<div class="focus-item"><strong>{pages_to_review}</strong>'
+        "<span>pages to review</span>"
+        "<small>Triage saved pages before exporting.</small></div>"
+        f'<div class="focus-item"><strong>{monitored_changes}</strong>'
+        "<span>monitored changes</span>"
+        "<small>Open changed pages and compare archives.</small></div>"
+        f'<div class="focus-item"><strong>{proposed_entities}</strong>'
+        "<span>proposed entities</span>"
+        "<small>Validate or attach extracted identifiers.</small></div>"
+        f'<div class="focus-item"><strong>{len(evidence)}</strong>'
+        "<span>captures</span>"
+        "<small>Evidence files attached to saved pages.</small></div>"
+        "</div>"
+    )
+
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1681,6 +1711,7 @@ def generate_investigation_page(
                 <div><strong>{sum(1 for item in results if item.get("favorite"))}</strong><span>Favorites</span></div>
                 <div><strong>{sum(1 for item in results if item.get("analyst_status") == "confirme")}</strong><span>Confirmed</span></div>
             </div>
+            {focus_summary}
         </section>
 
         <section

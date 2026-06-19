@@ -43,6 +43,14 @@ REDESIGN_STRINGS = [
     "Run a search from the home page to build your history.",
     "Search scope",
     "Scope",
+    "Investigation next actions",
+    "pages to review",
+    "monitored changes",
+    "proposed entities",
+    "Triage saved pages before exporting.",
+    "Open changed pages and compare archives.",
+    "Validate or attach extracted identifiers.",
+    "Evidence files attached to saved pages.",
 ]
 
 

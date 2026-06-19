@@ -2525,3 +2525,38 @@ kbd {
     gap: 6px;
     margin: 4px 0 8px;
 }
+
+.focus-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+}
+
+.focus-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-md);
+}
+
+.focus-item strong {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.focus-item span {
+    font-size: 13px;
+    color: var(--text);
+}
+
+.focus-item small {
+    font-size: 12px;
+    color: var(--muted);
+}
