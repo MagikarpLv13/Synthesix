@@ -96,7 +96,11 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertIn('class="brand-logo"', content)
                 self.assertNotIn("data-theme-toggle", content)
-                self.assertIn('class="data-table display"', content)
+                self.assertIn('class="result-card', content)
+                self.assertIn("data-triage-item", content)
+                self.assertIn('class="insight-grid"', content)
+                self.assertNotIn("datatables", content.lower())
+                self.assertNotIn("jquery", content.lower())
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
                 self.assertIn("&lt;Exact title&gt;", content)
@@ -136,9 +140,10 @@ class UtilsTestCase(unittest.TestCase):
                 output_path = generate_html_report(df, '"query"', 0.1, 2)
                 content = Path(output_path).read_text(encoding="utf-8")
 
-                self.assertLess(content.index(">High</td>"), content.index(">Low</td>"))
-                self.assertIn('data-order="10.000000"', content)
-                self.assertIn("order: [[5, 'desc']]", content)
+                self.assertLess(content.index(">High</a>"), content.index(">Low</a>"))
+                self.assertIn(">10.00</span>", content)
+                self.assertIn('class="result-list"', content)
+                self.assertIn("navigate results", content)
             finally:
                 os.chdir(current_dir)
 

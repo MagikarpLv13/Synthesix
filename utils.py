@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import List, Optional
 from settings import get_settings
 
+import ui
+
 
 logger = logging.getLogger(__name__)
 HISTORY_DATE_FORMATS = ("%d/%m/%Y %H:%M",)
@@ -459,7 +461,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
     history_href = _relative_href(settings.history_report_path, output_path.parent)
     safe_search_term = _html_escape(search_term)
-    safe_output_path = _html_escape(output_path)
     coverage_engines = sorted({
         str(engine)
         for item in coverage
@@ -535,150 +536,154 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             </details>
         """
 
-    html_head = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search Results for: {safe_search_term}</title>
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets(asset_prefix)}
-</head>
-<body>
-    <main class="app app--wide">
-        <header class="topbar">
-            {_brand_markup("Search results", asset_prefix)}
-            <div class="top-actions">
-                <a href="{search_href}" data-home-link class="nav-link">Search</a>
-                <a href="{history_href}" class="nav-link">History</a>
-            </div>
-        </header>
+    if "relevance_score" in df.columns and not df.empty:
+        scores = [float(value) for value in df["relevance_score"].tolist()]
+    else:
+        scores = []
+    strong_count = sum(1 for value in scores if value >= 8.0)
+    top_score = max(scores) if scores else 0.0
+    if "source" in df.columns:
+        source_names = sorted({
+            part.strip()
+            for value in df["source"].tolist()
+            for part in str(value).split(",")
+            if part.strip()
+        })
+    else:
+        source_names = []
 
-        <section aria-label="Search results">
-            <div class="page-header">
-                <h2 class="page-title">Search Results for: {safe_search_term}</h2>
-                <div class="page-meta">
-                    <span class="meta-pill">Total time: {total_time:.3f} seconds</span>
-                    <span class="meta-pill">Created: {date_str}</span>
-                    <span class="meta-pill">Relevant results: {nb_results}</span>
-                    <span class="meta-pill">Report: {safe_output_path}</span>
-                </div>
-            </div>
-            {coverage_html}
-            <div class="table-shell">
-                <table id="results" class="data-table display">
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Description</th>
-                            <th>Link</th>
-                            <th>Source</th>
-                            <th>Exact query</th>
-                            <th>Score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-"""
+    insights_html = ui.insight_grid([
+        {"value": str(nb_results), "label": "relevant results",
+         "hint": "Sorted by relevance score.", "tone": "info"},
+        {"value": str(strong_count), "label": "strong leads",
+         "hint": "Score 8.0 and above.", "tone": "strong"},
+        {"value": str(len(source_names)), "label": "sources",
+         "hint": "Search engines represented.", "tone": "score"},
+        {"value": f"{top_score:.2f}", "label": "best score",
+         "hint": "Highest deterministic relevance.", "tone": "warning"},
+    ])
+
+    meta_html = (
+        '<span class="context-item"><span class="context-item__value">'
+        f'Created: {date_str}</span></span>'
+        '<span class="context-item"><span class="context-item__value">'
+        f'Total time: {total_time:.3f} seconds</span></span>'
+    )
 
     if nb_results == 0:
-        rows_html = """
-        <tr>
-            <td colspan="6" class="empty-row">
-                No relevant results found
-            </td>
-        </tr>
-        """
-        html_footer = """
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-""" + _home_navigation_script() + """
-</body>
-</html>
-"""
-        full_html = html_head + rows_html + html_footer
-        
-        with output_path.open("w", encoding="utf-8") as f:
-            f.write(full_html)
-            
-        return str(output_path.resolve())
-        
-        
-    rows = []
-    for _, row in df.iterrows():
-        title = _html_escape(row["title"])
-        desc = _html_escape(row["description"])
-        link = _html_escape(row["link"])
-        source = _html_escape(row["source"])
-        numeric_score = float(row["relevance_score"])
-        score = f"{numeric_score:.2f}"
-        query_variants = row.get("query_variants", [])
-        if not isinstance(query_variants, (list, tuple)):
-            query_variants = []
-        variants_markup = "<br>".join(
-            f"<code>{_html_escape(query)}</code>"
-            for query in query_variants
+        results_html = ui.empty_state(
+            "No relevant results found",
+            "No results matched this search. Adjust the query, filters, "
+            "or engines and try again.",
         )
-        score_breakdown = row.get("score_breakdown", [])
-        breakdown_items = []
-        if isinstance(score_breakdown, list):
-            for component in score_breakdown:
-                if not isinstance(component, dict):
-                    continue
-                component_score = float(component.get("score", 0) or 0)
-                component_label = _html_escape(component.get("label", "Score component"))
-                breakdown_items.append(
-                    f"<li>+{component_score:.1f} {component_label}</li>"
-                )
-        if breakdown_items:
-            score_markup = (
-                f'<details class="score-breakdown"><summary>{score}</summary>'
-                f"<ul>{''.join(breakdown_items)}</ul>"
-                "<small>Multi-engine consensus confirms repeated retrieval, "
-                "not factual accuracy.</small></details>"
+        hint_html = ""
+    else:
+        cards = []
+        for _, row in df.iterrows():
+            link = str(row["link"])
+            display_domain = ui.domain_of(link)
+            safe_link = link if display_domain else "#"
+            engines = [
+                part.strip()
+                for part in str(row["source"]).split(",")
+                if part.strip()
+            ]
+            engine_chips = "".join(
+                ui.chip(engine, tone="engine") for engine in engines
             )
-        else:
-            score_markup = score
-        link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
-        rows.append(f"""
-        <tr>
-            <td>{title}</td>
-            <td class="description">{desc}</td>
-            <td class="link">{link_html}</td>
-            <td>{source}</td>
-            <td>{variants_markup}</td>
-            <td data-order="{numeric_score:.6f}">{score_markup}</td>
-        </tr>
-        """)
-    rows_html = "".join(rows)
+            numeric_score = float(row["relevance_score"])
+            breakdown = row.get("score_breakdown", [])
+            breakdown_items = []
+            if isinstance(breakdown, list):
+                for component in breakdown:
+                    if not isinstance(component, dict):
+                        continue
+                    component_score = float(component.get("score", 0) or 0)
+                    component_label = ui.esc(
+                        component.get("label", "Score component")
+                    )
+                    breakdown_items.append(
+                        f"<li>+{component_score:.1f} {component_label}</li>"
+                    )
+            score_html = ui.score_badge(
+                f"{numeric_score:.2f}",
+                ui.score_level(numeric_score),
+                breakdown_html="".join(breakdown_items),
+                note=(
+                    "Multi-engine consensus confirms repeated retrieval, "
+                    "not factual accuracy."
+                ),
+            )
+            variants = row.get("query_variants", [])
+            if not isinstance(variants, (list, tuple)):
+                variants = []
+            provenance_html = ""
+            if variants:
+                provenance_html = ui.provenance(
+                    "Found via",
+                    ", ".join(str(variant) for variant in variants),
+                )
+            meta_card = engine_chips + score_html + provenance_html
+            if safe_link != "#":
+                open_action = (
+                    f'<a class="btn btn--ghost btn--sm" '
+                    f'href="{ui.esc(safe_link)}" '
+                    'target="_blank" rel="noopener noreferrer">'
+                    f'{ui.icon("external")}<span>Open</span></a>'
+                )
+            else:
+                open_action = ""
+            cards.append(
+                ui.result_card(
+                    title=str(row["title"]),
+                    url=link,
+                    safe_url=safe_link,
+                    domain=display_domain,
+                    snippet=str(row["description"]),
+                    meta_html=meta_card,
+                    actions_html=open_action,
+                    accent_level=ui.score_level(numeric_score),
+                )
+            )
+        results_html = (
+            '<div class="result-list" aria-label="Results">'
+            + "".join(cards)
+            + "</div>"
+        )
+        hint_html = ui.keyboard_hint(
+            [("j / k", "navigate results"), ("o", "open")]
+        )
 
-    html_footer = """
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-    <script>
-        $(document).ready(function() {
-            $('#results').DataTable({
-                pageLength: 50,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                order: [[5, 'desc']]
-            });
-        });
-    </script>
-""" + _home_navigation_script() + """
-</body>
-</html>
-"""
+    body = (
+        ui.topbar(
+            "Search results",
+            asset_prefix,
+            [
+                {"href": search_href, "label": "Search",
+                 "attrs": "data-home-link"},
+                {"href": history_href, "label": "History"},
+            ],
+        )
+        + '<section class="page" aria-label="Search results">'
+        + '<div class="page-head">'
+        + '<p class="eyebrow">Search results</p>'
+        + f'<h1 class="page-title">{safe_search_term}</h1>'
+        + f'<div class="context-bar">{meta_html}</div>'
+        + "</div>"
+        + insights_html
+        + coverage_html
+        + results_html
+        + hint_html
+        + "</section>"
+    )
 
-    full_html = html_head + rows_html + html_footer
+    full_html = ui.render_page(
+        title=f"Search Results for: {search_term}",
+        asset_prefix=asset_prefix,
+        body=body,
+    )
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
         f.write(full_html)
 

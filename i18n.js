@@ -149,6 +149,18 @@
     };
 
     const multilingual = {
+        "relevant results": ["résultats pertinents","resultados relevantes","相关结果"],
+        "strong leads": ["pistes solides","pistas sólidas","有力线索"],
+        "sources": ["sources","fuentes","来源"],
+        "best score": ["meilleur score","mejor puntuación","最高得分"],
+        "Sorted by relevance score.": ["Trié par score de pertinence.","Ordenado por puntuación de relevancia.","按相关度得分排序。"],
+        "Score 8.0 and above.": ["Score de 8,0 et plus.","Puntuación de 8.0 o superior.","得分 8.0 及以上。"],
+        "Search engines represented.": ["Moteurs de recherche représentés.","Motores de búsqueda representados.","涉及的搜索引擎。"],
+        "Highest deterministic relevance.": ["Pertinence déterministe la plus élevée.","Mayor relevancia determinista.","最高的确定性相关度。"],
+        "Found via": ["Trouvé via","Encontrado mediante","找到来源"],
+        "navigate results": ["naviguer dans les résultats","navegar por los resultados","浏览结果"],
+        "open": ["ouvrir","abrir","打开"],
+        "No results matched this search. Adjust the query, filters, or engines and try again.": ["Aucun résultat ne correspond à cette recherche. Ajustez la requête, les filtres ou les moteurs et réessayez.","Ningún resultado coincide con esta búsqueda. Ajusta la consulta, los filtros o los motores e inténtalo de nuevo.","没有结果匹配此次搜索。请调整查询、筛选条件或搜索引擎后重试。"],
         "Multi-engine search": ["Recherche multi-moteurs","Búsqueda multimotor","多引擎搜索"],
         "Investigation workspace": ["Espace d'enquête","Espacio de investigación","调查工作区"],
         "Search history": ["Historique des recherches","Historial de búsquedas","搜索历史"],
@@ -407,6 +419,18 @@
     const languageIndexes = {fr: 0, es: 1, zh: 2};
 
     const additionalTranslations = {
+        "relevant results": ["resultados relevantes", "relevante Treffer"],
+        "strong leads": ["pistas sólidas", "starke Hinweise"],
+        "sources": ["fontes", "Quellen"],
+        "best score": ["melhor pontuação", "bester Score"],
+        "Sorted by relevance score.": ["Ordenado por pontuação de relevância.", "Nach Relevanz-Score sortiert."],
+        "Score 8.0 and above.": ["Pontuação de 8,0 ou superior.", "Score 8,0 und höher."],
+        "Search engines represented.": ["Motores de pesquisa representados.", "Vertretene Suchmaschinen."],
+        "Highest deterministic relevance.": ["Maior relevância determinística.", "Höchste deterministische Relevanz."],
+        "Found via": ["Encontrado via", "Gefunden über"],
+        "navigate results": ["navegar pelos resultados", "Ergebnisse durchblättern"],
+        "open": ["abrir", "öffnen"],
+        "No results matched this search. Adjust the query, filters, or engines and try again.": ["Nenhum resultado corresponde a esta pesquisa. Ajuste a consulta, os filtros ou os motores e tente novamente.", "Keine Ergebnisse für diese Suche. Passen Sie Abfrage, Filter oder Suchmaschinen an und versuchen Sie es erneut."],
         "Multi-engine search": ["Pesquisa multimotor", "Multi-Suchmaschine"],
         "Investigation workspace": ["Espaço de investigação", "Ermittlungsbereich"],
         "Search history": ["Histórico de pesquisas", "Suchverlauf"],
