@@ -8,7 +8,7 @@ Détails dans `../COLLAB.md`.
 |---|---|---|---|---|
 | 0 | Scaffold toolchain (TS + Lit + esbuild) + pilote `sx-chip` | `frontend/*` | Claude | done |
 | 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
-| 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | in progress |
+| 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | — | à faire |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | — | à faire |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
@@ -29,5 +29,7 @@ Détails dans `../COLLAB.md`.
 - (Codex) Tâche 1 en cours : migration incrémentale du bouton principal
   "Save page" vers `<sx-overlay-action>`, avec maintien des contrats CDP
   existants dans `main.py`.
-- (Codex) `frontend/build.mjs` normalise les bundles générés pour garder
-  `git diff --check` propre malgré la minification esbuild.
+- (Codex) Les bundles minifiés `assets/*.js` gardent la sortie esbuild brute ;
+  `.gitattributes` neutralise seulement les faux positifs whitespace.
+- (Codex) Tâche 2 livrée : `<sx-result-card>` fournit la structure dense
+  titre+domaine, extrait, slots méta/actions et compatibilité triage light DOM.

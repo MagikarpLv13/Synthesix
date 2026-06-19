@@ -4,3 +4,4 @@
  * Register every shared <sx-*> component here as it is migrated.
  */
 import "./components/sx-chip";
+import "./components/sx-result-card";

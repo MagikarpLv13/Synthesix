@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix result card demo</title>
+    <link rel="stylesheet" href="../../theme.css">
+    <script type="module" src="../../assets/synthesix-ui.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+      }
+
+      .demo {
+        display: grid;
+        gap: 10px;
+        width: min(920px, calc(100vw - 32px));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <sx-result-card accent="good" data-triage-item tabindex="0">
+        <a
+          slot="title"
+          data-triage-link
+          href="https://example.com/result"
+          target="_blank"
+          rel="noopener noreferrer"
+        >MagikarpLv13 · GitHub</a>
+        <span slot="domain">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"></path>
+          </svg>
+          github.com
+        </span>
+        <p slot="snippet">
+          Profil source avec dépôts publics, contexte technique et liens utiles
+          pour alimenter une enquête.
+        </p>
+        <sx-chip slot="meta" tone="engine">Google</sx-chip>
+        <sx-chip slot="meta" tone="info">Score 7.80</sx-chip>
+        <sx-chip slot="meta" tone="muted">Found via exact query</sx-chip>
+        <a
+          slot="actions"
+          class="btn btn--ghost btn--sm"
+          href="https://example.com/result"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Open</a>
+      </sx-result-card>
+      <sx-result-card accent="moderate" data-triage-item tabindex="0">
+        <a slot="title" data-triage-link href="https://example.net/archive">
+          Archive locale observée précédemment
+        </a>
+        <span slot="domain">example.net</span>
+        <p slot="snippet">
+          Carte plus longue mais toujours dense, avec les actions à droite et
+          les métadonnées qui restent scannables.
+        </p>
+        <sx-chip slot="meta" tone="success">Already observed</sx-chip>
+        <sx-chip slot="meta" tone="engine">Brave</sx-chip>
+        <button slot="actions" class="btn btn--ghost btn--sm" type="button">
+          Attach
+        </button>
+      </sx-result-card>
+    </div>
+  </body>
+</html>
