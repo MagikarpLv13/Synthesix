@@ -58,6 +58,17 @@ from utils import (
 
 logger = logging.getLogger(__name__)
 _MISSING_HISTORY_SIGNATURE = object()
+_OVERLAY_BUNDLE_PATH = (
+    Path(__file__).resolve().parent / "assets" / "synthesix-overlay.js"
+)
+
+
+def _overlay_bundle_script() -> str:
+    try:
+        return _OVERLAY_BUNDLE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        logger.debug("Unable to read Synthesix overlay bundle", exc_info=True)
+        return ""
 
 
 def _tool_version() -> str:
@@ -391,6 +402,10 @@ async def _install_and_consume_save_overlay(
         },
         ensure_ascii=True,
     )
+    overlay_bundle_json = json.dumps(
+        _overlay_bundle_script(),
+        ensure_ascii=True,
+    )
     try:
         return await tab.evaluate(
             f"""
@@ -399,6 +414,14 @@ async def _install_and_consume_save_overlay(
                 const entityTagsets = {tagsets_json};
                 const tagsetProperties = {tagset_properties_json};
                 const hostId = "__synthesix-save-overlay";
+                const overlayBundle = {overlay_bundle_json};
+                if (!window.SynthesixOverlay && overlayBundle) {{
+                    try {{
+                        Function(overlayBundle)();
+                    }} catch (_error) {{
+                        // The legacy inline overlay below remains the fallback.
+                    }}
+                }}
                 let host = document.getElementById(hostId);
                 if (!host) {{
                     host = document.createElement("div");
@@ -419,75 +442,22 @@ async def _install_and_consume_save_overlay(
                         alignItems: "center",
                         gap: "8px"
                     }});
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    Object.assign(button.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "8px",
-                        height: "42px",
-                        padding: "0 14px 0 11px",
-                        border: "1px solid #1D4ED8",
-                        borderRadius: "6px",
-                        background: "#2563EB",
-                        color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
-                        font: "700 14px Arial, sans-serif",
-                        lineHeight: "1",
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                        transition: (
-                            "background-color 140ms ease, border-color 140ms ease, "
-                            + "box-shadow 140ms ease, transform 140ms ease"
-                        )
-                    }});
-
                     const svgNamespace = "http://www.w3.org/2000/svg";
-                    const mark = document.createElementNS(svgNamespace, "svg");
-                    mark.setAttribute("viewBox", "0 0 128 128");
-                    mark.setAttribute("aria-hidden", "true");
-                    Object.assign(mark.style, {{
-                        display: "block",
-                        width: "20px",
-                        height: "20px",
-                        flex: "0 0 20px"
-                    }});
-                    for (let index = 0; index < 10; index += 1) {{
-                        const blade = document.createElementNS(
-                            svgNamespace,
-                            "path"
-                        );
-                        blade.setAttribute(
-                            "d",
-                            "M58 12 69 6l9 38-12 9-9-7z"
-                        );
-                        blade.setAttribute(
-                            "transform",
-                            `rotate(${{index * 36}} 64 64)`
-                        );
-                        blade.setAttribute(
-                            "fill",
-                            index % 2 === 0 ? "#FFFFFF" : "#67E8F9"
-                        );
-                        mark.appendChild(blade);
-                    }}
-                    const markCenter = document.createElementNS(
-                        svgNamespace,
-                        "circle"
+                    const button = document.createElement("sx-overlay-action");
+                    button.setAttribute("data-synthesix-save-page", "");
+                    button.variant = "primary";
+                    button.icon = "mark";
+                    button.label = "Save page";
+                    button.setAttribute("label", "Save page");
+                    button.ariaText = (
+                        "Save page to active Synthesix investigation"
                     );
-                    markCenter.setAttribute("cx", "64");
-                    markCenter.setAttribute("cy", "64");
-                    markCenter.setAttribute("r", "14");
-                    markCenter.setAttribute("fill", "#FFFFFF");
-                    mark.appendChild(markCenter);
-
-                    const label = document.createElement("span");
-                    label.textContent = "Save page";
-                    label.style.display = "block";
-                    button.append(mark, label);
+                    button.setAttribute(
+                        "aria-text",
+                        "Save page to active Synthesix investigation"
+                    );
+                    button.textContent = "Save page";
+                    host.__synthesixSaveButton = button;
                     host.__synthesixPagePayload = () => ({{
                         url: window.location.href,
                         title: document.title || window.location.hostname,
@@ -506,63 +476,22 @@ async def _install_and_consume_save_overlay(
                         }}
                     }});
 
-                    const stateColors = {{
-                        idle: ["#2563EB", "#1D4ED8"],
-                        idleHover: ["#1D4ED8", "#1E40AF"],
-                        saving: ["#475569", "#334155"],
-                        saved: ["#059669", "#047857"],
-                        savedHover: ["#047857", "#065F46"],
-                        error: ["#DC2626", "#B91C1C"],
-                        errorHover: ["#B91C1C", "#991B1B"]
-                    }};
-                    host.__synthesixSetButtonState = (
-                        state,
-                        text,
-                        hovered = false
-                    ) => {{
-                        const colorKey = hovered
-                            ? `${{state}}Hover`
-                            : state;
-                        const colors = stateColors[colorKey] || stateColors[state];
+                    host.__synthesixSetButtonState = (state, text) => {{
                         button.dataset.state = state;
+                        button.state = state;
+                        button.setAttribute("state", state);
+                        button.label = text;
+                        button.setAttribute("label", text);
                         button.disabled = state === "saving";
-                        label.textContent = text;
-                        button.style.background = colors[0];
-                        button.style.borderColor = colors[1];
-                        button.style.cursor = (
-                            state === "saving" ? "wait" : "pointer"
+                        button.toggleAttribute("disabled", state === "saving");
+                        button.titleText = button.title || text;
+                        button.setAttribute("title-text", button.title || text);
+                        button.ariaText = (
+                            button.title
+                            || "Save page to active Synthesix investigation"
                         );
+                        button.setAttribute("aria-text", button.ariaText);
                     }};
-                    button.addEventListener("mouseenter", () => {{
-                        if (!button.disabled) {{
-                            host.__synthesixSetButtonState(
-                                button.dataset.state,
-                                label.textContent,
-                                true
-                            );
-                            button.style.transform = "translateY(-1px)";
-                            button.style.boxShadow = (
-                                "0 12px 30px rgba(15, 23, 42, 0.34)"
-                            );
-                        }}
-                    }});
-                    button.addEventListener("mouseleave", () => {{
-                        host.__synthesixSetButtonState(
-                            button.dataset.state,
-                            label.textContent
-                        );
-                        button.style.transform = "translateY(0)";
-                        button.style.boxShadow = (
-                            "0 10px 28px rgba(15, 23, 42, 0.28)"
-                        );
-                    }});
-                    button.addEventListener("focus", () => {{
-                        button.style.outline = "3px solid rgba(6, 182, 212, 0.55)";
-                        button.style.outlineOffset = "2px";
-                    }});
-                    button.addEventListener("blur", () => {{
-                        button.style.outline = "none";
-                    }});
                     button.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
                             window.__synthesixSavePageAction = {{
@@ -1601,7 +1530,15 @@ async def _install_and_consume_save_overlay(
                         context.existingTags || []
                     );
                 }}
-                const button = host.shadowRoot.querySelector("button");
+                const button = (
+                    host.__synthesixSaveButton
+                    || host.shadowRoot.querySelector(
+                        "[data-synthesix-save-page]"
+                    )
+                );
+                if (!button) {{
+                    return null;
+                }}
                 const statusUntil = Number(host.dataset.statusUntil || 0);
                 const captureStatusUntil = Number(
                     host.dataset.captureStatusUntil || 0
@@ -1613,17 +1550,21 @@ async def _install_and_consume_save_overlay(
                     host.dataset.saved = "0";
                     host.dataset.statusUntil = "0";
                     if (context.id) {{
-                        host.__synthesixSetButtonState("idle", "Save page");
                         button.title = (
                             `Save this page to "${{context.title}}"`
                         );
+                        button.titleText = button.title;
+                        button.setAttribute("title-text", button.title);
+                        host.__synthesixSetButtonState("idle", "Save page");
                     }} else {{
+                        button.title = (
+                            "Open Synthesix to select an investigation before saving this page"
+                        );
+                        button.titleText = button.title;
+                        button.setAttribute("title-text", button.title);
                         host.__synthesixSetButtonState(
                             "idle",
                             "Select investigation"
-                        );
-                        button.title = (
-                            "Open Synthesix to select an investigation before saving this page"
                         );
                     }}
                     host.__synthesixSetCaptureState(
@@ -1638,6 +1579,11 @@ async def _install_and_consume_save_overlay(
                     button.dataset.state === "error"
                     && Date.now() >= statusUntil
                 ) {{
+                    button.title = context.id
+                        ? `Save this page to "${{context.title}}"`
+                        : "Open Synthesix to select an investigation before saving this page";
+                    button.titleText = button.title;
+                    button.setAttribute("title-text", button.title);
                     host.__synthesixSetButtonState("idle", "Save page");
                 }}
                 if (
@@ -1706,12 +1652,20 @@ async def _set_save_overlay_status(
             f"""
             (() => {{
                 const host = document.getElementById("__synthesix-save-overlay");
-                const button = host?.shadowRoot?.querySelector("button");
+                const button = (
+                    host?.__synthesixSaveButton
+                    || host?.shadowRoot?.querySelector(
+                        "[data-synthesix-save-page]"
+                    )
+                );
                 if (!button || !host.__synthesixSetButtonState) {{
                     return;
                 }}
                 const isError = {json.dumps(is_error)};
                 host.dataset.saved = isError ? "0" : "1";
+                button.title = {json.dumps(message)};
+                button.titleText = button.title;
+                button.setAttribute("title-text", button.title);
                 host.__synthesixSetButtonState(
                     isError ? "error" : "saved",
                     {json.dumps(message)}

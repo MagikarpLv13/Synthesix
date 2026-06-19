@@ -26,3 +26,8 @@ Détails dans `../COLLAB.md`.
   & `assets/synthesix-overlay.js`. La tâche 1 (overlay) est le prochain pas
   recommandé — c'est la seule surface qui reste Web Components quel que soit le
   Palier 2, donc zéro reprise.
+- (Codex) Tâche 1 en cours : migration incrémentale du bouton principal
+  "Save page" vers `<sx-overlay-action>`, avec maintien des contrats CDP
+  existants dans `main.py`.
+- (Codex) `frontend/build.mjs` normalise les bundles générés pour garder
+  `git diff --check` propre malgré la minification esbuild.

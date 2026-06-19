@@ -11,5 +11,20 @@
  * This placeholder only makes the bundle build until the migration starts.
  */
 import { tokensCss } from "../tokens";
+import "./sx-overlay-action";
+
+declare global {
+  interface Window {
+    SynthesixOverlay?: {
+      tokensCss: string;
+      version: string;
+    };
+  }
+}
+
+window.SynthesixOverlay = {
+  tokensCss,
+  version: "0.1.0",
+};
 
 export const OVERLAY_TOKENS = tokensCss;

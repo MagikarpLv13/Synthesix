@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix overlay action demo</title>
+    <script src="../../assets/synthesix-overlay.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f8fafc;
+        font-family: system-ui, Arial, sans-serif;
+      }
+
+      .demo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 18px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <sx-overlay-action
+        icon="mark"
+        label="Save page"
+        title-text="Save this page to the active investigation"
+        aria-text="Save page to active Synthesix investigation"
+      ></sx-overlay-action>
+      <sx-overlay-action
+        variant="archive"
+        icon="archive"
+        icon-only
+        label="Archive"
+        title-text="Save page with HTML archive"
+      ></sx-overlay-action>
+      <sx-overlay-action
+        variant="capture"
+        icon="camera"
+        icon-only
+        state="captured"
+        label="Capture"
+        title-text="Capture screenshot"
+      ></sx-overlay-action>
+    </div>
+  </body>
+</html>
