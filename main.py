@@ -442,7 +442,28 @@ async def _install_and_consume_save_overlay(
                         alignItems: "center",
                         gap: "8px"
                     }});
-                    const svgNamespace = "http://www.w3.org/2000/svg";
+                    const setOverlayActionState = (
+                        actionButton,
+                        state,
+                        label,
+                        busyState
+                    ) => {{
+                        actionButton.dataset.state = state;
+                        actionButton.state = state;
+                        actionButton.setAttribute("state", state);
+                        actionButton.label = label;
+                        actionButton.setAttribute("label", label);
+                        actionButton.title = label;
+                        actionButton.titleText = label;
+                        actionButton.setAttribute("title-text", label);
+                        actionButton.ariaText = label;
+                        actionButton.setAttribute("aria-text", label);
+                        actionButton.disabled = state === busyState;
+                        actionButton.toggleAttribute(
+                            "disabled",
+                            state === busyState
+                        );
+                    }};
                     const button = document.createElement("sx-overlay-action");
                     button.setAttribute("data-synthesix-save-page", "");
                     button.variant = "primary";
@@ -510,80 +531,24 @@ async def _install_and_consume_save_overlay(
                         }};
                     }});
 
-                    const archiveButton = document.createElement("button");
-                    archiveButton.type = "button";
-                    archiveButton.setAttribute(
-                        "aria-label",
-                        "Save page with HTML archive"
-                    );
-                    Object.assign(archiveButton.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "42px",
-                        height: "42px",
-                        border: "1px solid #0E7490",
-                        borderRadius: "6px",
-                        background: "#0891B2",
-                        color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
-                        cursor: "pointer",
-                        transition: (
-                            "background-color 140ms ease, border-color 140ms ease, "
-                            + "box-shadow 140ms ease, transform 140ms ease"
-                        )
-                    }});
-                    const archiveIcon = document.createElementNS(
-                        svgNamespace,
-                        "svg"
-                    );
-                    archiveIcon.setAttribute("viewBox", "0 0 24 24");
-                    archiveIcon.setAttribute("aria-hidden", "true");
-                    Object.assign(archiveIcon.style, {{
-                        display: "block",
-                        width: "20px",
-                        height: "20px"
-                    }});
-                    const archivePath = document.createElementNS(
-                        svgNamespace,
-                        "path"
-                    );
-                    archivePath.setAttribute(
-                        "d",
-                        "M5 3h11l3 3v15H5zM8 3v6h8V3M8 14h8M8 18h6"
-                    );
-                    archivePath.setAttribute("fill", "none");
-                    archivePath.setAttribute("stroke", "currentColor");
-                    archivePath.setAttribute("stroke-width", "2");
-                    archivePath.setAttribute("stroke-linejoin", "round");
-                    archiveIcon.appendChild(archivePath);
-                    archiveButton.appendChild(archiveIcon);
-
-                    const archiveColors = {{
-                        idle: ["#0891B2", "#0E7490"],
-                        idleHover: ["#0E7490", "#155E75"],
-                        archiving: ["#475569", "#334155"],
-                        archived: ["#059669", "#047857"],
-                        archivedHover: ["#047857", "#065F46"],
-                        error: ["#DC2626", "#B91C1C"],
-                        errorHover: ["#B91C1C", "#991B1B"]
-                    }};
+                    const archiveButton = document.createElement("sx-overlay-action");
+                    archiveButton.setAttribute("data-synthesix-archive", "");
+                    archiveButton.variant = "archive";
+                    archiveButton.setAttribute("variant", "archive");
+                    archiveButton.icon = "archive";
+                    archiveButton.setAttribute("icon", "archive");
+                    archiveButton.iconOnly = true;
+                    archiveButton.setAttribute("icon-only", "");
+                    host.__synthesixArchiveButton = archiveButton;
                     host.__synthesixSetArchiveState = (
                         state,
-                        tooltip = "Save page with HTML archive",
-                        hovered = false
+                        tooltip = "Save page with HTML archive"
                     ) => {{
-                        const key = hovered ? `${{state}}Hover` : state;
-                        const colors = archiveColors[key] || archiveColors[state];
-                        archiveButton.dataset.state = state;
-                        archiveButton.disabled = state === "archiving";
-                        archiveButton.title = tooltip;
-                        archiveButton.style.background = colors[0];
-                        archiveButton.style.borderColor = colors[1];
-                        archiveButton.style.cursor = (
-                            state === "archiving" ? "wait" : "pointer"
+                        setOverlayActionState(
+                            archiveButton,
+                            state,
+                            tooltip,
+                            "archiving"
                         );
                     }};
                     archiveButton.addEventListener("click", () => {{
@@ -603,84 +568,16 @@ async def _install_and_consume_save_overlay(
                             page: host.__synthesixPagePayload()
                         }};
                     }});
-                    archiveButton.addEventListener("mouseenter", () => {{
-                        if (!archiveButton.disabled) {{
-                            host.__synthesixSetArchiveState(
-                                archiveButton.dataset.state,
-                                archiveButton.title,
-                                true
-                            );
-                            archiveButton.style.transform = "translateY(-1px)";
-                        }}
-                    }});
-                    archiveButton.addEventListener("mouseleave", () => {{
-                        host.__synthesixSetArchiveState(
-                            archiveButton.dataset.state,
-                            archiveButton.title
-                        );
-                        archiveButton.style.transform = "translateY(0)";
-                    }});
 
-                    const captureButton = document.createElement("button");
-                    captureButton.type = "button";
-                    captureButton.setAttribute(
-                        "aria-label",
-                        "Capture screenshot"
-                    );
-                    Object.assign(captureButton.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "42px",
-                        height: "42px",
-                        border: "1px solid #334155",
-                        borderRadius: "6px",
-                        background: "#0F172A",
-                        color: "#FFFFFF",
-                        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.28)",
-                        cursor: "pointer",
-                        transition: (
-                            "background-color 140ms ease, border-color 140ms ease, "
-                            + "box-shadow 140ms ease, transform 140ms ease"
-                        )
-                    }});
-                    const camera = document.createElementNS(
-                        svgNamespace,
-                        "svg"
-                    );
-                    camera.setAttribute("viewBox", "0 0 24 24");
-                    camera.setAttribute("aria-hidden", "true");
-                    Object.assign(camera.style, {{
-                        display: "block",
-                        width: "20px",
-                        height: "20px"
-                    }});
-                    const cameraBody = document.createElementNS(
-                        svgNamespace,
-                        "path"
-                    );
-                    cameraBody.setAttribute(
-                        "d",
-                        "M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z"
-                    );
-                    cameraBody.setAttribute("fill", "none");
-                    cameraBody.setAttribute("stroke", "currentColor");
-                    cameraBody.setAttribute("stroke-width", "2");
-                    cameraBody.setAttribute("stroke-linejoin", "round");
-                    const cameraLens = document.createElementNS(
-                        svgNamespace,
-                        "circle"
-                    );
-                    cameraLens.setAttribute("cx", "12");
-                    cameraLens.setAttribute("cy", "13");
-                    cameraLens.setAttribute("r", "3");
-                    cameraLens.setAttribute("fill", "none");
-                    cameraLens.setAttribute("stroke", "currentColor");
-                    cameraLens.setAttribute("stroke-width", "2");
-                    camera.append(cameraBody, cameraLens);
-                    captureButton.appendChild(camera);
+                    const captureButton = document.createElement("sx-overlay-action");
+                    captureButton.setAttribute("data-synthesix-capture", "");
+                    captureButton.variant = "capture";
+                    captureButton.setAttribute("variant", "capture");
+                    captureButton.icon = "camera";
+                    captureButton.setAttribute("icon", "camera");
+                    captureButton.iconOnly = true;
+                    captureButton.setAttribute("icon-only", "");
+                    host.__synthesixCaptureButton = captureButton;
 
                     const captureMenu = document.createElement("div");
                     Object.assign(captureMenu.style, {{
@@ -784,29 +681,15 @@ async def _install_and_consume_save_overlay(
                         createCaptureChoice("Select area", "region")
                     );
 
-                    const captureColors = {{
-                        idle: ["#0F172A", "#334155"],
-                        idleHover: ["#334155", "#475569"],
-                        capturing: ["#475569", "#334155"],
-                        captured: ["#059669", "#047857"],
-                        capturedHover: ["#047857", "#065F46"],
-                        error: ["#DC2626", "#B91C1C"],
-                        errorHover: ["#B91C1C", "#991B1B"]
-                    }};
                     host.__synthesixSetCaptureState = (
                         state,
-                        tooltip = "Capture screenshot",
-                        hovered = false
+                        tooltip = "Capture screenshot"
                     ) => {{
-                        const key = hovered ? `${{state}}Hover` : state;
-                        const colors = captureColors[key] || captureColors[state];
-                        captureButton.dataset.state = state;
-                        captureButton.disabled = state === "capturing";
-                        captureButton.title = tooltip;
-                        captureButton.style.background = colors[0];
-                        captureButton.style.borderColor = colors[1];
-                        captureButton.style.cursor = (
-                            state === "capturing" ? "wait" : "pointer"
+                        setOverlayActionState(
+                            captureButton,
+                            state,
+                            tooltip,
+                            "capturing"
                         );
                     }};
                     host.__synthesixQueueCapture = (
@@ -976,24 +859,6 @@ async def _install_and_consume_save_overlay(
                             );
                         }}
                     }});
-                    captureButton.addEventListener("mouseenter", () => {{
-                        if (!captureButton.disabled) {{
-                            host.__synthesixSetCaptureState(
-                                captureButton.dataset.state,
-                                captureButton.title,
-                                true
-                            );
-                            captureButton.style.transform = "translateY(-1px)";
-                        }}
-                    }});
-                    captureButton.addEventListener("mouseleave", () => {{
-                        host.__synthesixSetCaptureState(
-                            captureButton.dataset.state,
-                            captureButton.title
-                        );
-                        captureButton.style.transform = "translateY(0)";
-                    }});
-
                     const entityTrigger = document.createElement("button");
                     entityTrigger.type = "button";
                     entityTrigger.textContent = "Ajouter à l'enquête";
@@ -1588,8 +1453,11 @@ async def _install_and_consume_save_overlay(
                 }}
                 if (
                     ["captured", "error"].includes(
-                        host.shadowRoot.querySelector(
-                            'button[aria-label="Capture screenshot"]'
+                        (
+                            host.__synthesixCaptureButton
+                            || host.shadowRoot.querySelector(
+                                "[data-synthesix-capture]"
+                            )
                         )?.dataset.state
                     )
                     && Date.now() >= captureStatusUntil
@@ -1601,8 +1469,11 @@ async def _install_and_consume_save_overlay(
                 }}
                 if (
                     ["archived", "error"].includes(
-                        host.shadowRoot.querySelector(
-                            'button[aria-label="Save page with HTML archive"]'
+                        (
+                            host.__synthesixArchiveButton
+                            || host.shadowRoot.querySelector(
+                                "[data-synthesix-archive]"
+                            )
                         )?.dataset.state
                     )
                     && Date.now() >= archiveStatusUntil
