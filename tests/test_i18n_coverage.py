@@ -41,6 +41,8 @@ REDESIGN_STRINGS = [
     "or engines and try again.",
     "No saved searches yet",
     "Run a search from the home page to build your history.",
+    "Search scope",
+    "Scope",
 ]
 
 

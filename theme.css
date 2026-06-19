@@ -2505,3 +2505,23 @@ kbd {
     .investigation-actions { justify-content: stretch; }
     .investigation-actions button { flex: 1; }
 }
+
+.result-card__notes {
+    margin: 4px 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.result-card__notes strong {
+    color: var(--text);
+    font-weight: 500;
+    margin-right: 4px;
+}
+
+.result-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 0 8px;
+}

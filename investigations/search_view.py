@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import os
-from html import escape
 from pathlib import Path
 from typing import Mapping
-from urllib.parse import urlsplit
 
+import ui
 
 STATUS_LABELS = {
     "a_verifier": "To verify",
@@ -13,22 +12,28 @@ STATUS_LABELS = {
     "ecarte": "Discarded",
     "confirme": "Confirmed",
 }
-
-
-def _html(value) -> str:
-    return escape(str(value or ""), quote=True)
+STATUS_TONES = {
+    "confirme": "success",
+    "pertinent": "info",
+    "ecarte": "muted",
+}
+STATUS_ACCENTS = {
+    "confirme": "strong",
+    "pertinent": "good",
+    "a_verifier": "moderate",
+    "ecarte": "weak",
+}
 
 
 def _relative_href(target: Path, from_dir: Path) -> str:
     return os.path.relpath(target.resolve(), from_dir.resolve()).replace(os.sep, "/")
 
 
-def _safe_external_href(value) -> str:
-    url = str(value or "").strip()
-    try:
-        return url if urlsplit(url).scheme.lower() in {"http", "https"} else "#"
-    except ValueError:
-        return "#"
+def _asset_prefix(from_dir: Path, base_dir: Path) -> str:
+    relative = os.path.relpath(
+        Path(base_dir).resolve(), Path(from_dir).resolve()
+    ).replace(os.sep, "/")
+    return "" if relative == "." else relative.rstrip("/") + "/"
 
 
 def _filter_summary(filters: Mapping) -> str:
@@ -44,14 +49,17 @@ def _filter_summary(filters: Mapping) -> str:
     items = []
     for key, label in labels.items():
         value = str(filters.get(key, "") or "").strip()
-        if value:
-            items.append(
-                f'<span class="meta-pill">{_html(label)}: {_html(value)}</span>'
-            )
-    return "".join(items) or '<span class="meta-pill">All local observations</span>'
+        if not value:
+            continue
+        if key == "analyst_status":
+            value = STATUS_LABELS.get(value, value)
+        items.append({"label": label, "value": value})
+    if not items:
+        items = [{"label": "Scope", "value": "All local observations"}]
+    return ui.context_bar(items, label="Search scope")
 
 
-def _result_markup(
+def _result_card(
     result: Mapping,
     *,
     output_dir: Path,
@@ -63,69 +71,72 @@ def _result_markup(
         result.get("investigation_title", "") or "Unassigned searches"
     )
     is_saved = bool(result.get("is_saved", False))
-    context_markup = _html(investigation_title)
-    if investigation_id and is_saved:
-        investigation_href = _relative_href(
-            investigation_pages_dir / f"{investigation_id}.html",
-            output_dir,
-        )
-        context_markup = (
-            f'<a href="{_html(investigation_href)}#result-{_html(result_id)}">'
-            f"{_html(investigation_title)}</a>"
-        )
-
-    sources = ", ".join(
-        str(source)
-        for source in result.get("sources", [])
-        if str(source).strip()
-    ) or "Unknown source"
-    tags = ", ".join(
-        str(tag)
-        for tag in result.get("tags", [])
-        if str(tag).strip()
-    )
-    status_value = str(result.get("analyst_status", "") or "")
+    url = str(result.get("url") or "")
+    safe_url = url if ui.domain_of(url) else "#"
+    title = str(result.get("title") or url)
+    description = str(result.get("description") or "")
+    notes = str(result.get("notes") or "")
+    status_value = str(result.get("analyst_status") or "")
     status = STATUS_LABELS.get(status_value, "Not reviewed")
+    status_tone = STATUS_TONES.get(status_value, "neutral")
     evidence_count = int(result.get("evidence_count", 0) or 0)
-    notes = str(result.get("notes", "") or "")
-    notes_markup = (
-        f'<p class="result-notes"><strong>Notes:</strong> {_html(notes)}</p>'
-        if notes
-        else ""
-    )
-    tags_markup = (
-        f'<span>Tags: {_html(tags)}</span>'
-        if tags
-        else ""
+    sources = [str(s).strip() for s in result.get("sources", []) if str(s).strip()]
+    tags = [str(t).strip() for t in result.get("tags", []) if str(t).strip()]
+
+    chips = ui.chip("Already observed", tone="info")
+    for engine in sources:
+        chips += ui.chip(engine, tone="engine")
+    chips += ui.chip(status, tone=status_tone)
+    chips += ui.chip(f"{evidence_count} evidence capture(s)")
+
+    if investigation_id and is_saved:
+        href = _relative_href(
+            investigation_pages_dir / f"{investigation_id}.html", output_dir
+        ) + f"#result-{result_id}"
+        detail = (
+            f'<a class="provenance__detail" href="{ui.esc(href)}">'
+            f"{ui.esc(investigation_title)}</a>"
+        )
+    else:
+        detail = f'<span class="provenance__detail">{ui.esc(investigation_title)}</span>'
+    context = (
+        f'<span class="provenance">{ui.icon("folder")}'
+        f'<span class="provenance__label">Investigation</span>{detail}</span>'
     )
 
-    return f"""
-    <article class="investigation-result">
-        <div class="result-heading">
-            <div class="result-title-block">
-                <a
-                    class="result-title"
-                    href="{_html(_safe_external_href(result.get("url")))}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >{_html(result.get("title") or result.get("url"))}</a>
-                <div class="result-url">{_html(result.get("url"))}</div>
-            </div>
-            <span class="meta-pill">Already observed</span>
-        </div>
-        <p class="result-description">{_html(result.get("description"))}</p>
-        {notes_markup}
-        <div class="result-metadata">
-            <span>Context: {context_markup}</span>
-            <span>Engines: {_html(sources)}</span>
-            <span>Status: {_html(status)}</span>
-            <span>First seen: {_html(result.get("first_observed_at"))}</span>
-            <span>Last seen: {_html(result.get("last_observed_at"))}</span>
-            <span>{evidence_count} evidence capture(s)</span>
-            {tags_markup}
-        </div>
-    </article>
-    """
+    seen = ""
+    if result.get("first_observed_at"):
+        seen += ui.provenance(
+            "First seen", str(result.get("first_observed_at")), icon_name="clock"
+        )
+    if result.get("last_observed_at"):
+        seen += ui.provenance(
+            "Last seen", str(result.get("last_observed_at")), icon_name="clock"
+        )
+
+    extra = ""
+    if notes:
+        extra += (
+            f'<p class="result-card__notes"><strong>Notes</strong> '
+            f"{ui.esc(notes)}</p>"
+        )
+    if tags:
+        extra += (
+            '<div class="result-card__tags">'
+            + "".join(ui.chip(tag, tone="muted") for tag in tags)
+            + "</div>"
+        )
+
+    return ui.result_card(
+        title=title,
+        url=url,
+        safe_url=safe_url,
+        domain=ui.domain_of(url),
+        snippet=description,
+        extra_html=extra,
+        meta_html=chips + context + seen,
+        accent_level=STATUS_ACCENTS.get(status_value, ""),
+    )
 
 
 def generate_local_search_page(
@@ -139,77 +150,58 @@ def generate_local_search_page(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_dir = output_path.parent
-    home_href = _relative_href(Path(base_dir) / "index.html", output_dir)
-    theme_href = _relative_href(Path(base_dir) / "theme.css", output_dir)
-    theme_script = _relative_href(Path(base_dir) / "theme.js", output_dir)
-    i18n_script = _relative_href(Path(base_dir) / "i18n.js", output_dir)
-    favicon_href = _relative_href(
-        Path(base_dir) / "assets" / "favicon.svg",
-        output_dir,
-    )
-    logo_href = _relative_href(
-        Path(base_dir) / "assets" / "synthesix-mark.svg",
-        output_dir,
-    )
+    base_dir = Path(base_dir)
+    investigation_pages_dir = Path(investigation_pages_dir)
+    asset_prefix = _asset_prefix(output_dir, base_dir)
+    home_href = _relative_href(base_dir / "index.html", output_dir)
+
     if results:
-        results_markup = "".join(
-            _result_markup(
+        cards = "".join(
+            _result_card(
                 result,
                 output_dir=output_dir,
                 investigation_pages_dir=investigation_pages_dir,
             )
             for result in results
         )
+        results_html = (
+            '<div class="result-list" aria-label="Local archive results">'
+            + cards
+            + "</div>"
+            + ui.keyboard_hint([("j / k", "navigate results"), ("o", "open")])
+        )
     else:
-        results_markup = (
-            '<div class="empty-state">No stored observation matches these filters.</div>'
+        results_html = ui.empty_state(
+            "No matching local observation",
+            "No stored observation matches these filters.",
+            class_name="local-search-empty",
         )
 
-    content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local archive search</title>
-    <link rel="icon" href="{_html(favicon_href)}" type="image/svg+xml">
-    <link rel="stylesheet" href="{_html(theme_href)}">
-    <script src="{_html(theme_script)}"></script>
-    <script src="{_html(i18n_script)}"></script>
-</head>
-<body>
-    <main class="app app--wide">
-        <header class="topbar">
-            <div class="brand">
-                <img class="brand-logo" src="{_html(logo_href)}" alt="">
-                <div class="brand-copy">
-                    <h1 class="brand-name">Synthesix</h1>
-                    <span class="brand-subtitle">Local archive search</span>
-                </div>
-            </div>
-            <div class="top-actions">
-                <a href="{_html(home_href)}" class="nav-link">Search</a>
-            </div>
-        </header>
-        <section class="investigation-section">
-            <div class="section-header">
-                <div>
-                    <p class="section-eyebrow">Offline collection</p>
-                    <h2>Local archive results</h2>
-                </div>
-                <span class="meta-pill">{len(results)} result(s)</span>
-            </div>
-            <div class="page-meta">{_filter_summary(filters)}</div>
-            <p class="session-note">
-                This report uses only the local SQLite index. No external search
-                engine was contacted.
-            </p>
-            <div class="investigation-results">
-                {results_markup}
-            </div>
-        </section>
-    </main>
-</body>
-</html>
-"""
-    output_path.write_text(content, encoding="utf-8")
+    body = (
+        ui.topbar(
+            "Local archive search",
+            asset_prefix,
+            [{"href": home_href, "label": "Search"}],
+        )
+        + '<section class="page" aria-label="Local archive results">'
+        + '<div class="page-head">'
+        + '<p class="eyebrow">Offline collection</p>'
+        + '<h1 class="page-title">Local archive results</h1>'
+        + '<div class="context-bar"><span class="context-item">'
+        + f'<span class="context-item__value">{len(results)} result(s)</span>'
+        + "</span></div>"
+        + _filter_summary(filters)
+        + '<p class="session-note">This report uses only the local SQLite '
+        + "index. No external search engine was contacted.</p>"
+        + "</div>"
+        + results_html
+        + "</section>"
+    )
+
+    full_html = ui.render_page(
+        title="Local archive search",
+        asset_prefix=asset_prefix,
+        body=body,
+    )
+    output_path.write_text(full_html, encoding="utf-8")
     return str(output_path)

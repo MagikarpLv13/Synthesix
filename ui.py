@@ -141,7 +141,7 @@ def provenance(label: str, detail: str, *, icon_name: str = "route") -> str:
 
 
 def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
-                meta_html: str = "", actions_html: str = "",
+                meta_html: str = "", actions_html: str = "", extra_html: str = "",
                 accent_level: str = "", triage: bool = True,
                 safe_url: str | None = None) -> str:
     """A scannable result row used by reports and the local archive.
@@ -174,6 +174,7 @@ def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
         '<div class="result-card__body">'
         f'<div class="result-card__head">{link_open}{esc(title)}{link_close}{domain_html}</div>'
         f"{snippet_html}"
+        f"{extra_html}"
         f'<div class="result-card__meta">{meta_html}</div>'
         "</div>"
         f'<div class="result-card__actions">{actions_html}</div>'

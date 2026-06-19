@@ -78,12 +78,13 @@ class LocalSearchViewTestCase(unittest.TestCase):
                 base_dir=base_dir,
                 investigation_pages_dir=base_dir / "cases",
             )
-            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
 
-        self.assertEqual(
-            tree.xpath("//a[contains(@class, 'result-title')]/@href"),
-            ["#"],
-        )
+        # the unsafe scheme is never rendered as a clickable link
+        self.assertNotIn("javascript:", content)
+        self.assertEqual(tree.xpath("//a[@data-triage-link]"), [])
+        self.assertIn("Unsafe", content)
 
 
 if __name__ == "__main__":
