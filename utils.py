@@ -248,103 +248,95 @@ def clear_synthesix_history() -> int:
 
 
 def generate_history_html():
-    """Generate an HTML report of the history
-    
+    """Generate the search history page.
+
     Returns:
-        str: The path to the generated HTML report
+        str: The path to the generated HTML page.
     """
     settings = get_settings()
     path = settings.history_json_path
     output_path = settings.history_report_path
-    
     history = _read_history_entries(path)
-
-    # Début du HTML
-    search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
+    search_href = _relative_href(
+        settings.base_dir / "index.html", output_path.parent
+    )
     asset_prefix = _asset_prefix(output_path.parent, settings.base_dir)
+    entries = _sorted_history_entries(history)
 
-    html = f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Synthesix History</title>
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets(asset_prefix)}
-</head>
-<body>
-    <main class="app app--wide">
-        <header class="topbar">
-            {_brand_markup("Search history", asset_prefix)}
-            <div class="top-actions">
-                <a href="{search_href}" data-home-link class="nav-link">Search</a>
-            </div>
-        </header>
+    if entries:
+        cards = []
+        for entry in entries:
+            date = str(entry.get("date", ""))
+            display_query = str(entry.get("query") or entry.get("smart_query", ""))
+            smart_query = str(entry.get("smart_query", ""))
+            nb_results = entry.get("nb_results", "")
+            link = str(entry.get("link", "#"))
+            meta = ""
+            if date:
+                meta += ui.chip(date, icon_name="clock", tone="muted")
+            if nb_results != "":
+                meta += ui.chip(f"{nb_results} results")
+            view_button = (
+                f'<a class="btn btn--ghost btn--sm" href="{ui.esc(link)}" '
+                'target="_blank" rel="noopener noreferrer">'
+                f'{ui.icon("external")}<span>View results</span></a>'
+            )
+            snippet = (
+                smart_query
+                if smart_query and smart_query != display_query
+                else ""
+            )
+            cards.append(
+                ui.result_card(
+                    title=display_query,
+                    url=link,
+                    safe_url=link,
+                    snippet=snippet,
+                    meta_html=meta,
+                    actions_html=view_button,
+                )
+            )
+        results_html = (
+            '<div class="result-list" aria-label="Saved searches">'
+            + "".join(cards)
+            + "</div>"
+            + ui.keyboard_hint([("j / k", "navigate results"), ("o", "open")])
+        )
+    else:
+        results_html = ui.empty_state(
+            "No saved searches yet",
+            "Run a search from the home page to build your history.",
+        )
 
-        <section aria-label="Search history">
-            <div class="page-header">
-                <h2 class="page-title">Search history</h2>
-                <div class="page-meta">
-                    <span class="meta-pill">{len(history)} saved searches</span>
-                </div>
-            </div>
-            <div class="table-shell">
-                <table id="historyTable" class="data-table display">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Original Query</th>
-                            <th>Smart Query</th>
-                            <th>Number of results</th>
-                            <th>Link to results</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-'''
-    rows = []
-    for entry in _sorted_history_entries(history):
-        date = _html_escape(entry.get('date', ''))
-        sort_key = _html_escape(f"{_history_sort_key(entry):.6f}")
-        query = _html_escape(entry.get('query') or entry.get('smart_query', ''))
-        smart_query = _html_escape(entry.get('smart_query', ''))
-        nb_results = _html_escape(entry.get('nb_results', ''))
-        link = _html_escape(entry.get('link', '#'))
-        rows.append(f"""
-            <tr>
-                <td data-order="{sort_key}">{date}</td>
-                <td>{query}</td>
-                <td>{smart_query}</td>
-                <td>{nb_results}</td>
-                <td><a href="{link}" target="_blank" rel="noopener noreferrer">View results</a></td>
-            </tr>
-        """)
-    html += "".join(rows)
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-    <script>
-        $(document).ready(function() {
-            $('#historyTable').DataTable({
-                order: [[0, 'desc']],
-                pageLength: 50,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]]
-            });
-        });
-    </script>
-''' + _home_navigation_script() + '''
-</body>
-</html>
-'''
+    body = (
+        ui.topbar(
+            "Search history",
+            asset_prefix,
+            [{"href": search_href, "label": "Search", "attrs": "data-home-link"}],
+        )
+        + '<section class="page" aria-label="Search history">'
+        + '<div class="page-head">'
+        + '<p class="eyebrow">History</p>'
+        + '<h1 class="page-title">Search history</h1>'
+        + '<div class="context-bar"><span class="context-item">'
+        + f'<span class="context-item__value">{len(history)} saved searches</span>'
+        + "</span></div>"
+        + "</div>"
+        + results_html
+        + "</section>"
+    )
+
+    full_html = ui.render_page(
+        title="Synthesix History",
+        asset_prefix=asset_prefix,
+        body=body,
+    )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(full_html)
     return str(output_path)
+
 
 def js_like_to_json(js_text):
     """Convert a JS like text to a JSON object

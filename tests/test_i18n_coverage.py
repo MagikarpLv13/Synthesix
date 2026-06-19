@@ -39,6 +39,8 @@ REDESIGN_STRINGS = [
     "open",
     "No results matched this search. Adjust the query, filters, "
     "or engines and try again.",
+    "No saved searches yet",
+    "Run a search from the home page to build your history.",
 ]
 
 

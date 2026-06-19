@@ -228,7 +228,9 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../assets/favicon.svg", content)
                 self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertNotIn("data-theme-toggle", content)
-                self.assertIn('class="data-table display"', content)
+                self.assertIn('class="result-card', content)
+                self.assertNotIn("datatables", content.lower())
+                self.assertNotIn("jquery", content.lower())
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
             finally:
@@ -377,7 +379,7 @@ class UtilsTestCase(unittest.TestCase):
                     ["february query", "january query", "december query"],
                 )
                 self.assertLess(content.index("february query"), content.index("january query"))
-                self.assertIn('data-order="', content)
+                self.assertIn('class="result-list"', content)
             finally:
                 os.chdir(current_dir)
 
