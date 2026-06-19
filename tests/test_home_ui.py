@@ -179,6 +179,51 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn("never", self.content)
         self.assertIn("external search engine", self.content)
 
+    def test_home_uses_cockpit_layout_and_preserves_contract(self):
+        # search-first cockpit shell
+        self.assertEqual(
+            len(self.tree.xpath("//section[contains(@class, 'cockpit')]")), 1
+        )
+        self.assertEqual(
+            self.tree.xpath(
+                "//*[contains(@class, 'cockpit-hero')]"
+                "/p[contains(@class, 'eyebrow')]/text()"
+            ),
+            ["Investigation search"],
+        )
+        # prominent command search lives in the primary search panel
+        search_panel = self.tree.xpath(
+            "//*[contains(@class, 'search-panel')]"
+            "[.//input[@id='search-field']]"
+        )
+        self.assertEqual(len(search_panel), 1)
+        # active investigation is a persistent context rail
+        self.assertEqual(
+            len(
+                self.tree.xpath(
+                    "//*[contains(concat(' ', normalize-space(@class), ' '),"
+                    " ' case-rail ')][.//select[@id='investigation-select']]"
+                )
+            ),
+            1,
+        )
+        # secondary workflows are grouped behind progressive disclosure
+        workflow_cards = self.tree.xpath(
+            "//*[contains(@class, 'workflow-grid')]"
+            "/details[contains(@class, 'workflow-card')]"
+        )
+        self.assertGreaterEqual(len(workflow_cards), 4)
+        # query preview is wired and starts empty
+        self.assertEqual(
+            self.tree.xpath("//code[@id='query-preview']/text()"),
+            ["No advanced filters"],
+        )
+        self.assertIn('document.getElementById("query-preview")', self.content)
+        # the home controller contract is intact
+        self.assertIn('window.name = "synthesix-home"', self.content)
+        self.assertIn("window.synthesixHome", self.content)
+        self.assertIn('action: "search"', self.content)
+
     def test_svg_brand_assets_are_valid_xml(self):
         assets_dir = Path(__file__).resolve().parents[1] / "assets"
         filenames = (
