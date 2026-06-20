@@ -138,3 +138,11 @@ Détails dans `../COLLAB.md`.
   mis à jour (`class="result-card"`→`<sx-result-card`, + assert bundle chargé).
   Nuance : la provenance « Trouvé via … » par carte montre les *variants* (pas
   juste la requête en tête) → conservée volontairement (signal OSINT utile).
+- (Claude) Lot 7 — refonte SERP (retour utilisateur) : `sx-result-card` adopte le
+  rendu moteur de recherche (Google/DDG) — ligne URL grise (breadcrumb
+  `domaine › chemin`) + badge moteur + score, titre lien bleu 16px, extrait gris
+  clampé 2 lignes ; flat (plus de boîte/bordure/accent), colonne ≤680px alignée à
+  gauche (`:host max-width`, pas de modif `theme.css`), police plus petite.
+  `utils.py` : suppression du bouton « Ouvrir » (lien explicite), « Trouvé via »
+  seulement si >1 variante, breadcrumb d'URL via `_result_breadcrumb`. Badge
+  moteur + score conservés. Capture 12 résultats : ~8 visibles, dark mode OK.

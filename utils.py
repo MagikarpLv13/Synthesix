@@ -3,6 +3,7 @@ import json
 import os
 import logging
 from html import escape, unescape
+from urllib.parse import urlsplit
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,20 @@ HISTORY_DATE_FORMATS = ("%d/%m/%Y %H:%M",)
 
 def _html_escape(value) -> str:
     return escape(str(value), quote=True)
+
+
+def _result_breadcrumb(link: str, domain: str) -> str:
+    """Build a search-engine-style ``domain › path › segments`` breadcrumb."""
+    if not domain:
+        return ""
+    try:
+        path = urlsplit(link).path
+    except (ValueError, TypeError):
+        path = ""
+    segments = [segment for segment in path.split("/") if segment][:3]
+    if segments:
+        return f"{domain} › " + " › ".join(segments)
+    return domain
 
 
 def _theme_assets(asset_prefix: str = "") -> str:
@@ -611,30 +626,20 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             if not isinstance(variants, (list, tuple)):
                 variants = []
             provenance_html = ""
-            if variants:
+            if len(variants) > 1:
                 provenance_html = ui.provenance(
                     "Found via",
                     ", ".join(str(variant) for variant in variants),
                 )
             meta_card = engine_chips + score_html + provenance_html
-            if safe_link != "#":
-                open_action = (
-                    f'<a class="btn btn--ghost btn--sm" '
-                    f'href="{ui.esc(safe_link)}" '
-                    'target="_blank" rel="noopener noreferrer">'
-                    f'{ui.icon("external")}<span>Open</span></a>'
-                )
-            else:
-                open_action = ""
             cards.append(
                 ui.result_card(
                     title=str(row["title"]),
                     url=link,
                     safe_url=safe_link,
-                    domain=display_domain,
+                    domain=_result_breadcrumb(link, display_domain),
                     snippet=str(row["description"]),
                     meta_html=meta_card,
-                    actions_html=open_action,
                     accent_level=ui.score_level(numeric_score),
                     component=True,
                 )
