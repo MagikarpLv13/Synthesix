@@ -12,7 +12,7 @@ Détails dans `../COLLAB.md`.
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | done |
-| 6 | Entités / propriétés | `src/components/` | Claude | in progress |
+| 6 | Entités / propriétés | `src/components/` | Claude | done |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
@@ -51,3 +51,9 @@ Détails dans `../COLLAB.md`.
   (flèches/Home/End), événement `sx-inspector-select`. Peu opinioné : lignes
   `[data-inspector-item]` et panneaux `[data-inspector-panel]` fournis en slots.
   Câblage à `view.py` = étape d'intégration.
+- (Claude) Tâche 6 livrée : `<sx-entity>` (port de `.graph-entity-card` :
+  `kind`/`confidence`/`status` candidate-confirmed-rejected, valeur monospace,
+  slots `actions`/`meta`/`properties` avec wrappers auto-masqués si vides) et
+  `<sx-property>` (port de `.graph-property-list li` : label/valeur/actions). Tous
+  les composants `<sx-*>` du Palier 1 sont livrés ; reste l'intégration côté
+  `ui.py`/`view.py` et la tâche 1 (overlay, Codex).
