@@ -163,3 +163,14 @@ Détails dans `../COLLAB.md`.
   masquait (j'avais le flag). Vérifié headless **sans** le flag → SERP OK.
   ⚠️ Tout futur bundle app destiné aux pages `file://` doit rester **IIFE +
   script classique** (comme l'overlay).
+- (Claude) Lot 7 — affinages SERP (retour utilisateur) : breadcrumb des cartes
+  passé **10px → 12px** (`sx-result-card.ts` `::slotted([slot="domain"])`, bundle
+  régénéré). Puis le **détail du calcul du score** passe d'un `<details>`
+  cliquable à une **infobulle au survol/focus** : `score_badge` (`ui.py`) rend
+  désormais `<span class="score score--tip" tabindex="0">` + `<span
+  class="score__tip" role="tooltip">` (breakdown + note toujours dans le DOM →
+  lisible par lecteurs d'écran) ; styles tooltip dans `theme.css` (`--surface`,
+  `--shadow-soft`, `--line`, révélé sur `:hover`/`:focus`/`:focus-within`,
+  `--focus` au clavier). Chemin rendu = `score_badge` light-DOM (pas le composant
+  `sx-score`, démo-only) → **pas de rebuild bundle**. Validé : `test_utils`,
+  `unittest discover` (221), `git diff --check`.

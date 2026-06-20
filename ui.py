@@ -119,13 +119,14 @@ def chip(label: str, *, tone: str = "neutral", icon_name: str | None = None,
 
 def score_badge(score_text: str, level: str, breakdown_html: str = "",
                 note: str = "") -> str:
-    """A compact score pill; expandable when a breakdown is provided."""
+    """A compact score pill; reveals its breakdown in a hover/focus tooltip."""
     if breakdown_html:
         note_html = f'<small class="score-note">{esc(note)}</small>' if note else ""
         return (
-            f'<details class="score score--{esc(level)}">'
-            f'<summary><span class="score__value">{esc(score_text)}</span></summary>'
-            f'<ul class="score__list">{breakdown_html}</ul>{note_html}</details>'
+            f'<span class="score score--{esc(level)} score--tip" tabindex="0">'
+            f'<span class="score__value">{esc(score_text)}</span>'
+            f'<span class="score__tip" role="tooltip">'
+            f'<ul class="score__list">{breakdown_html}</ul>{note_html}</span></span>'
         )
     return (
         f'<span class="score score--{esc(level)}">'
