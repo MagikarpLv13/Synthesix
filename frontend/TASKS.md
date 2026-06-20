@@ -84,3 +84,16 @@ Détails dans `../COLLAB.md`.
   `main.py` ne fait plus que créer l'élément et écouter `synthesix-region-selected`
   / `synthesix-region-cancel` (toolbar masquée pendant la capture, restaurée à
   l'annulation). ⏳ **À smoke-tester live** : Capture → « Select area » → drag.
+- (Claude) Tâche 1 — **pas A.2** : le panneau d'entité au surlignage (~500 lignes
+  inline dans `main.py`) est extrait en `<sx-overlay-entity-menu>` (trigger +
+  panneau créer/rattacher + détection de sélection + suggestions tags/propriétés).
+  `main.py` ne fait plus que créer l'élément, lui passer les données
+  (`baseTagsets`/`tagsetProperties` + shims `__synthesixSetEntityTagsets` /
+  `__synthesixSetGraphEntities`) et reconstruire les **payloads CDP identiques**
+  (`create_graph_entity_from_selection` / `attach_selection_to_graph_entity`) à
+  partir des événements `synthesix-entity-create` / `-attach`. `test_main`
+  (`test_external_page_overlay_returns_save_action`) mis à jour : il assertait des
+  détails d'implémentation inline désormais dans le bundle minifié → recentré sur
+  la création du composant + contrats CDP + données injectées. ⏳ **À smoke-tester
+  live** : surligner du texte → trigger → créer entité (type) → rattacher à une
+  entité existante (+ suggestions de propriétés).

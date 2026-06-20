@@ -718,509 +718,63 @@ async def _install_and_consume_save_overlay(
                             );
                         }}
                     }});
-                    const entityTrigger = document.createElement(
-                        "sx-overlay-selection-trigger"
+                    const entityMenu = document.createElement(
+                        "sx-overlay-entity-menu"
                     );
-                    entityTrigger.setAttribute(
-                        "label",
-                        "Ajouter à l'enquête"
-                    );
-                    const entityMenu = document.createElement("div");
-                    Object.assign(entityMenu.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "none",
-                        position: "fixed",
-                        left: "0",
-                        top: "0",
-                        width: "300px",
-                        maxHeight: "390px",
-                        padding: "6px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "8px",
-                        background: "#FFFFFF",
-                        boxShadow: "0 14px 34px rgba(15, 23, 42, 0.28)",
-                        color: "#0F172A",
-                        font: "600 13px Arial, sans-serif",
-                        zIndex: "2147483647"
-                    }});
-                    const entityTitle = document.createElement("div");
-                    entityTitle.textContent = "Ajouter à l'enquête";
-                    Object.assign(entityTitle.style, {{
-                        padding: "4px 6px 2px",
-                        color: "#475569",
-                        font: "700 12px Arial, sans-serif",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em"
-                    }});
-                    const entityPreview = document.createElement("div");
-                    Object.assign(entityPreview.style, {{
-                        overflow: "hidden",
-                        padding: "0 6px 5px",
-                        color: "#0F172A",
-                        font: "700 13px Arial, sans-serif",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap"
-                    }});
-                    const createTitle = document.createElement("div");
-                    createTitle.textContent = "Créer une entité";
-                    Object.assign(createTitle.style, {{
-                        padding: "2px 6px 4px",
-                        color: "#475569",
-                        font: "700 12px Arial, sans-serif"
-                    }});
-                    const customTypeRow = document.createElement("div");
-                    Object.assign(customTypeRow.style, {{
-                        display: "flex",
-                        gap: "5px",
-                        padding: "5px 0 4px"
-                    }});
-                    const entityTypeDatalist = document.createElement("datalist");
-                    entityTypeDatalist.id = "__synthesix-entity-type-suggestions";
-                    const customTypeInput = document.createElement("input");
-                    customTypeInput.type = "text";
-                    customTypeInput.maxLength = 50;
-                    customTypeInput.placeholder = "Type d'entité...";
-                    customTypeInput.setAttribute("list", entityTypeDatalist.id);
-                    Object.assign(customTypeInput.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        flex: "1",
-                        minWidth: "0",
-                        padding: "6px 7px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "5px",
-                        color: "#0F172A",
-                        font: "500 13px Arial, sans-serif"
-                    }});
-                    const customTypeButton = document.createElement("button");
-                    customTypeButton.type = "button";
-                    customTypeButton.textContent = "Créer";
-                    Object.assign(customTypeButton.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        padding: "6px 9px",
-                        borderRadius: "5px",
-                        background: "#2563EB",
-                        color: "#FFFFFF",
-                        cursor: "pointer",
-                        font: "700 13px Arial, sans-serif"
-                    }});
-                    customTypeRow.append(
-                        customTypeInput,
-                        customTypeButton,
-                        entityTypeDatalist
-                    );
-
-                    const attachSection = document.createElement("div");
-                    Object.assign(attachSection.style, {{
-                        marginTop: "5px",
-                        paddingTop: "6px",
-                        borderTop: "1px solid #E2E8F0"
-                    }});
-                    const attachTitle = document.createElement("div");
-                    attachTitle.textContent = "Ajouter comme propriété";
-                    Object.assign(attachTitle.style, {{
-                        padding: "0 0 4px",
-                        color: "#475569",
-                        font: "700 12px Arial, sans-serif"
-                    }});
-                    const existingEntitySelect = document.createElement("select");
-                    Object.assign(existingEntitySelect.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "block",
-                        width: "100%",
-                        marginBottom: "5px",
-                        padding: "6px 7px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "5px",
-                        background: "#FFFFFF",
-                        color: "#0F172A",
-                        font: "500 13px Arial, sans-serif"
-                    }});
-                    const attachPropertyInput = document.createElement("input");
-                    attachPropertyInput.type = "text";
-                    attachPropertyInput.maxLength = 100;
-                    attachPropertyInput.placeholder = "Type de l'information";
-                    const propertyDatalist = document.createElement("datalist");
-                    propertyDatalist.id = "__synthesix-property-suggestions";
-                    attachPropertyInput.setAttribute("list", propertyDatalist.id);
-                    Object.assign(attachPropertyInput.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "block",
-                        width: "100%",
-                        marginBottom: "5px",
-                        padding: "6px 7px",
-                        border: "1px solid #CBD5E1",
-                        borderRadius: "5px",
-                        color: "#0F172A",
-                        font: "500 13px Arial, sans-serif"
-                    }});
-                    const attachButton = document.createElement("button");
-                    attachButton.type = "button";
-                    attachButton.textContent = "Rattacher";
-                    Object.assign(attachButton.style, {{
-                        all: "initial",
-                        boxSizing: "border-box",
-                        display: "block",
-                        width: "100%",
-                        padding: "7px 9px",
-                        borderRadius: "5px",
-                        background: "#0F172A",
-                        color: "#FFFFFF",
-                        cursor: "pointer",
-                        font: "700 13px Arial, sans-serif",
-                        textAlign: "center"
-                    }});
-                    attachSection.append(
-                        attachTitle,
-                        existingEntitySelect,
-                        attachPropertyInput,
-                        propertyDatalist,
-                        attachButton
-                    );
-                    entityMenu.append(
-                        entityTitle,
-                        entityPreview,
-                        createTitle,
-                        customTypeRow,
-                        attachSection
-                    );
-
-                    const selectedText = () => (
-                        String(window.getSelection()?.toString() || "")
-                            .replace(/\\s+/g, " ")
-                            .trim()
-                            .slice(0, 200)
-                    );
-                    const closeEntityMenu = () => {{
-                        entityMenu.style.display = "none";
+                    entityMenu.baseTagsets = entityTagsets;
+                    entityMenu.tagsetProperties = tagsetProperties;
+                    host.__synthesixSetEntityTagsets = (tags) => {{
+                        entityMenu.existingTags = Array.isArray(tags) ? tags : [];
                     }};
-                    const closeEntityTools = () => {{
-                        closeEntityMenu();
-                        entityTrigger.style.display = "none";
-                        customTypeInput.value = "";
-                        existingEntitySelect.value = "";
-                        attachPropertyInput.value = "";
-                        updatePropertySuggestions("");
-                    }};
-                    const positionEntityMenu = (left, top) => {{
-                        const maxLeft = Math.max(
-                            8,
-                            window.innerWidth - 316
-                        );
-                        const maxTop = Math.max(
-                            8,
-                            window.innerHeight - 320
-                        );
-                        entityMenu.style.left = (
-                            `${{Math.min(Math.max(left, 8), maxLeft)}}px`
-                        );
-                        entityMenu.style.top = (
-                            `${{Math.min(Math.max(top, 8), maxTop)}}px`
-                        );
-                    }};
-                    const openEntityMenu = (left, top) => {{
-                        const label = selectedText();
-                        if (!label) {{
-                            closeEntityTools();
-                            return;
-                        }}
-                        host.dataset.selectedEntityText = label;
-                        entityPreview.textContent = label;
-                        customTypeInput.value = "";
-                        existingEntitySelect.value = "";
-                        attachPropertyInput.value = "";
-                        updatePropertySuggestions("");
-                        positionEntityMenu(left, top);
-                        entityTrigger.style.display = "none";
-                        entityMenu.style.display = "block";
-                    }};
-                    const showEntityTrigger = () => {{
-                        const label = selectedText();
-                        const selection = window.getSelection();
-                        if (
-                            !label
-                            || !selection
-                            || selection.rangeCount === 0
-                        ) {{
-                            closeEntityTools();
-                            return;
-                        }}
-                        const rect = (
-                            selection.getRangeAt(0).getBoundingClientRect()
-                        );
-                        if (!rect || (!rect.width && !rect.height)) {{
-                            closeEntityTools();
-                            return;
-                        }}
-                        host.dataset.selectedEntityText = label;
-                        const left = Math.min(
-                            Math.max(rect.left, 8),
-                            Math.max(8, window.innerWidth - 150)
-                        );
-                        const top = Math.max(8, rect.top - 38);
-                        entityTrigger.style.left = `${{left}}px`;
-                        entityTrigger.style.top = `${{top}}px`;
-                        entityTrigger.style.display = "block";
-                    }};
-                    const queueSelectedEntity = (category) => {{
-                        const label = String(
-                            host.dataset.selectedEntityText || ""
-                        ).trim();
-                        closeEntityTools();
-                        if (!label) {{
-                            return;
-                        }}
-                        if (!host.dataset.investigationId) {{
-                            window.__synthesixSavePageAction = {{
-                                action: "focus_home"
-                            }};
-                            return;
-                        }}
-                        window.__synthesixSavePageAction = {{
-                            action: "create_graph_entity_from_selection",
-                            investigationId: host.dataset.investigationId,
-                            entity: {{
-                                label,
-                                category
-                            }},
-                            page: host.__synthesixPagePayload()
-                        }};
-                    }};
-                    const attachSelectedEntity = () => {{
-                        const label = String(
-                            host.dataset.selectedEntityText || ""
-                        ).trim();
-                        const graphEntityId = existingEntitySelect.value;
-                        const propertyKey = attachPropertyInput.value.trim();
-                        closeEntityTools();
-                        if (!label || !graphEntityId || !propertyKey) {{
-                            return;
-                        }}
-                        if (!host.dataset.investigationId) {{
-                            window.__synthesixSavePageAction = {{
-                                action: "focus_home"
-                            }};
-                            return;
-                        }}
-                        window.__synthesixSavePageAction = {{
-                            action: "attach_selection_to_graph_entity",
-                            investigationId: host.dataset.investigationId,
-                            entityId: graphEntityId,
-                            property: {{
-                                key: propertyKey,
-                                value: label
-                            }},
-                            page: host.__synthesixPagePayload()
-                        }};
-                    }};
-                    const renderDatalistOptions = (datalist, values) => {{
-                        const seen = new Set();
-                        const normalized = (Array.isArray(values) ? values : [])
-                            .map((value) => String(value || "").trim())
-                            .filter((value) => {{
-                                const key = value.toLowerCase();
-                                if (!value || seen.has(key)) {{
-                                    return false;
-                                }}
-                                seen.add(key);
-                                return true;
-                            }});
-                        const signature = JSON.stringify(normalized);
-                        if (datalist.dataset.signature === signature) {{
-                            return;
-                        }}
-                        datalist.dataset.signature = signature;
-                        datalist.replaceChildren();
-                        normalized.forEach((value) => {{
-                            const option = document.createElement("option");
-                            option.value = value;
-                            datalist.appendChild(option);
-                        }});
-                    }};
-                    const mergedEntityTags = (tags) => {{
-                        const seen = new Set();
-                        return [
-                            ...entityTagsets,
-                            ...(Array.isArray(tags) ? tags : [])
-                        ]
-                            .map((tag) => String(tag || "").trim())
-                            .filter((tag) => {{
-                                const key = tag.toLowerCase();
-                                if (!tag || seen.has(key)) {{
-                                    return false;
-                                }}
-                                seen.add(key);
-                                return true;
-                            }});
-                    }};
-                    const renderEntityTagChoices = (tags) => {{
-                        const mergedTags = mergedEntityTags(tags);
-                        const signature = JSON.stringify(mergedTags);
-                        if (host.dataset.entityTagSignature === signature) {{
-                            return;
-                        }}
-                        host.dataset.entityTagSignature = signature;
-                        renderDatalistOptions(entityTypeDatalist, mergedTags);
-                    }};
-                    host.__synthesixSetEntityTagsets = renderEntityTagChoices;
-                    host.__synthesixSetEntityTagsets([]);
-                    customTypeButton.addEventListener("click", () => {{
-                        const category = customTypeInput.value.trim();
-                        if (category) {{
-                            queueSelectedEntity(category);
-                        }}
-                    }});
-                    customTypeInput.addEventListener("keydown", (event) => {{
-                        if (event.key === "Enter") {{
-                            event.preventDefault();
-                            const category = customTypeInput.value.trim();
-                            if (category) {{
-                                queueSelectedEntity(category);
-                            }}
-                        }}
-                    }});
-                    attachButton.addEventListener("click", attachSelectedEntity);
-                    attachPropertyInput.addEventListener(
-                        "keydown",
-                        (event) => {{
-                            if (event.key === "Enter") {{
-                                event.preventDefault();
-                                attachSelectedEntity();
-                            }}
-                        }}
-                    );
-                    const propertySuggestionsForEntity = (entityId) => {{
-                        const entity = (host.__synthesixGraphEntities || [])
-                            .find((item) => {{
-                                return String(item.id || "").trim()
-                                    === String(entityId || "").trim();
-                            }});
-                        if (!entity) {{
-                            return [];
-                        }}
-                        const suggestions = [];
-                        (Array.isArray(entity.tags) ? entity.tags : [])
-                            .forEach((tag) => {{
-                                const tagProperties = (
-                                    tagsetProperties[String(tag || "").trim()]
-                                    || []
-                                );
-                                suggestions.push(...tagProperties);
-                            }});
-                        if (Array.isArray(entity.propertyKeys)) {{
-                            suggestions.push(...entity.propertyKeys);
-                        }}
-                        return suggestions;
-                    }};
-                    const updatePropertySuggestions = (entityId) => {{
-                        const suggestions = propertySuggestionsForEntity(
-                            entityId
-                        );
-                        renderDatalistOptions(propertyDatalist, suggestions);
-                    }};
-                    existingEntitySelect.addEventListener("change", () => {{
-                        updatePropertySuggestions(existingEntitySelect.value);
-                    }});
                     host.__synthesixSetGraphEntities = (graphEntities) => {{
-                        const selectedEntityId = existingEntitySelect.value;
-                        const normalizedGraphEntities = (
+                        entityMenu.graphEntities = (
                             Array.isArray(graphEntities) ? graphEntities : []
                         );
-                        const graphSignature = JSON.stringify(
-                            normalizedGraphEntities.map((entity) => ({{
-                                id: String(entity.id || "").trim(),
-                                label: String(entity.label || "").trim(),
-                                tags: Array.isArray(entity.tags)
-                                    ? entity.tags.map((tag) => String(tag || ""))
-                                    : [],
-                                propertyKeys: Array.isArray(entity.propertyKeys)
-                                    ? entity.propertyKeys.map((key) => String(key || ""))
-                                    : []
-                            }}))
-                        );
-                        if (host.dataset.graphEntitySignature === graphSignature) {{
-                            return;
-                        }}
-                        host.dataset.graphEntitySignature = graphSignature;
-                        host.__synthesixGraphEntities = normalizedGraphEntities;
-                        existingEntitySelect.replaceChildren();
-                        const emptyOption = document.createElement("option");
-                        emptyOption.value = "";
-                        emptyOption.textContent = "Choisir une entité...";
-                        existingEntitySelect.appendChild(emptyOption);
-                        normalizedGraphEntities.forEach((entity) => {{
-                                const id = String(entity.id || "").trim();
-                                if (!id) {{
-                                    return;
-                                }}
-                                const option = document.createElement("option");
-                                option.value = id;
-                                option.textContent = (
-                                    String(entity.label || id)
-                                );
-                                existingEntitySelect.appendChild(option);
-                            }});
-                        const hasEntities = existingEntitySelect.options.length > 1;
-                        if (
-                            selectedEntityId
-                            && Array.from(existingEntitySelect.options)
-                                .some((option) => option.value === selectedEntityId)
-                        ) {{
-                            existingEntitySelect.value = selectedEntityId;
-                        }}
-                        updatePropertySuggestions(existingEntitySelect.value);
-                        existingEntitySelect.disabled = !hasEntities;
-                        attachButton.disabled = !hasEntities;
-                        attachButton.style.opacity = hasEntities ? "1" : "0.55";
-                        attachButton.style.cursor = (
-                            hasEntities ? "pointer" : "not-allowed"
-                        );
                     }};
-                    entityTrigger.addEventListener("click", () => {{
-                        const rect = entityTrigger.getBoundingClientRect();
-                        openEntityMenu(rect.left, rect.bottom + 6);
-                    }});
-                    entityMenu.addEventListener("mousedown", (event) => {{
-                        event.stopPropagation();
-                    }});
-                    entityMenu.addEventListener("mouseup", (event) => {{
-                        event.stopPropagation();
-                    }});
-                    entityMenu.addEventListener("click", (event) => {{
-                        event.stopPropagation();
-                    }});
-                    entityTrigger.addEventListener("mouseup", (event) => {{
-                        event.stopPropagation();
-                    }});
-                    entityTrigger.addEventListener("click", (event) => {{
-                        event.stopPropagation();
-                    }});
-                    shadow.append(entityTrigger, entityMenu);
-                    document.addEventListener("mouseup", (event) => {{
-                        if (event.composedPath().includes(host)) {{
-                            return;
+                    entityMenu.addEventListener(
+                        "synthesix-entity-create",
+                        (event) => {{
+                            const detail = event.detail || {{}};
+                            if (!host.dataset.investigationId) {{
+                                window.__synthesixSavePageAction = {{
+                                    action: "focus_home"
+                                }};
+                                return;
+                            }}
+                            window.__synthesixSavePageAction = {{
+                                action: "create_graph_entity_from_selection",
+                                investigationId: host.dataset.investigationId,
+                                entity: {{
+                                    label: detail.label,
+                                    category: detail.category
+                                }},
+                                page: host.__synthesixPagePayload()
+                            }};
                         }}
-                        window.setTimeout(showEntityTrigger, 0);
-                    }});
-                    document.addEventListener("click", (event) => {{
-                        const path = event.composedPath();
-                        if (
-                            !path.includes(host)
-                            && !path.includes(entityMenu)
-                            && !path.includes(entityTrigger)
-                        ) {{
-                            closeEntityTools();
+                    );
+                    entityMenu.addEventListener(
+                        "synthesix-entity-attach",
+                        (event) => {{
+                            const detail = event.detail || {{}};
+                            if (!host.dataset.investigationId) {{
+                                window.__synthesixSavePageAction = {{
+                                    action: "focus_home"
+                                }};
+                                return;
+                            }}
+                            window.__synthesixSavePageAction = {{
+                                action: "attach_selection_to_graph_entity",
+                                investigationId: host.dataset.investigationId,
+                                entityId: detail.entityId,
+                                property: {{
+                                    key: detail.propertyKey,
+                                    value: detail.label
+                                }},
+                                page: host.__synthesixPagePayload()
+                            }};
                         }}
-                    }});
-                    document.addEventListener("keydown", (event) => {{
-                        if (event.key === "Escape") {{
-                            closeEntityTools();
-                        }}
-                    }}, true);
+                    );
+                    shadow.append(entityMenu);
                     toolbar.append(button, archiveButton, captureButton);
                     shadow.append(toolbar, captureMenu);
                     (document.documentElement || document.body).appendChild(host);

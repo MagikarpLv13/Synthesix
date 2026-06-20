@@ -14,6 +14,7 @@ import { tokensCss } from "../tokens";
 import "./sx-overlay-capture-menu";
 import "./sx-overlay-selection-trigger";
 import "./sx-overlay-selection-box";
+import "./sx-overlay-entity-menu";
 import "./sx-overlay-action";
 
 declare global {
