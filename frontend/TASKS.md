@@ -10,7 +10,7 @@ Détails dans `../COLLAB.md`.
 | 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
-| 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | — | à faire |
+| 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | in progress |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
 | 6 | Entités / propriétés | `src/components/` | — | à faire |
 
