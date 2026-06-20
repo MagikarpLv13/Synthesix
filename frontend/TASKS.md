@@ -18,7 +18,7 @@ Détails dans `../COLLAB.md`.
 
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
-| 9 | Entités/propriétés gérables dans le rail (à la zeroneurone) : rail redimensionnable, clic→gestion, champs vides masqués, actions icônes | `investigations/view.py`, `theme.css` | Claude | in progress |
+| 9 | Entités/propriétés gérables dans le rail (à la zeroneurone) : rail redimensionnable, clic→gestion, champs vides masqués, actions icônes | `investigations/view.py`, `theme.css` | Claude | done |
 
 - (Claude) Lot 9 — **pas 1 : rail redimensionnable + gouttières resserrées**.
   Le rail prend une largeur variable `--rail-w` (défaut 340px) ; une poignée
@@ -48,6 +48,18 @@ Détails dans `../COLLAB.md`.
   Validé : `unittest discover` (223), `git diff --check`, smoke headless (entité
   sélectionnée rail 520px : gestion complète OK ; page sélectionnée). ⏳ Pas 3 :
   champs vides masqués + actions en icônes.
+- (Claude) Lot 9 — **pas 3 : icônes + champs vides masqués** → Lot 9 **terminé**.
+  Helper `_icon` autonome (SVG inline, classe `.icon`, paths trash/plus/check).
+  Actions des entités/propriétés en icônes : supprimer entité / supprimer
+  propriété = **poubelle** (`.icon-action--danger`, `title`/`aria-label`),
+  ajouter propriété = **＋ Add**, sauvegarder = **✓ Save**. Masquage des vides :
+  notes (`<p class="graph-entity-notes">`) et tags (`.result-tags`) **non rendus
+  si vides** (plus de `<p>`/`<div>` fantômes). CSS `.icon-action` (28px, hover
+  surface-2, danger au survol). Tests : assertions icône sur la suppression +
+  `test_entity_card_hides_empty_tags_and_notes`. Validé : `unittest discover`
+  (224), `git diff --check`, smoke headless (icônes + manage déplié). **Lot 9
+  complet** : rail redimensionnable + clic→gestion (pages & entités) + compact/
+  icônes. Reste au plan : Lot D (icônes/actions globales), Lot E (i18n).
 
 ## Palier 1.5 — Intégration
 

@@ -1134,6 +1134,48 @@ a:focus-visible {
     grid-template-columns: 1fr;
 }
 
+.icon-action {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.icon-action:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.icon-action:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+}
+
+.icon-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.icon-action--danger:hover {
+    color: var(--danger);
+}
+
+.icon-action .icon {
+    width: 1.05em;
+    height: 1.05em;
+}
+
+.primary-button .icon,
+.secondary-button .icon {
+    margin-right: 5px;
+}
+
 @media (max-width: 1024px) {
     .workspace,
     .workspace[data-rail-collapsed="true"] {

@@ -565,6 +565,39 @@ class InvestigationViewTestCase(unittest.TestCase):
             len(cards[0].xpath(".//*[contains(@class, 'save-graph-entity')]")),
             1,
         )
+        # Destructive actions are icon buttons, not text labels.
+        delete = cards[0].xpath(
+            ".//button[contains(@class, 'delete-graph-entity')]"
+        )
+        self.assertEqual(len(delete), 1)
+        self.assertTrue(delete[0].xpath(".//*[local-name()='svg']"))
+        self.assertEqual((delete[0].text or "").strip(), "")
+        self.assertEqual(delete[0].get("aria-label"), "Delete entity")
+
+    def test_entity_card_hides_empty_tags_and_notes(self):
+        workspace = workspace_payload()
+        entity = workspace["graph_entities"][0]
+        entity["tags"] = []
+        entity["notes"] = ""
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        card = tree.xpath(
+            "//article[@data-inspector-entity='graph-entity-123']"
+        )[0]
+        self.assertFalse(card.xpath(".//*[contains(@class, 'result-tags')]"))
+        self.assertFalse(
+            card.xpath(".//*[contains(@class, 'graph-entity-notes')]")
+        )
 
     def test_hides_raw_archive_text_source_in_entity_summary(self):
         workspace = workspace_payload()

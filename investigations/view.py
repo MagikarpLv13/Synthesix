@@ -49,6 +49,32 @@ def _html(value) -> str:
     return escape(str(value or ""), quote=True)
 
 
+_ACTION_ICON_PATHS = {
+    "trash": (
+        '<polyline points="3 6 5 6 21 6"/>'
+        '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'
+        '<line x1="10" y1="11" x2="10" y2="17"/>'
+        '<line x1="14" y1="11" x2="14" y2="17"/>'
+        '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'
+    ),
+    "plus": (
+        '<line x1="12" y1="5" x2="12" y2="19"/>'
+        '<line x1="5" y1="12" x2="19" y2="12"/>'
+    ),
+    "check": '<polyline points="20 6 9 17 4 12"/>',
+}
+
+
+def _icon(name: str) -> str:
+    """Inline, dependency-free action icon (mirrors ui.icon, .icon styling)."""
+    path = _ACTION_ICON_PATHS.get(name, "")
+    return (
+        '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+        f'aria-hidden="true">{path}</svg>'
+    )
+
+
 def _compact_url(value: str, *, max_length: int = 160) -> str:
     text = str(value or "")
     if len(text) <= max_length:
@@ -649,10 +675,12 @@ def _graph_entities_markup(
                 <span>{_html(value)}</span>
                 <button
                     type="button"
-                    class="danger-link delete-graph-property"
+                    class="icon-action icon-action--danger delete-graph-property"
                     data-property-key="{_html(key)}"
+                    title="Remove property"
+                    aria-label="Remove property"
                     {disabled}
-                >Remove</button>
+                >{_icon("trash")}</button>
             </li>
             """
             for key, value in properties.items()
@@ -670,23 +698,40 @@ def _graph_entities_markup(
             for result_id in entity.get("linked_result_ids", [])
             if str(result_id) in results_by_id
         )
+        entity_tags = entity.get("tags", []) or []
+        tags_markup = (
+            '<div class="result-tags">'
+            + "".join(
+                f'<span class="result-tag">{_html(tag)}</span>'
+                for tag in entity_tags
+            )
+            + "</div>"
+            if entity_tags
+            else ""
+        )
+        notes_text = str(entity.get("notes", "") or "").strip()
+        notes_markup = (
+            f'<p class="graph-entity-notes">{_html(notes_text)}</p>'
+            if notes_text
+            else ""
+        )
         cards.append(
             f"""
             <article class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
                 <div class="graph-entity-heading">
                     <div>
                         <h4>{_html(entity.get("label", ""))}</h4>
-                        <div class="result-tags">
-                            {"".join(f'<span class="result-tag">{_html(tag)}</span>' for tag in entity.get("tags", []))}
-                        </div>
+                        {tags_markup}
                     </div>
                     <button
                         type="button"
-                        class="danger-link delete-graph-entity"
+                        class="icon-action icon-action--danger delete-graph-entity"
+                        title="Delete entity"
+                        aria-label="Delete entity"
                         {disabled}
-                    >Delete</button>
+                    >{_icon("trash")}</button>
                 </div>
-                <p>{_html(entity.get("notes", ""))}</p>
+                {notes_markup}
                 <div class="graph-entity-columns">
                     <div>
                         <strong>Properties</strong>
@@ -734,7 +779,7 @@ def _graph_entities_markup(
                             type="button"
                             class="primary-button save-graph-entity"
                             {disabled}
-                        >Save entity</button>
+                        >{_icon("check")} Save</button>
                         <div class="graph-property-form">
                             <input
                                 type="text"
@@ -753,8 +798,9 @@ def _graph_entities_markup(
                             <button
                                 type="button"
                                 class="secondary-button add-graph-property"
+                                title="Add property"
                                 {disabled}
-                            >Add property</button>
+                            >{_icon("plus")} Add</button>
                         </div>
                     </div>
                 </details>
