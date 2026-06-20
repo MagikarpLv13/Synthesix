@@ -16,6 +16,7 @@ import "./sx-overlay-selection-trigger";
 import "./sx-overlay-selection-box";
 import "./sx-overlay-entity-menu";
 import "./sx-overlay-action";
+import "./sx-overlay-root";
 
 declare global {
   interface Window {

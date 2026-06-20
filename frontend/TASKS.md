@@ -7,7 +7,7 @@ Détails dans `../COLLAB.md`.
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
 | 0 | Scaffold toolchain (TS + Lit + esbuild) + pilote `sx-chip` | `frontend/*` | Claude | done |
-| 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Claude (repris de Codex) | in progress |
+| 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Claude (repris de Codex) | done |
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
@@ -97,3 +97,14 @@ Détails dans `../COLLAB.md`.
   la création du composant + contrats CDP + données injectées. ⏳ **À smoke-tester
   live** : surligner du texte → trigger → créer entité (type) → rattacher à une
   entité existante (+ suggestions de propriétés).
+- (Codex) Tâche 1 — **pas A.3** : le host `#__synthesix-save-overlay` devient
+  `<sx-overlay-root>` ; la toolbar est portée par le Shadow DOM du root avec
+  actions slottées, les setters historiques
+  `__synthesixSetButtonState` / `__synthesixSetCaptureState` /
+  `__synthesixSetArchiveState` délèguent aux méthodes du composant, et l'overlay
+  peut être rétracté en petit bouton `SX` avec persistance
+  `localStorage` (`synthesix:external-overlay-collapsed`). Validation :
+  `npm run typecheck`, `npm run build`, `tests.test_main`, suite `unittest`
+  complète et `git diff --check` OK. ⚠️ Smoke navigateur intégré non réalisé :
+  la policy Browser a bloqué l'URL `file://` de la démo ; à refaire via CDP live
+  sur une vraie page pilotée par `python main.py`.

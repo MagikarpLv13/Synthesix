@@ -424,48 +424,22 @@ async def _install_and_consume_save_overlay(
                 }}
                 let host = document.getElementById(hostId);
                 if (!host) {{
-                    host = document.createElement("div");
+                    host = document.createElement("sx-overlay-root");
                     host.id = hostId;
-                    Object.assign(host.style, {{
-                        all: "initial",
-                        position: "fixed",
-                        right: "18px",
-                        bottom: "18px",
-                        zIndex: "2147483647",
-                        pointerEvents: "auto"
-                    }});
-                    const shadow = host.attachShadow({{ mode: "open" }});
-                    const toolbar = document.createElement("div");
-                    Object.assign(toolbar.style, {{
-                        all: "initial",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px"
-                    }});
-                    const setOverlayActionState = (
-                        actionButton,
-                        state,
-                        label,
-                        busyState
-                    ) => {{
-                        actionButton.dataset.state = state;
-                        actionButton.state = state;
-                        actionButton.setAttribute("state", state);
-                        actionButton.label = label;
-                        actionButton.setAttribute("label", label);
-                        actionButton.title = label;
-                        actionButton.titleText = label;
-                        actionButton.setAttribute("title-text", label);
-                        actionButton.ariaText = label;
-                        actionButton.setAttribute("aria-text", label);
-                        actionButton.disabled = state === busyState;
-                        actionButton.toggleAttribute(
-                            "disabled",
-                            state === busyState
+                    host.setAttribute("data-synthesix-overlay-root", "");
+                    try {{
+                        host.collapsed = (
+                            window.localStorage.getItem(
+                                "synthesix:external-overlay-collapsed"
+                            ) === "1"
                         );
-                    }};
+                        host.toggleAttribute("collapsed", host.collapsed);
+                    }} catch (_error) {{
+                        host.collapsed = false;
+                    }}
                     const button = document.createElement("sx-overlay-action");
                     button.setAttribute("data-synthesix-save-page", "");
+                    button.setAttribute("slot", "toolbar");
                     button.variant = "primary";
                     button.icon = "mark";
                     button.label = "Save page";
@@ -498,20 +472,9 @@ async def _install_and_consume_save_overlay(
                     }});
 
                     host.__synthesixSetButtonState = (state, text) => {{
-                        button.dataset.state = state;
-                        button.state = state;
-                        button.setAttribute("state", state);
-                        button.label = text;
-                        button.setAttribute("label", text);
-                        button.disabled = state === "saving";
-                        button.toggleAttribute("disabled", state === "saving");
-                        button.titleText = button.title || text;
-                        button.setAttribute("title-text", button.title || text);
-                        button.ariaText = (
-                            button.title
-                            || "Save page to active Synthesix investigation"
-                        );
-                        button.setAttribute("aria-text", button.ariaText);
+                        if (typeof host.setSaveButtonState === "function") {{
+                            host.setSaveButtonState(state, text);
+                        }}
                     }};
                     button.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
@@ -533,6 +496,7 @@ async def _install_and_consume_save_overlay(
 
                     const archiveButton = document.createElement("sx-overlay-action");
                     archiveButton.setAttribute("data-synthesix-archive", "");
+                    archiveButton.setAttribute("slot", "toolbar");
                     archiveButton.variant = "archive";
                     archiveButton.setAttribute("variant", "archive");
                     archiveButton.icon = "archive";
@@ -544,12 +508,9 @@ async def _install_and_consume_save_overlay(
                         state,
                         tooltip = "Save page with HTML archive"
                     ) => {{
-                        setOverlayActionState(
-                            archiveButton,
-                            state,
-                            tooltip,
-                            "archiving"
-                        );
+                        if (typeof host.setArchiveState === "function") {{
+                            host.setArchiveState(state, tooltip);
+                        }}
                     }};
                     archiveButton.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
@@ -571,6 +532,7 @@ async def _install_and_consume_save_overlay(
 
                     const captureButton = document.createElement("sx-overlay-action");
                     captureButton.setAttribute("data-synthesix-capture", "");
+                    captureButton.setAttribute("slot", "toolbar");
                     captureButton.variant = "capture";
                     captureButton.setAttribute("variant", "capture");
                     captureButton.icon = "camera";
@@ -626,12 +588,9 @@ async def _install_and_consume_save_overlay(
                         state,
                         tooltip = "Capture screenshot"
                     ) => {{
-                        setOverlayActionState(
-                            captureButton,
-                            state,
-                            tooltip,
-                            "capturing"
-                        );
+                        if (typeof host.setCaptureState === "function") {{
+                            host.setCaptureState(state, tooltip);
+                        }}
                     }};
                     host.__synthesixQueueCapture = (
                         scope,
@@ -774,9 +733,34 @@ async def _install_and_consume_save_overlay(
                             }};
                         }}
                     );
-                    shadow.append(entityMenu);
-                    toolbar.append(button, archiveButton, captureButton);
-                    shadow.append(toolbar, captureMenu);
+                    host.addEventListener(
+                        "synthesix-overlay-toggle",
+                        (event) => {{
+                            const collapsed = Boolean(
+                                event.detail && event.detail.collapsed
+                            );
+                            try {{
+                                window.localStorage.setItem(
+                                    "synthesix:external-overlay-collapsed",
+                                    collapsed ? "1" : "0"
+                                );
+                            }} catch (_error) {{}}
+                            if (collapsed) {{
+                                if (typeof captureMenu.reset === "function") {{
+                                    captureMenu.reset();
+                                }}
+                                captureMenu.open = false;
+                                captureMenu.removeAttribute("open");
+                            }}
+                        }}
+                    );
+                    host.append(
+                        button,
+                        archiveButton,
+                        captureButton,
+                        captureMenu,
+                        entityMenu
+                    );
                     (document.documentElement || document.body).appendChild(host);
                 }}
 
@@ -796,7 +780,7 @@ async def _install_and_consume_save_overlay(
                 }}
                 const button = (
                     host.__synthesixSaveButton
-                    || host.shadowRoot.querySelector(
+                    || host.querySelector(
                         "[data-synthesix-save-page]"
                     )
                 );
@@ -854,7 +838,7 @@ async def _install_and_consume_save_overlay(
                     ["captured", "error"].includes(
                         (
                             host.__synthesixCaptureButton
-                            || host.shadowRoot.querySelector(
+                            || host.querySelector(
                                 "[data-synthesix-capture]"
                             )
                         )?.dataset.state
@@ -870,7 +854,7 @@ async def _install_and_consume_save_overlay(
                     ["archived", "error"].includes(
                         (
                             host.__synthesixArchiveButton
-                            || host.shadowRoot.querySelector(
+                            || host.querySelector(
                                 "[data-synthesix-archive]"
                             )
                         )?.dataset.state
@@ -924,7 +908,7 @@ async def _set_save_overlay_status(
                 const host = document.getElementById("__synthesix-save-overlay");
                 const button = (
                     host?.__synthesixSaveButton
-                    || host?.shadowRoot?.querySelector(
+                    || host?.querySelector(
                         "[data-synthesix-save-page]"
                     )
                 );
