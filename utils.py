@@ -586,17 +586,19 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                     component_label = ui.esc(
                         component.get("label", "Score component")
                     )
+                    pts_level = (
+                        "strong" if component_score >= 4.0
+                        else "good" if component_score >= 2.0
+                        else "low"
+                    )
                     breakdown_items.append(
-                        f"<li>+{component_score:.1f} {component_label}</li>"
+                        f'<li><span class="score__pts score__pts--{pts_level}">'
+                        f"+{component_score:.1f}</span> {component_label}</li>"
                     )
             score_html = ui.score_badge(
                 f"{numeric_score:.2f}",
                 ui.score_level(numeric_score),
                 breakdown_html="".join(breakdown_items),
-                note=(
-                    "Multi-engine consensus confirms repeated retrieval, "
-                    "not factual accuracy."
-                ),
             )
             variants = row.get("query_variants", [])
             if not isinstance(variants, (list, tuple)):

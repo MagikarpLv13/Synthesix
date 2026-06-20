@@ -174,3 +174,13 @@ Détails dans `../COLLAB.md`.
   `--focus` au clavier). Chemin rendu = `score_badge` light-DOM (pas le composant
   `sx-score`, démo-only) → **pas de rebuild bundle**. Validé : `test_utils`,
   `unittest discover` (221), `git diff --check`.
+- (Claude) Lot 7 — peaufinage infobulle score (retour utilisateur) : (1) chaque
+  point `+X.X` est désormais **coloré et en gras** selon son poids
+  (`utils.py` → `<span class="score__pts score__pts--{strong≥4|good≥2|low}">`,
+  inks `--success-ink`/`--accent-ink`/`--muted`) ; (2) **note par défaut
+  supprimée** (« Multi-engine consensus… not factual accuracy ») — l'appel
+  `score_badge` ne passe plus `note` ; (3) infobulle **élargie** (`width:
+  max-content; max-width: 380px`) avec **un point par ligne** (`li white-space:
+  nowrap`, puces retirées). `test_utils` mis à jour (assert points colorés +
+  absence de la note). Validé : `unittest discover` (221), `git diff --check`,
+  rendu réel 8 cartes (16 strong / 5 good / 15 low, 0 note).

@@ -2294,8 +2294,8 @@ table.dataTable.no-footer {
     z-index: 40;
     top: calc(100% + 6px);
     right: 0;
-    min-width: 200px;
-    max-width: 280px;
+    width: max-content;
+    max-width: 380px;
     padding: 8px 10px;
     text-align: left;
     background: var(--surface);
@@ -2320,12 +2320,26 @@ table.dataTable.no-footer {
 
 .score__list {
     margin: 0;
-    padding-left: 16px;
+    padding: 0;
+    list-style: none;
     font-size: 12px;
     color: var(--muted);
 }
 
-.score__list li { margin: 2px 0; }
+.score__list li {
+    margin: 2px 0;
+    white-space: nowrap;
+}
+
+.score__pts {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin-right: 6px;
+}
+
+.score__pts--strong { color: var(--success-ink); }
+.score__pts--good { color: var(--accent-ink); }
+.score__pts--low { color: var(--muted); }
 
 .score-note {
     display: block;

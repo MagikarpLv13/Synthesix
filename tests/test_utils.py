@@ -105,7 +105,8 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
                 self.assertIn("&lt;Exact title&gt;", content)
-                self.assertIn("not factual accuracy", content)
+                self.assertIn('class="score__pts score__pts--strong"', content)
+                self.assertNotIn("not factual accuracy", content)
                 self.assertNotIn("<script>alert(1)</script>", content)
             finally:
                 os.chdir(current_dir)
