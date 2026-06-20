@@ -2048,6 +2048,14 @@ def generate_investigation_page(
             </div>
         </section>
         </div>
+        <div
+            class="workspace__resizer"
+            data-rail-resizer
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize workspace panel"
+            title="Drag to resize · double-click to reset"
+        ></div>
         <aside class="workspace__rail" id="investigation-rail" aria-label="Workspace panel">
             <div class="workspace__rail-header">
                 <span class="workspace__rail-title">Workspace</span>
@@ -2797,6 +2805,71 @@ def generate_investigation_page(
                             behavior: "smooth",
                             block: "center"
                         }});
+                    }}
+                }});
+            }}
+
+            const railResizer = document.querySelector("[data-rail-resizer]");
+            const railWidthKey = `synthesix:rail-width:${{investigationId}}`;
+            const clampRailWidth = (px) => Math.max(280, Math.min(680, px));
+            const applyRailWidth = (px) => {{
+                if (workspace) {{
+                    workspace.style.setProperty(
+                        "--rail-w", clampRailWidth(px) + "px"
+                    );
+                }}
+            }};
+            try {{
+                const storedWidth = parseInt(
+                    localStorage.getItem(railWidthKey) || "", 10
+                );
+                if (!Number.isNaN(storedWidth)) {{
+                    applyRailWidth(storedWidth);
+                }}
+            }} catch (_error) {{
+                // Default width is used when storage is unavailable.
+            }}
+            if (railResizer && workspace) {{
+                let dragging = false;
+                const onMove = (event) => {{
+                    if (!dragging) {{
+                        return;
+                    }}
+                    const rect = workspace.getBoundingClientRect();
+                    applyRailWidth(rect.right - event.clientX);
+                }};
+                const onUp = () => {{
+                    if (!dragging) {{
+                        return;
+                    }}
+                    dragging = false;
+                    document.body.style.userSelect = "";
+                    const current = parseInt(
+                        workspace.style.getPropertyValue("--rail-w"), 10
+                    );
+                    if (!Number.isNaN(current)) {{
+                        try {{
+                            localStorage.setItem(railWidthKey, String(current));
+                        }} catch (_error) {{
+                            // Resizing still works without persistence.
+                        }}
+                    }}
+                    window.removeEventListener("pointermove", onMove);
+                    window.removeEventListener("pointerup", onUp);
+                }};
+                railResizer.addEventListener("pointerdown", (event) => {{
+                    event.preventDefault();
+                    dragging = true;
+                    document.body.style.userSelect = "none";
+                    window.addEventListener("pointermove", onMove);
+                    window.addEventListener("pointerup", onUp);
+                }});
+                railResizer.addEventListener("dblclick", () => {{
+                    workspace.style.removeProperty("--rail-w");
+                    try {{
+                        localStorage.removeItem(railWidthKey);
+                    }} catch (_error) {{
+                        // Nothing to clear when storage is unavailable.
                     }}
                 }});
             }}

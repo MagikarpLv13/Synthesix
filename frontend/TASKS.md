@@ -14,6 +14,25 @@ Détails dans `../COLLAB.md`.
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | done |
 | 6 | Entités / propriétés | `src/components/` | Claude | done |
 
+## Palier 2 — Workspace investigation (Lot 9)
+
+| # | Tâche | Fichier(s) cible(s) | Agent | Statut |
+|---|---|---|---|---|
+| 9 | Entités/propriétés gérables dans le rail (à la zeroneurone) : rail redimensionnable, clic→gestion, champs vides masqués, actions icônes | `investigations/view.py`, `theme.css` | Claude | in progress |
+
+- (Claude) Lot 9 — **pas 1 : rail redimensionnable + gouttières resserrées**.
+  Le rail prend une largeur variable `--rail-w` (défaut 340px) ; une poignée
+  `.workspace__resizer` (séparateur entre main et rail) permet de glisser pour
+  élargir le rail au détriment du main (clamp 280–680px, persistance
+  `synthesix:rail-width:<id>`, double-clic = reset). JS dans l'IIFE existant
+  (pointer events). Conteneur élargi `app--workspace` 1480→1600px, gouttières
+  24→16px, gap grille 24→16px. **Fix** (régression pas 3) : `.inspector-panel`
+  forçait `display:flex` et écrasait `[hidden]` → tous les panels s'affichaient ;
+  corrigé en `.inspector-panel:not([hidden])`. Validé : `unittest discover`
+  (222), `git diff --check`, smoke headless (défaut / rail élargi 560px). ⏳
+  Pas 2 : clic entité → gestion dans le rail. Pas 3 : cartes compactes, champs
+  vides masqués, actions icônes.
+
 ## Palier 1.5 — Intégration
 
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
