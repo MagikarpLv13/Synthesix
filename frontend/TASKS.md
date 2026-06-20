@@ -14,6 +14,12 @@ Détails dans `../COLLAB.md`.
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | done |
 | 6 | Entités / propriétés | `src/components/` | Claude | done |
 
+## Palier 1.5 — Intégration
+
+| # | Tâche | Fichier(s) cible(s) | Agent | Statut |
+|---|---|---|---|---|
+| 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | in progress |
+
 ## Fichiers chauds (annoncer ici avant de modifier)
 
 `theme.css` · `frontend/build.mjs` · `frontend/src/index.ts` ·
@@ -119,3 +125,8 @@ Détails dans `../COLLAB.md`.
   haut/bas pour éviter les contrôles hors écran. L'orientation du menu de
   capture est calculée séparément (`menu-edge` / `menu-vertical-edge`) selon
   l'espace réellement disponible avant ouverture.
+- (Claude) Lot 7 en cours : intégration de `sx-result-card` dans les pages
+  résultats (rapport + archive locale) pour densifier la liste — titre+domaine sur
+  une ligne, requête exacte retirée des cartes si déjà en tête, padding/hauteur
+  réduits, triage et actions préservés. Fichiers chauds touchés : `utils.py`,
+  `ui.py`. Contrats triage (`data-triage-item`/`-link`) et sauvegarde conservés.
