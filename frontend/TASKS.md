@@ -33,3 +33,7 @@ Détails dans `../COLLAB.md`.
   `.gitattributes` neutralise seulement les faux positifs whitespace.
 - (Codex) Tâche 2 livrée : `<sx-result-card>` fournit la structure dense
   titre+domaine, extrait, slots méta/actions et compatibilité triage light DOM.
+- (Claude) Correctifs post-livraison sur `sx-result-card` : F2 = triage encapsulé
+  via propriété réfléchie `triage` (pose `data-triage-item` + `tabindex`, parité
+  `result_card(triage=True)`) ; F1 = marge snippet portée par le contenu slotté
+  (plus de marge fantôme sans extrait). Source + bundle régénérés.

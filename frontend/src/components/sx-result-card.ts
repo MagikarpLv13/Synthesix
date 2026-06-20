@@ -1,4 +1,4 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 /**
@@ -12,6 +12,14 @@ import { customElement, property } from "lit/decorators.js";
 export class SxResultCard extends LitElement {
   @property({ reflect: true })
   accent: "none" | "strong" | "good" | "moderate" | "weak" = "none";
+
+  /**
+   * Opt the host into keyboard triage: adds `data-triage-item` and makes the
+   * host focusable so the generated-page navigation (`j`/`k`/`Enter`) and the
+   * focus ring work, mirroring the Python `result_card(triage=True)` default.
+   */
+  @property({ type: Boolean, reflect: true })
+  triage = false;
 
   static styles = css`
     :host {
@@ -76,7 +84,7 @@ export class SxResultCard extends LitElement {
     }
 
     .snippet {
-      margin: 4px 0 8px;
+      margin: 0;
     }
 
     .extra {
@@ -119,7 +127,7 @@ export class SxResultCard extends LitElement {
     }
 
     ::slotted([slot="snippet"]) {
-      margin: 0;
+      margin: 4px 0 8px;
       color: var(--muted, #64748b);
       font-size: 13px;
       line-height: 1.5;
@@ -136,6 +144,17 @@ export class SxResultCard extends LitElement {
       }
     }
   `;
+
+  protected willUpdate(changed: PropertyValues) {
+    if (changed.has("triage")) {
+      if (this.triage) {
+        this.setAttribute("data-triage-item", "");
+        if (!this.hasAttribute("tabindex")) this.setAttribute("tabindex", "0");
+      } else {
+        this.removeAttribute("data-triage-item");
+      }
+    }
+  }
 
   render() {
     return html`

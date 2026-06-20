@@ -25,7 +25,7 @@
   </head>
   <body>
     <div class="demo">
-      <sx-result-card accent="good" data-triage-item tabindex="0">
+      <sx-result-card accent="good" triage>
         <a
           slot="title"
           data-triage-link
@@ -58,7 +58,7 @@
           rel="noopener noreferrer"
         >Open</a>
       </sx-result-card>
-      <sx-result-card accent="moderate" data-triage-item tabindex="0">
+      <sx-result-card accent="moderate" triage>
         <a slot="title" data-triage-link href="https://example.net/archive">
           Archive locale observée précédemment
         </a>
@@ -72,6 +72,20 @@
         <button slot="actions" class="btn btn--ghost btn--sm" type="button">
           Attach
         </button>
+      </sx-result-card>
+      <sx-result-card accent="weak" triage>
+        <a slot="title" data-triage-link href="https://example.org/no-snippet">
+          Carte sans extrait — méta directement sous le titre
+        </a>
+        <span slot="domain">example.org</span>
+        <sx-chip slot="meta" tone="muted">No snippet</sx-chip>
+        <a
+          slot="actions"
+          class="btn btn--ghost btn--sm"
+          href="https://example.org/no-snippet"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Open</a>
       </sx-result-card>
     </div>
   </body>
