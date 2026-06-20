@@ -11,7 +11,7 @@ Détails dans `../COLLAB.md`.
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
-| 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
+| 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | in progress |
 | 6 | Entités / propriétés | `src/components/` | — | à faire |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
