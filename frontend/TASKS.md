@@ -12,7 +12,7 @@ Détails dans `../COLLAB.md`.
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | done |
-| 6 | Entités / propriétés | `src/components/` | — | à faire |
+| 6 | Entités / propriétés | `src/components/` | Claude | in progress |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
