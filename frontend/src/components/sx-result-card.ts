@@ -4,11 +4,12 @@ import { customElement, property } from "lit/decorators.js";
 /**
  * Search-engine-style result row (Google/DuckDuckGo-like).
  *
- * Flat, left-aligned, dense: a small grey URL/source line on top, a prominent
- * link title, then a muted snippet. The engine badge and score live in the
- * `meta` slot on the URL line. The primary link and any actions stay in light
- * DOM slots so existing generated-page scripts keep querying `[data-triage-link]`
- * without piercing Shadow DOM.
+ * Layout: a top source line (letter avatar + site name, with the engine badge
+ * and score on the right), a prominent blue link title, a small grey URL
+ * breadcrumb under the title, then a muted snippet. Query matches in the title
+ * and snippet are bolded by the caller via `<b>`. The primary link and any
+ * actions stay in light-DOM slots so existing generated-page scripts keep
+ * querying `[data-triage-link]` without piercing Shadow DOM.
  */
 @customElement("sx-result-card")
 export class SxResultCard extends LitElement {
@@ -28,6 +29,7 @@ export class SxResultCard extends LitElement {
     :host {
       display: block;
       max-width: 680px;
+      margin-bottom: 8px;
       outline: none;
     }
 
@@ -48,7 +50,7 @@ export class SxResultCard extends LitElement {
       box-shadow: var(--focus, 0 0 0 3px rgba(37, 99, 235, 0.24));
     }
 
-    .url {
+    .source {
       display: flex;
       align-items: center;
       gap: var(--space-2, 8px);
@@ -65,21 +67,48 @@ export class SxResultCard extends LitElement {
     }
 
     .title {
-      margin: 1px 0 0;
+      margin: 3px 0 0;
       line-height: 1.3;
     }
 
-    .snippet {
+    .breadcrumb {
       margin: 1px 0 0;
+    }
+
+    .snippet {
+      margin: 3px 0 0;
     }
 
     .extra {
       display: contents;
     }
 
+    ::slotted([slot="favicon"]) {
+      flex: 0 0 auto;
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--surface-2, #f1f5f9);
+      border: 1px solid var(--line, #cbd5e1);
+      color: var(--muted, #64748b);
+      font: 700 11px system-ui, Arial, sans-serif;
+    }
+
+    ::slotted([slot="source"]) {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text, #0f172a);
+      font-size: 13px;
+      line-height: 1.3;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
     ::slotted([slot="title"]) {
       color: var(--accent, #2563eb);
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 400;
       overflow-wrap: anywhere;
       text-decoration: none;
@@ -90,13 +119,11 @@ export class SxResultCard extends LitElement {
     }
 
     ::slotted([slot="domain"]) {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
+      display: block;
       min-width: 0;
       overflow: hidden;
       color: var(--muted, #64748b);
-      font-size: 12px;
+      font-size: 10px;
       line-height: 1.3;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -105,7 +132,7 @@ export class SxResultCard extends LitElement {
     ::slotted([slot="snippet"]) {
       margin: 0;
       color: var(--muted, #64748b);
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.45;
       overflow-wrap: anywhere;
       display: -webkit-box;
@@ -129,11 +156,13 @@ export class SxResultCard extends LitElement {
   render() {
     return html`
       <article class="card" part="card">
-        <div class="url" part="url">
-          <slot name="domain"></slot>
+        <div class="source" part="source">
+          <slot name="favicon"></slot>
+          <slot name="source"></slot>
           <span class="meta" part="meta"><slot name="meta"></slot></span>
         </div>
         <div class="title" part="title"><slot name="title"></slot></div>
+        <div class="breadcrumb" part="breadcrumb"><slot name="domain"></slot></div>
         <div class="snippet" part="snippet"><slot name="snippet"></slot></div>
         <div class="extra" part="extra"><slot name="extra"></slot></div>
         <slot name="actions"></slot>

@@ -146,3 +146,12 @@ Détails dans `../COLLAB.md`.
   `utils.py` : suppression du bouton « Ouvrir » (lien explicite), « Trouvé via »
   seulement si >1 variante, breadcrumb d'URL via `_result_breadcrumb`. Badge
   moteur + score conservés. Capture 12 résultats : ~8 visibles, dark mode OK.
+- (Claude) Lot 7 — affinage SERP (retour utilisateur) : ligne source en haut
+  (avatar-lettre du domaine + nom de site + badge moteur/score à droite), titre
+  lien **18px**, breadcrumb **10px sous le titre**, description **14px** clampée
+  2 lignes, plus d'espace entre cartes (`:host` margin). Le terme recherché est
+  **mis en gras** dans titre + description via `ui._highlight` (tokens ≥2 car.,
+  insensible à la casse, échappé avant surlignage). `result_card` gagne le param
+  `highlight` ; breadcrumb construit côté `ui.py` (urlsplit) → `_result_breadcrumb`
+  retiré de `utils.py`. Validé : typecheck, build, `unittest discover` (221),
+  diff-check, capture rapport (clair/sombre).

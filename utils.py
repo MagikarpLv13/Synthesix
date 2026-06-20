@@ -3,7 +3,6 @@ import json
 import os
 import logging
 from html import escape, unescape
-from urllib.parse import urlsplit
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -19,20 +18,6 @@ HISTORY_DATE_FORMATS = ("%d/%m/%Y %H:%M",)
 
 def _html_escape(value) -> str:
     return escape(str(value), quote=True)
-
-
-def _result_breadcrumb(link: str, domain: str) -> str:
-    """Build a search-engine-style ``domain › path › segments`` breadcrumb."""
-    if not domain:
-        return ""
-    try:
-        path = urlsplit(link).path
-    except (ValueError, TypeError):
-        path = ""
-    segments = [segment for segment in path.split("/") if segment][:3]
-    if segments:
-        return f"{domain} › " + " › ".join(segments)
-    return domain
 
 
 def _theme_assets(asset_prefix: str = "") -> str:
@@ -637,11 +622,12 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                     title=str(row["title"]),
                     url=link,
                     safe_url=safe_link,
-                    domain=_result_breadcrumb(link, display_domain),
+                    domain=display_domain,
                     snippet=str(row["description"]),
                     meta_html=meta_card,
                     accent_level=ui.score_level(numeric_score),
                     component=True,
+                    highlight=search_term,
                 )
             )
         results_html = (

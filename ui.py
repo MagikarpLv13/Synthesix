@@ -12,6 +12,7 @@ vocabulary (the "cockpit" design system).
 
 from __future__ import annotations
 
+import re
 from html import escape
 from typing import Iterable, Mapping, Sequence
 from urllib.parse import urlsplit
@@ -140,10 +141,28 @@ def provenance(label: str, detail: str, *, icon_name: str = "route") -> str:
     )
 
 
+def _highlight(text: str, term: str) -> str:
+    """Escape ``text`` and bold case-insensitive occurrences of query tokens."""
+    escaped = esc(text)
+    tokens = [
+        token
+        for token in re.split(r"\s+", str(term).strip().strip("\"'"))
+        if len(token) >= 2
+    ]
+    if not tokens:
+        return escaped
+    pattern = re.compile(
+        "|".join(re.escape(esc(token)) for token in tokens),
+        re.IGNORECASE,
+    )
+    return pattern.sub(lambda match: f"<b>{match.group(0)}</b>", escaped)
+
+
 def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
                 meta_html: str = "", actions_html: str = "", extra_html: str = "",
                 accent_level: str = "", triage: bool = True,
-                safe_url: str | None = None, component: bool = False) -> str:
+                safe_url: str | None = None, component: bool = False,
+                highlight: str = "") -> str:
     """A scannable result row used by reports and the local archive.
 
     ``url`` is the display/link target; pass ``safe_url`` when the caller has
@@ -158,17 +177,29 @@ def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
         if href and href != "#":
             title_slot = (
                 f'<a slot="title" data-triage-link href="{esc(href)}" '
-                f'target="_blank" rel="noopener noreferrer">{esc(title)}</a>'
+                f'target="_blank" rel="noopener noreferrer">'
+                f"{_highlight(title, highlight)}</a>"
             )
         else:
-            title_slot = f'<span slot="title">{esc(title)}</span>'
-        domain_slot = (
-            f'<span slot="domain">{icon("globe")}{esc(domain)}</span>'
-            if domain
-            else ""
-        )
+            title_slot = f'<span slot="title">{_highlight(title, highlight)}</span>'
+        favicon_slot = ""
+        source_slot = ""
+        breadcrumb_slot = ""
+        if domain:
+            favicon_slot = f'<span slot="favicon">{esc(domain[:1].upper())}</span>'
+            source_slot = f'<span slot="source">{esc(domain)}</span>'
+            try:
+                segments = [
+                    segment for segment in urlsplit(url).path.split("/") if segment
+                ][:3]
+            except (ValueError, TypeError):
+                segments = []
+            crumb = f"{domain} › " + " › ".join(segments) if segments else domain
+            breadcrumb_slot = f'<span slot="domain">{esc(crumb)}</span>'
         snippet_slot = (
-            f'<p slot="snippet">{esc(snippet)}</p>' if snippet else ""
+            f'<p slot="snippet">{_highlight(snippet, highlight)}</p>'
+            if snippet
+            else ""
         )
         extra_slot = f'<div slot="extra">{extra_html}</div>' if extra_html else ""
         meta_slot = (
@@ -184,8 +215,8 @@ def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
         accent = esc(accent_level) if accent_level else "none"
         return (
             f'<sx-result-card accent="{accent}"{triage_attrs}>'
-            f"{title_slot}{domain_slot}{snippet_slot}{extra_slot}"
-            f"{meta_slot}{actions_slot}"
+            f"{favicon_slot}{source_slot}{title_slot}{breadcrumb_slot}"
+            f"{snippet_slot}{extra_slot}{meta_slot}{actions_slot}"
             "</sx-result-card>"
         )
     link_open = (
