@@ -5,3 +5,5 @@
  */
 import "./components/sx-chip";
 import "./components/sx-result-card";
+import "./components/sx-score";
+import "./components/sx-tag";

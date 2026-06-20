@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix score demo</title>
+    <link rel="stylesheet" href="../../theme.css">
+    <script type="module" src="../../assets/synthesix-ui.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+      }
+      .demo {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 16px;
+        width: min(720px, calc(100vw - 32px));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <sx-score level="strong">9.20</sx-score>
+      <sx-score level="good">7.80</sx-score>
+      <sx-score level="moderate">3.40</sx-score>
+      <sx-score level="weak">1.10</sx-score>
+      <sx-score level="good" expandable>
+        7.80
+        <li slot="breakdown">Exact phrase match (+4.0)</li>
+        <li slot="breakdown">Trusted domain (+2.0)</li>
+        <li slot="breakdown">Multiple engines (+1.8)</li>
+        <span slot="note">Ouvre le détail du score</span>
+      </sx-score>
+    </div>
+  </body>
+</html>

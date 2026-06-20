@@ -9,7 +9,7 @@ Détails dans `../COLLAB.md`.
 | 0 | Scaffold toolchain (TS + Lit + esbuild) + pilote `sx-chip` | `frontend/*` | Claude | done |
 | 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
-| 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | in progress |
+| 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | — | à faire |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
 | 6 | Entités / propriétés | `src/components/` | — | à faire |
@@ -37,3 +37,6 @@ Détails dans `../COLLAB.md`.
   via propriété réfléchie `triage` (pose `data-triage-item` + `tabindex`, parité
   `result_card(triage=True)`) ; F1 = marge snippet portée par le contenu slotté
   (plus de marge fantôme sans extrait). Source + bundle régénérés.
+- (Claude) Tâche 3 livrée : `<sx-score>` (port de `score_badge`, pill `level` +
+  `expandable` → `<details>` breakdown/note) et `<sx-tag>` (refinement du chip,
+  `tone` + `removable` émettant `sx-tag-remove`). Démos + bundle app régénéré.
