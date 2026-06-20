@@ -10,7 +10,7 @@ Détails dans `../COLLAB.md`.
 | 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
-| 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | in progress |
+| 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
 | 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | — | à faire |
 | 6 | Entités / propriétés | `src/components/` | — | à faire |
 
@@ -40,3 +40,8 @@ Détails dans `../COLLAB.md`.
 - (Claude) Tâche 3 livrée : `<sx-score>` (port de `score_badge`, pill `level` +
   `expandable` → `<details>` breakdown/note) et `<sx-tag>` (refinement du chip,
   `tone` + `removable` émettant `sx-tag-remove`). Démos + bundle app régénéré.
+- (Claude) Tâche 4 livrée : `<sx-provenance>` (port de `provenance()` : icône +
+  label muted + detail, slots i18n) et `<sx-evidence-badge>` (port de
+  `.evidence-verification` : `status` pending/verified/error, region `aria-live`).
+  Primitives autonomes — le câblage au flux JS `verify_evidence_capture`
+  (`data-evidence-verification` dans `view.py`) reste à faire à l'intégration.
