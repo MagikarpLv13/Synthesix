@@ -77,3 +77,10 @@ Détails dans `../COLLAB.md`.
   régénéré. Suite recommandée : câbler ces props depuis `i18n.js` via `main.py`,
   puis migrer host/toolbar/status en composant (`sx-overlay-root` ?) sous smoke
   test live.
+- (Claude) Tâche 1 — **pas A.1** : la box de sélection région (inline
+  `__synthesixStartRegionSelection`, ~120 lignes dans `main.py`) est extraite en
+  `<sx-overlay-selection-box>`. Comportement préservé à l'identique (voile +
+  crosshair, pill, rectangle cyan, Esc, seuil 8px, coords viewport+scroll).
+  `main.py` ne fait plus que créer l'élément et écouter `synthesix-region-selected`
+  / `synthesix-region-cancel` (toolbar masquée pendant la capture, restaurée à
+  l'annulation). ⏳ **À smoke-tester live** : Capture → « Select area » → drag.

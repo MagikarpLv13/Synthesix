@@ -663,123 +663,42 @@ async def _install_and_consume_save_overlay(
                     }};
                     host.__synthesixStartRegionSelection = (captureName) => {{
                         host.style.display = "none";
-                        const selectionHost = document.createElement("div");
-                        selectionHost.id = "__synthesix-evidence-selection";
-                        Object.assign(selectionHost.style, {{
-                            all: "initial",
-                            position: "fixed",
-                            inset: "0",
-                            zIndex: "2147483647",
-                            cursor: "crosshair",
-                            background: "rgba(15, 23, 42, 0.16)",
-                            userSelect: "none",
-                            touchAction: "none"
-                        }});
-                        const selectionShadow = selectionHost.attachShadow({{
-                            mode: "closed"
-                        }});
-                        const hint = document.createElement("div");
-                        hint.textContent = "Drag to select evidence · Esc to cancel";
-                        Object.assign(hint.style, {{
-                            position: "fixed",
-                            top: "16px",
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            padding: "9px 12px",
-                            borderRadius: "6px",
-                            background: "#0F172A",
-                            color: "#FFFFFF",
-                            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.3)",
-                            font: "600 13px Arial, sans-serif",
-                            pointerEvents: "none"
-                        }});
-                        const selectionBox = document.createElement("div");
-                        Object.assign(selectionBox.style, {{
-                            display: "none",
-                            position: "fixed",
-                            border: "2px solid #06B6D4",
-                            background: "rgba(6, 182, 212, 0.12)",
-                            boxShadow: "0 0 0 9999px rgba(15, 23, 42, 0.38)",
-                            pointerEvents: "none"
-                        }});
-                        selectionShadow.append(hint, selectionBox);
-
-                        let startX = 0;
-                        let startY = 0;
-                        let selecting = false;
-                        const cleanup = (restoreToolbar) => {{
-                            document.removeEventListener(
-                                "keydown",
-                                onKeyDown,
-                                true
-                            );
-                            selectionHost.remove();
-                            if (restoreToolbar) {{
+                        const existing = document.getElementById(
+                            "__synthesix-evidence-selection"
+                        );
+                        if (existing) {{
+                            existing.remove();
+                        }}
+                        const selectionBox = document.createElement(
+                            "sx-overlay-selection-box"
+                        );
+                        selectionBox.id = "__synthesix-evidence-selection";
+                        selectionBox.addEventListener(
+                            "synthesix-region-selected",
+                            (event) => {{
+                                selectionBox.remove();
+                                const region = event.detail || {{}};
+                                host.__synthesixQueueCapture(
+                                    "region",
+                                    {{
+                                        x: region.x,
+                                        y: region.y,
+                                        width: region.width,
+                                        height: region.height
+                                    }},
+                                    captureName
+                                );
+                            }}
+                        );
+                        selectionBox.addEventListener(
+                            "synthesix-region-cancel",
+                            () => {{
+                                selectionBox.remove();
                                 host.style.display = "block";
                             }}
-                        }};
-                        const onKeyDown = (event) => {{
-                            if (event.key !== "Escape") {{
-                                return;
-                            }}
-                            event.preventDefault();
-                            cleanup(true);
-                        }};
-                        document.addEventListener("keydown", onKeyDown, true);
-                        selectionHost.addEventListener("pointerdown", (event) => {{
-                            event.preventDefault();
-                            selecting = true;
-                            startX = event.clientX;
-                            startY = event.clientY;
-                            selectionBox.style.display = "block";
-                            try {{
-                                selectionHost.setPointerCapture(event.pointerId);
-                            }} catch (_error) {{
-                                // Synthetic events and older browsers may not expose capture.
-                            }}
-                        }});
-                        selectionHost.addEventListener("pointermove", (event) => {{
-                            if (!selecting) {{
-                                return;
-                            }}
-                            const left = Math.min(startX, event.clientX);
-                            const top = Math.min(startY, event.clientY);
-                            selectionBox.style.left = `${{left}}px`;
-                            selectionBox.style.top = `${{top}}px`;
-                            selectionBox.style.width = (
-                                `${{Math.abs(event.clientX - startX)}}px`
-                            );
-                            selectionBox.style.height = (
-                                `${{Math.abs(event.clientY - startY)}}px`
-                            );
-                        }});
-                        selectionHost.addEventListener("pointerup", (event) => {{
-                            if (!selecting) {{
-                                return;
-                            }}
-                            selecting = false;
-                            const left = Math.min(startX, event.clientX);
-                            const top = Math.min(startY, event.clientY);
-                            const width = Math.abs(event.clientX - startX);
-                            const height = Math.abs(event.clientY - startY);
-                            cleanup(false);
-                            if (width < 8 || height < 8) {{
-                                host.style.display = "block";
-                                return;
-                            }}
-                            host.__synthesixQueueCapture(
-                                "region",
-                                {{
-                                    x: left + window.scrollX,
-                                    y: top + window.scrollY,
-                                    width,
-                                    height
-                                }},
-                                captureName
-                            );
-                        }});
+                        );
                         (document.documentElement || document.body).appendChild(
-                            selectionHost
+                            selectionBox
                         );
                     }};
 
