@@ -18,7 +18,7 @@ Détails dans `../COLLAB.md`.
 
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
-| 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | in progress |
+| 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | done |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
@@ -125,8 +125,16 @@ Détails dans `../COLLAB.md`.
   haut/bas pour éviter les contrôles hors écran. L'orientation du menu de
   capture est calculée séparément (`menu-edge` / `menu-vertical-edge`) selon
   l'espace réellement disponible avant ouverture.
-- (Claude) Lot 7 en cours : intégration de `sx-result-card` dans les pages
-  résultats (rapport + archive locale) pour densifier la liste — titre+domaine sur
-  une ligne, requête exacte retirée des cartes si déjà en tête, padding/hauteur
-  réduits, triage et actions préservés. Fichiers chauds touchés : `utils.py`,
-  `ui.py`. Contrats triage (`data-triage-item`/`-link`) et sauvegarde conservés.
+- (Claude) Lot 7 livré : `result_card(component=True)` rend désormais
+  `<sx-result-card>` ; le bundle `assets/synthesix-ui.js` est chargé par le shell
+  partagé `ui.render_page` (module ESM) → branché sur les pages **rapport +
+  historique** (utils.py). Slots `meta`/`actions` wrappés `display:contents` pour
+  garder les gaps des chips/score/provenance ; `data-triage-item tabindex="0"`
+  émis en HTML statique (compat triage au parse-time). Densité : padding carte
+  12/16→8/12, marges head/snippet réduites (composant) → ~7 résultats visibles
+  vs 2-3. `view.py`/`search_view.py` **intacts** (CSS, à migrer en Lot 8/archive)
+  → zéro collision. Validé : typecheck, build, `unittest discover` (221),
+  diff-check, capture rapport 12 résultats (clair/sombre OK). Tests `test_utils`
+  mis à jour (`class="result-card"`→`<sx-result-card`, + assert bundle chargé).
+  Nuance : la provenance « Trouvé via … » par carte montre les *variants* (pas
+  juste la requête en tête) → conservée volontairement (signal OSINT utile).

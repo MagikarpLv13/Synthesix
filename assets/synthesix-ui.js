@@ -62,8 +62,8 @@ var Mt=Object.defineProperty;var St=Object.getOwnPropertyDescriptor;var l=(o,t,e
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: var(--space-4, 16px);
-      padding: var(--space-3, 12px) var(--space-4, 16px);
+      gap: var(--space-3, 12px);
+      padding: var(--space-2, 8px) var(--space-3, 12px);
       border: 1px solid var(--line, #cbd5e1);
       border-left: 3px solid var(--line, #cbd5e1);
       border-radius: var(--radius-md, 8px);
@@ -110,7 +110,7 @@ var Mt=Object.defineProperty;var St=Object.getOwnPropertyDescriptor;var l=(o,t,e
       display: flex;
       flex-wrap: wrap;
       align-items: baseline;
-      gap: 4px var(--space-3, 12px);
+      gap: 2px var(--space-3, 12px);
       min-width: 0;
     }
 
@@ -158,7 +158,7 @@ var Mt=Object.defineProperty;var St=Object.getOwnPropertyDescriptor;var l=(o,t,e
     }
 
     ::slotted([slot="snippet"]) {
-      margin: 4px 0 8px;
+      margin: 2px 0 4px;
       color: var(--muted, #64748b);
       font-size: 13px;
       line-height: 1.5;

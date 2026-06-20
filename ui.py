@@ -143,13 +143,51 @@ def provenance(label: str, detail: str, *, icon_name: str = "route") -> str:
 def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
                 meta_html: str = "", actions_html: str = "", extra_html: str = "",
                 accent_level: str = "", triage: bool = True,
-                safe_url: str | None = None) -> str:
+                safe_url: str | None = None, component: bool = False) -> str:
     """A scannable result row used by reports and the local archive.
 
     ``url`` is the display/link target; pass ``safe_url`` when the caller has
-    validated it (otherwise the link is rendered inert).
+    validated it (otherwise the link is rendered inert). With ``component=True``
+    the row is rendered as the ``<sx-result-card>`` Web Component (requires the
+    page to load ``assets/synthesix-ui.js``); links/actions stay in light-DOM
+    slots so the triage scripts keep working.
     """
     href = safe_url if safe_url is not None else url
+    if component:
+        triage_attrs = ' data-triage-item tabindex="0"' if triage else ""
+        if href and href != "#":
+            title_slot = (
+                f'<a slot="title" data-triage-link href="{esc(href)}" '
+                f'target="_blank" rel="noopener noreferrer">{esc(title)}</a>'
+            )
+        else:
+            title_slot = f'<span slot="title">{esc(title)}</span>'
+        domain_slot = (
+            f'<span slot="domain">{icon("globe")}{esc(domain)}</span>'
+            if domain
+            else ""
+        )
+        snippet_slot = (
+            f'<p slot="snippet">{esc(snippet)}</p>' if snippet else ""
+        )
+        extra_slot = f'<div slot="extra">{extra_html}</div>' if extra_html else ""
+        meta_slot = (
+            f'<div slot="meta" style="display:contents">{meta_html}</div>'
+            if meta_html
+            else ""
+        )
+        actions_slot = (
+            f'<div slot="actions" style="display:contents">{actions_html}</div>'
+            if actions_html
+            else ""
+        )
+        accent = esc(accent_level) if accent_level else "none"
+        return (
+            f'<sx-result-card accent="{accent}"{triage_attrs}>'
+            f"{title_slot}{domain_slot}{snippet_slot}{extra_slot}"
+            f"{meta_slot}{actions_slot}"
+            "</sx-result-card>"
+        )
     link_open = (
         f'<a class="result-card__title" data-triage-link href="{esc(href)}" '
         'target="_blank" rel="noopener noreferrer">'
@@ -266,6 +304,7 @@ def render_page(*, title: str, asset_prefix: str, body: str, lang: str = "en",
     <link rel="stylesheet" href="{esc(asset_prefix)}theme.css">
     <script src="{esc(asset_prefix)}theme.js"></script>
     <script src="{esc(asset_prefix)}i18n.js"></script>
+    <script type="module" src="{esc(asset_prefix)}assets/synthesix-ui.js"></script>
     {extra_head}
 </head>
 <body>
