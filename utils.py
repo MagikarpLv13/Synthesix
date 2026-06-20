@@ -20,15 +20,6 @@ def _html_escape(value) -> str:
     return escape(str(value), quote=True)
 
 
-def _theme_assets(asset_prefix: str = "") -> str:
-    return f"""
-    <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="{asset_prefix}theme.css">
-    <script src="{asset_prefix}theme.js"></script>
-    <script src="{asset_prefix}i18n.js"></script>
-"""
-
-
 def _brand_markup(subtitle: str, asset_prefix: str = "") -> str:
     return f"""
             <div class="brand">
