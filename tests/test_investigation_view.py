@@ -311,7 +311,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("link_result_to_graph_entity"', content)
         self.assertIn('queueAction("attach_extracted_property"', content)
         self.assertIn("Créer une entité depuis ce site", content)
-        self.assertIn("Créer une entité depuis cette propriété", content)
+        self.assertIn("Promote to entity", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
         self.assertIn("Significant change", content)
@@ -347,7 +347,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Linked entities", content)
         self.assertIn("Use as property", content)
         self.assertIn("analyst@example.com", content)
-        self.assertIn("<strong>analyst@example.com</strong>", content)
+        self.assertIn('class="info-tip"', content)
         self.assertIn("99% deterministic confidence", content)
         self.assertIn("Primary contact", content)
         self.assertEqual(
@@ -437,9 +437,6 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Choose a suggested tag or enter custom tags", content)
         self.assertIn("data-result-tag-suggestion", content)
         self.assertIn("add-result-tag", content)
-        self.assertIn("data-entity-tags", content)
-        self.assertIn("data-entity-tag-suggestion", content)
-        self.assertIn("add-entity-tag", content)
         self.assertNotIn("ZeroNeurone TagSets are suggested", content)
         self.assertIn("tags.push(selected)", content)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
@@ -750,26 +747,12 @@ class InvestigationViewTestCase(unittest.TestCase):
             ["disabled"],
         )
         self.assertEqual(
-            tree.xpath("//input[@data-entity-tags]/@disabled"),
-            ["disabled"],
-        )
-        self.assertEqual(
             tree.xpath("//select[@data-result-tag-suggestion]/@disabled"),
             ["disabled"],
         )
         self.assertEqual(
             tree.xpath(
                 "//button[contains(@class, 'add-result-tag')]/@disabled"
-            ),
-            ["disabled"],
-        )
-        self.assertEqual(
-            tree.xpath("//select[@data-entity-tag-suggestion]/@disabled"),
-            ["disabled"],
-        )
-        self.assertEqual(
-            tree.xpath(
-                "//button[contains(@class, 'add-entity-tag')]/@disabled"
             ),
             ["disabled"],
         )

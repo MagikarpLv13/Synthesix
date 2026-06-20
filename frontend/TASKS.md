@@ -19,6 +19,7 @@ Détails dans `../COLLAB.md`.
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
 | 9 | Entités/propriétés gérables dans le rail (à la zeroneurone) : rail redimensionnable, clic→gestion, champs vides masqués, actions icônes | `investigations/view.py`, `theme.css` | Claude | done |
+| 10 | Refonte entités **extraites** (par page) : compactes + gérées dans le rail, tags retirés, détection en infobulle, promote-to-entity | `investigations/view.py`, `theme.css` | Claude | done |
 
 - (Claude) Lot 9 — **pas 1 : rail redimensionnable + gouttières resserrées**.
   Le rail prend une largeur variable `--rail-w` (défaut 340px) ; une poignée
@@ -60,6 +61,27 @@ Détails dans `../COLLAB.md`.
   (224), `git diff --check`, smoke headless (icônes + manage déplié). **Lot 9
   complet** : rail redimensionnable + clic→gestion (pages & entités) + compact/
   icônes. Reste au plan : Lot D (icônes/actions globales), Lot E (i18n).
+- (Claude) Lot 10 — **refonte des entités extraites** (`_entity_markup`, retour
+  utilisateur : une entité prenait ~½ page, 2-3 formulaires). Chaque entité
+  extraite devient une **ligne compacte cliquable** dans le corps de la page
+  (`_extracted_entity_row` : type · valeur · confiance · statut), et sa gestion
+  s'ouvre dans le **rail** (`_extracted_entity_panel`, panels cachés branchés sur
+  l'Inspector unifié pages/entités/extraites). Nettoyages demandés : **tags
+  supprimés** (le type prime ; `add_entity_tag` était client-only) ; **détection/
+  suggested → infobulle ⓘ** (`title` natif via `_detection_title`, plus de bloc
+  « Detection details ») ; **lien propriété sorti** du dropdown → contrôle propre
+  (attach/detach) ; **« Promote to entity » = bouton + mini-formulaire de
+  confirmation** (catégorie + nom de propriété) au lieu d'un `<details>`.
+  Handlers CDP **déplacés du loop `resultCards` vers le scope global** (ils
+  utilisaient déjà `closest("[data-entity-id]")`) car les panels vivent désormais
+  dans le rail — `update_entity_status` / `update_entity_metadata` (sans tags) /
+  `attach`/`detach_extracted_property` / `create_graph_entity_from_extracted` /
+  `delete_entity` **intacts**. Icône `info` + classes `.entity-chip-row`,
+  `.extracted-panel`, `.info-tip`, `.promote-entity`. **Code mort retiré** :
+  `_entity_markup_legacy` (~240 l) + `_highlight_entity_source_text`. Tests MAJ
+  (strings/tags retirés). 2 bugs `[hidden]` corrigés (`.extracted-panel` +
+  `.promote-entity__form` → `:not([hidden])`). Validé : `unittest discover`
+  (224), `git diff --check`, smoke headless (ligne compacte + panel rail + promote).
 
 ## Palier 1.5 — Intégration
 
