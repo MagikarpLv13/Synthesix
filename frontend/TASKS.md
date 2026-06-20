@@ -7,7 +7,7 @@ Détails dans `../COLLAB.md`.
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
 | 0 | Scaffold toolchain (TS + Lit + esbuild) + pilote `sx-chip` | `frontend/*` | Claude | done |
-| 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Codex | in progress |
+| 1 | Overlay externe → Web Component(s) isolé(s) (depuis `main.py`) | `src/overlay/`, `main.py` (injection) | Claude (repris de Codex) | in progress |
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
@@ -57,3 +57,23 @@ Détails dans `../COLLAB.md`.
   `<sx-property>` (port de `.graph-property-list li` : label/valeur/actions). Tous
   les composants `<sx-*>` du Palier 1 sont livrés ; reste l'intégration côté
   `ui.py`/`view.py` et la tâche 1 (overlay, Codex).
+- (Claude) **Reprise de la tâche 1 (overlay) à Codex**, sur accord explicite de
+  l'utilisateur. État relevé : `sx-overlay-action` / `-capture-menu` /
+  `-selection-trigger` existent et sont déjà câblés dans `main.py`
+  (`_install_and_consume_save_overlay`). **Reste en inline dans `main.py`** : le
+  host `#__synthesix-save-overlay` + toolbar (~427/438), la box de sélection
+  (~666-696), le panneau d'entité (~809-942), et les callbacks de statut
+  (`host.__synthesixSetButtonState` / `__synthesixSetCaptureState` /
+  `__synthesixSetArchiveState`) lus par `_set_*_overlay_status`.
+  ⚠️ **Garde-fou** : ce JS injecté n'est PAS couvert par `unittest` (221 tests
+  restent verts quoi qu'il arrive). Toute migration du DOM inline de `main.py`
+  doit donc être faite par petits pas + **smoke test CDP live** (`python main.py`
+  contre une vraie page) — ne pas réécrire en aveugle.
+  Incrément livré ce tour (sûr/vérifiable, sans toucher `main.py`) : correction
+  i18n de `sx-overlay-capture-menu` — les chaînes (`placeholder`, label nom,
+  « Visible area » / « Select area ») passent d'un texte EN codé en dur à des
+  propriétés (`placeholder`/`name-label`/`viewport-label`/`region-label`, défauts
+  EN → rétrocompatible), conformément à COLLAB §7. Démo dédiée + bundle overlay
+  régénéré. Suite recommandée : câbler ces props depuis `i18n.js` via `main.py`,
+  puis migrer host/toolbar/status en composant (`sx-overlay-root` ?) sous smoke
+  test live.

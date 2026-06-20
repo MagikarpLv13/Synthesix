@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix overlay capture menu demo</title>
+    <script src="../../assets/synthesix-overlay.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 48px;
+        padding: 80px 24px;
+        box-sizing: border-box;
+        background: #f8fafc;
+        font-family: system-ui, Arial, sans-serif;
+      }
+      /* The menu anchors bottom-right of its positioned wrapper. */
+      .anchor {
+        position: relative;
+        width: 200px;
+        height: 130px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+      }
+      .anchor span {
+        position: absolute;
+        top: 6px;
+        left: 8px;
+        font-size: 11px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="anchor">
+      <span>defaults (EN)</span>
+      <sx-overlay-capture-menu open></sx-overlay-capture-menu>
+    </div>
+    <div class="anchor">
+      <span>translated (FR)</span>
+      <sx-overlay-capture-menu
+        open
+        placeholder="Nom de la capture (optionnel)"
+        name-label="Nom de la capture"
+        viewport-label="Zone visible"
+        region-label="Sélectionner une zone"
+      ></sx-overlay-capture-menu>
+    </div>
+  </body>
+</html>

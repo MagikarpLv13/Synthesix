@@ -9,6 +9,23 @@ export class SxOverlayCaptureMenu extends LitElement {
   @property({ type: Boolean, reflect: true })
   open = false;
 
+  /**
+   * User-facing strings. They default to English but the host page (main.py via
+   * i18n.js) can pass translated values — no copy is hard-coded in the markup,
+   * per the overlay i18n convention shared with sx-overlay-action.
+   */
+  @property()
+  placeholder = "Capture name (optional)";
+
+  @property({ attribute: "name-label" })
+  nameLabel = "Capture name";
+
+  @property({ attribute: "viewport-label" })
+  viewportLabel = "Visible area";
+
+  @property({ attribute: "region-label" })
+  regionLabel = "Select area";
+
   static styles = css`
     ${unsafeCSS(tokensCss)}
 
@@ -103,11 +120,11 @@ export class SxOverlayCaptureMenu extends LitElement {
       <input
         type="text"
         maxlength="120"
-        placeholder="Capture name (optional)"
-        aria-label="Capture name"
+        placeholder=${this.placeholder}
+        aria-label=${this.nameLabel}
       >
-      <button type="button" data-scope="viewport">Visible area</button>
-      <button type="button" data-scope="region">Select area</button>
+      <button type="button" data-scope="viewport">${this.viewportLabel}</button>
+      <button type="button" data-scope="region">${this.regionLabel}</button>
     `;
   }
 
