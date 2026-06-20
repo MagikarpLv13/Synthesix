@@ -19,7 +19,7 @@ Détails dans `../COLLAB.md`.
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
 | 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | done |
-| 8 | Workspace investigation 2 zones + panel droit rétractable | `investigations/view.py`, `ui.py`, `theme.css`, `frontend/src/components/sx-inspector.ts` | Claude | in progress |
+| 8 | Workspace investigation 2 zones + panel droit rétractable + clic→détail | `investigations/view.py`, `theme.css` | Claude | done |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
@@ -203,6 +203,21 @@ Détails dans `../COLLAB.md`.
   discover` (221), `git diff --check`, **smoke headless Chrome** (étendu +
   replié, clair). Smoke via `frontend/README.md` §Visual check (chrome
   `--headless --screenshot`). ⏳ Reste pas 3 (clic→détail) + pas 4 (clavier).
+- (Claude) Lot 8 — **pas 3 : clic → détail dans l'Inspector**. Clic sur l'en-tête
+  d'une page sauvegardée (`.result-heading`, hors liens/boutons/champs) affiche
+  son **résumé** dans le panel Inspector du rail : titre (lien), URL, badges
+  (statut / favori / surveillance), stats (score, observations, evidence,
+  entités, analyses URL, dernière observation localisée) + bouton « Go to card »
+  (scroll vers la carte). Helper `_inspector_panel` (panels pré-rendus cachés,
+  un par résultat, dans le rail) ; sélection via JS **dans l'IIFE existant**
+  (réutilise `resultCards`, toggle `hidden` + classe `.is-inspected` sur la carte,
+  ré-ouvre le rail si replié) — **aucun contrat CDP touché**, panel en lecture
+  seule. En-tête de carte cliquable (curseur + hover). Pas de bouton « Inspecter »
+  (le clic suffit, cf. Lot B). Test `test_rail_inspector_panel_summarizes_each_saved_page`.
+  Validé : `unittest discover` (222), `git diff --check`, smoke headless (état
+  sélectionné : date localisée OK, XSS échappé). Nuance : seules les **pages**
+  sont inspectables pour l'instant (entités = suivi possible). Pas 4 (clavier)
+  **abandonné** sur demande utilisateur (hors priorité).
 - (Claude) Lot 7 — peaufinage infobulle score (retour utilisateur) : (1) chaque
   point `+X.X` est désormais **coloré et en gras** selon son poids
   (`utils.py` → `<span class="score__pts score__pts--{strong≥4|good≥2|low}">`,

@@ -909,6 +909,74 @@ def _score_markup(result: Mapping) -> str:
     )
 
 
+def _inspector_panel(
+    result: Mapping,
+    *,
+    evidence_count: int,
+    entity_count: int,
+    analysis_count: int,
+    is_monitored: bool,
+) -> str:
+    """Compact summary of a saved page, shown in the workspace rail on click."""
+    result_id = str(result.get("id", ""))
+    title = str(result.get("title") or result.get("url") or "Untitled result")
+    url = str(result.get("url", ""))
+    status = str(result.get("analyst_status", "a_verifier"))
+    status_label = STATUS_LABELS.get(status, status)
+    score = float(result.get("relevance_score", 0) or 0)
+    title_markup = (
+        f'<a class="inspector-panel__title" href="{_html(url)}" target="_blank" '
+        f'rel="noopener noreferrer">{_html(title)}</a>'
+        if url.startswith(("http://", "https://"))
+        else f'<span class="inspector-panel__title">{_html(title)}</span>'
+    )
+    url_markup = (
+        f'<div class="inspector-panel__url" title="{_html(url)}">'
+        f"{_html(_compact_url(url, max_length=90))}</div>"
+        if url
+        else ""
+    )
+    badges = [
+        f'<span class="inspector-badge inspector-badge--status">'
+        f"{_html(status_label)}</span>"
+    ]
+    if bool(result.get("favorite", False)):
+        badges.append(
+            '<span class="inspector-badge inspector-badge--fav">Favorite</span>'
+        )
+    if is_monitored:
+        badges.append(
+            '<span class="inspector-badge inspector-badge--mon">Monitoring</span>'
+        )
+    stats = (
+        ("Score", f"{score:.1f}"),
+        ("Observations", str(int(result.get("observation_count", 0) or 0))),
+        ("Evidence", str(evidence_count)),
+        ("Entities", str(entity_count)),
+        ("URL analyses", str(analysis_count)),
+    )
+    stats_markup = "".join(
+        f'<div class="inspector-stat"><dt>{_html(label)}</dt>'
+        f"<dd>{_html(value)}</dd></div>"
+        for label, value in stats
+    )
+    # _local_datetime returns a safe <time> element; the page's
+    # formatLocalDatetimes() localizes it, so insert it unescaped.
+    stats_markup += (
+        '<div class="inspector-stat"><dt>Last seen</dt>'
+        f'<dd>{_local_datetime(result.get("latest_observed_at"))}</dd></div>'
+    )
+    return (
+        f'<div class="inspector-panel" data-inspector-panel="{_html(result_id)}" hidden>'
+        f"{title_markup}{url_markup}"
+        f'<div class="inspector-panel__badges">{"".join(badges)}</div>'
+        f'<dl class="inspector-stats">{stats_markup}</dl>'
+        '<button type="button" class="secondary-button inspector-goto" '
+        f'data-inspector-goto="{_html(result_id)}">Go to card</button>'
+        "</div>"
+    )
+
+
 def _evidence_markup(
     captures: list[Mapping],
     *,
@@ -1653,6 +1721,23 @@ def generate_investigation_page(
         "</div>"
     )
 
+    inspector_panels = "".join(
+        _inspector_panel(
+            result,
+            evidence_count=len(
+                evidence_by_result.get(str(result.get("id", "")), [])
+            ),
+            entity_count=len(
+                entities_by_result.get(str(result.get("id", "")), [])
+            ),
+            analysis_count=len(
+                url_analyses_by_result.get(str(result.get("id", "")), [])
+            ),
+            is_monitored=str(result.get("id", "")) in monitors_by_result,
+        )
+        for result in results
+    )
+
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1981,9 +2066,10 @@ def generate_investigation_page(
                     <p class="rail-section__title">Next actions</p>
                     {focus_summary}
                 </div>
-                <div class="rail-section" id="inspector-detail" data-inspector-empty="true">
+                <div class="rail-section" id="inspector-detail">
                     <p class="rail-section__title">Inspector</p>
-                    <p class="inspector-empty">Select a saved page or entity to inspect it here.</p>
+                    <p class="inspector-empty" data-inspector-empty>Select a saved page to inspect it here.</p>
+                    {inspector_panels}
                 </div>
             </div>
         </aside>
@@ -2645,6 +2731,73 @@ def generate_investigation_page(
                     setRailCollapsed(
                         workspace.dataset.railCollapsed !== "true"
                     );
+                }});
+            }}
+
+            const inspectorDetail = document.getElementById("inspector-detail");
+            const inspectorEmpty = inspectorDetail
+                ? inspectorDetail.querySelector("[data-inspector-empty]")
+                : null;
+            const inspectorPanels = inspectorDetail
+                ? Array.from(
+                    inspectorDetail.querySelectorAll("[data-inspector-panel]")
+                )
+                : [];
+            const selectInspector = (resultId) => {{
+                let matched = false;
+                inspectorPanels.forEach((panel) => {{
+                    const isMatch = panel.dataset.inspectorPanel === resultId;
+                    panel.hidden = !isMatch;
+                    if (isMatch) {{
+                        matched = true;
+                    }}
+                }});
+                if (inspectorEmpty) {{
+                    inspectorEmpty.hidden = matched;
+                }}
+                resultCards.forEach((card) => {{
+                    card.classList.toggle(
+                        "is-inspected",
+                        matched && card.dataset.resultId === resultId
+                    );
+                }});
+                if (
+                    matched
+                    && workspace
+                    && workspace.dataset.railCollapsed === "true"
+                ) {{
+                    setRailCollapsed(false);
+                }}
+            }};
+            resultCards.forEach((card) => {{
+                const heading = card.querySelector(".result-heading");
+                if (!heading) {{
+                    return;
+                }}
+                heading.addEventListener("click", (event) => {{
+                    if (event.target.closest(
+                        "a, button, input, select, textarea, label"
+                    )) {{
+                        return;
+                    }}
+                    selectInspector(card.dataset.resultId);
+                }});
+            }});
+            if (inspectorDetail) {{
+                inspectorDetail.addEventListener("click", (event) => {{
+                    const goto = event.target.closest("[data-inspector-goto]");
+                    if (!goto) {{
+                        return;
+                    }}
+                    const card = document.getElementById(
+                        "result-" + goto.dataset.inspectorGoto
+                    );
+                    if (card) {{
+                        card.scrollIntoView({{
+                            behavior: "smooth",
+                            block: "center"
+                        }});
+                    }}
                 }});
             }}
         }})();

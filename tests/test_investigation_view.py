@@ -508,6 +508,33 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Triage saved pages before exporting.", content := tree.text_content())
         self.assertIn("Open changed pages and compare archives.", content)
 
+    def test_rail_inspector_panel_summarizes_each_saved_page(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        panels = tree.xpath(
+            "//aside[contains(@class, 'workspace__rail')]"
+            "//*[@data-inspector-panel='result-123']"
+        )
+        self.assertEqual(len(panels), 1)
+        panel = panels[0]
+        # Hidden until a saved-page card is clicked.
+        self.assertIsNotNone(panel.get("hidden"))
+        panel_text = panel.text_content()
+        self.assertIn("Score", panel_text)
+        self.assertIn("Observations", panel_text)
+        self.assertIn("Relevant", panel_text)
+        goto = panel.xpath(".//*[@data-inspector-goto='result-123']")
+        self.assertEqual(len(goto), 1)
+
     def test_hides_raw_archive_text_source_in_entity_summary(self):
         workspace = workspace_payload()
         workspace["entities"][0]["source_field"] = "archive_text:capture-123"
