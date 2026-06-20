@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix inspector demo</title>
+    <link rel="stylesheet" href="../../theme.css">
+    <script type="module" src="../../assets/synthesix-ui.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; }
+
+      /* Consumer-side row styling; the component only sets aria-current. */
+      .row {
+        display: grid;
+        gap: 2px;
+        text-align: left;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      .row:hover { border-color: var(--accent); }
+      .row:focus-visible { outline: none; box-shadow: var(--focus); }
+      .row[aria-current="true"] {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .row strong { font-size: 14px; font-weight: 600; }
+      .row span { font-size: 12px; color: var(--muted); }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        padding: 16px;
+      }
+      .panel h3 { margin: 0 0 4px; font-size: 16px; }
+      .panel .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+      .panel p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <sx-inspector selected="case-2" back-label="Retour à la liste">
+        <span slot="list-header">Enquêtes (3)</span>
+
+        <button slot="list" class="row" data-inspector-item="case-1">
+          <strong>Affaire #121 — fuite forum</strong>
+          <span>4 sources · 2 entités</span>
+        </button>
+        <button slot="list" class="row" data-inspector-item="case-2">
+          <strong>Affaire #123 — MagikarpLv13</strong>
+          <span>9 sources · 5 entités</span>
+        </button>
+        <button slot="list" class="row" data-inspector-item="case-3">
+          <strong>Affaire #130 — domaine suspect</strong>
+          <span>1 source · 0 entité</span>
+        </button>
+
+        <span slot="detail-header">Détail de l'enquête</span>
+
+        <section slot="detail" class="panel" data-inspector-panel="case-1">
+          <h3>Affaire #121 — fuite forum</h3>
+          <div class="meta">
+            <sx-score level="moderate">3.40</sx-score>
+            <sx-tag tone="info">priorité</sx-tag>
+            <sx-evidence-badge status="pending">Non vérifiée</sx-evidence-badge>
+          </div>
+          <p>Première observation d'une fuite de pseudonymes sur un forum public.</p>
+        </section>
+
+        <section slot="detail" class="panel" data-inspector-panel="case-2">
+          <h3>Affaire #123 — MagikarpLv13</h3>
+          <div class="meta">
+            <sx-score level="strong">8.90</sx-score>
+            <sx-tag tone="success">vérifié</sx-tag>
+            <sx-tag tone="info" removable>à suivre</sx-tag>
+            <sx-evidence-badge status="verified">Vérifiée · hash OK</sx-evidence-badge>
+          </div>
+          <sx-provenance>
+            <span slot="label">Found via</span>
+            exact query
+          </sx-provenance>
+          <p>Profil GitHub et dépôts publics reliant plusieurs identités numériques.</p>
+        </section>
+
+        <section slot="detail" class="panel" data-inspector-panel="case-3">
+          <h3>Affaire #130 — domaine suspect</h3>
+          <div class="meta">
+            <sx-score level="weak">0.90</sx-score>
+            <sx-evidence-badge status="error">Échec · fichier manquant</sx-evidence-badge>
+          </div>
+          <p>Domaine signalé, en attente de corroboration.</p>
+        </section>
+      </sx-inspector>
+    </div>
+  </body>
+</html>

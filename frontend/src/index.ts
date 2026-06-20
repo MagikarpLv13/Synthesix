@@ -9,3 +9,4 @@ import "./components/sx-score";
 import "./components/sx-tag";
 import "./components/sx-provenance";
 import "./components/sx-evidence-badge";
+import "./components/sx-inspector";

@@ -11,7 +11,7 @@ Détails dans `../COLLAB.md`.
 | 2 | `sx-result-card` (titre, domaine, extrait, méta, actions, triage) | `src/components/sx-result-card.ts` | Codex | done |
 | 3 | `sx-score` / `sx-tag` (affiner à partir de `sx-chip`) | `src/components/` | Claude | done |
 | 4 | `sx-provenance` / `sx-evidence-badge` | `src/components/` | Claude | done |
-| 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | in progress |
+| 5 | Inspecteur d'enquête (liste ↔ détail) | `src/components/` | Claude | done |
 | 6 | Entités / propriétés | `src/components/` | — | à faire |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
@@ -45,3 +45,9 @@ Détails dans `../COLLAB.md`.
   `.evidence-verification` : `status` pending/verified/error, region `aria-live`).
   Primitives autonomes — le câblage au flux JS `verify_evidence_capture`
   (`data-evidence-verification` dans `view.py`) reste à faire à l'intégration.
+- (Claude) Tâche 5 livrée : `<sx-inspector>` (liste↔détail). Layout deux-volets
+  responsive (repli mono-volet + bouton retour <720px), état `selected` qui
+  pilote `aria-current` sur la ligne et l'affichage du panneau, nav clavier
+  (flèches/Home/End), événement `sx-inspector-select`. Peu opinioné : lignes
+  `[data-inspector-item]` et panneaux `[data-inspector-panel]` fournis en slots.
+  Câblage à `view.py` = étape d'intégration.
