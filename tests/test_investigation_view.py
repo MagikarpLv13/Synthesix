@@ -482,7 +482,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(output_path.read_text(encoding="utf-8"))
 
         worklist = tree.xpath(
-            "//section[@id='overview']"
+            "//aside[contains(@class, 'workspace__rail')]"
             "//*[contains(@class, 'focus-summary')]"
         )
         self.assertEqual(len(worklist), 1)

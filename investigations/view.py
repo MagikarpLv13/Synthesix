@@ -1665,7 +1665,7 @@ def generate_investigation_page(
     <script src="{asset_prefix}i18n.js"></script>
 </head>
 <body>
-    <main class="app app--wide">
+    <main class="app app--wide app--workspace">
         <datalist id="tag-suggestions">
             {tag_datalist_options}
         </datalist>
@@ -1695,6 +1695,8 @@ def generate_investigation_page(
             <a href="#search-runs">Search runs</a>
         </nav>
 
+        <div class="workspace" data-rail-collapsed="false">
+        <div class="workspace__main">
         <section id="overview" class="investigation-overview">
             <div>
                 <p class="section-eyebrow">Investigation</p>
@@ -1711,7 +1713,6 @@ def generate_investigation_page(
                 <div><strong>{sum(1 for item in results if item.get("favorite"))}</strong><span>Favorites</span></div>
                 <div><strong>{sum(1 for item in results if item.get("analyst_status") == "confirme")}</strong><span>Confirmed</span></div>
             </div>
-            {focus_summary}
         </section>
 
         <section
@@ -1961,6 +1962,32 @@ def generate_investigation_page(
                 </table>
             </div>
         </section>
+        </div>
+        <aside class="workspace__rail" id="investigation-rail" aria-label="Workspace panel">
+            <div class="workspace__rail-header">
+                <span class="workspace__rail-title">Workspace</span>
+                <button
+                    type="button"
+                    class="workspace__rail-toggle"
+                    data-rail-toggle
+                    aria-expanded="true"
+                    aria-controls="investigation-rail-body"
+                    title="Collapse panel"
+                    aria-label="Collapse panel"
+                >&rsaquo;</button>
+            </div>
+            <div class="workspace__rail-body" id="investigation-rail-body">
+                <div class="rail-section">
+                    <p class="rail-section__title">Next actions</p>
+                    {focus_summary}
+                </div>
+                <div class="rail-section" id="inspector-detail" data-inspector-empty="true">
+                    <p class="rail-section__title">Inspector</p>
+                    <p class="inspector-empty">Select a saved page or entity to inspect it here.</p>
+                </div>
+            </div>
+        </aside>
+        </div>
     </main>
     <script>
         (() => {{
@@ -2585,6 +2612,41 @@ def generate_investigation_page(
                     }}
                 }});
             }});
+            const railStorageKey = (
+                `synthesix:rail-collapsed:${{investigationId}}`
+            );
+            const workspace = document.querySelector(".workspace");
+            const railToggle = document.querySelector("[data-rail-toggle]");
+            const setRailCollapsed = (collapsed) => {{
+                if (!workspace || !railToggle) {{
+                    return;
+                }}
+                workspace.dataset.railCollapsed = String(collapsed);
+                railToggle.setAttribute("aria-expanded", String(!collapsed));
+                railToggle.textContent = collapsed ? "\\u2039" : "\\u203a";
+                const label = collapsed ? "Expand panel" : "Collapse panel";
+                railToggle.title = label;
+                railToggle.setAttribute("aria-label", label);
+                try {{
+                    localStorage.setItem(railStorageKey, collapsed ? "1" : "0");
+                }} catch (_error) {{
+                    // Panel still toggles without persistence on file URLs.
+                }}
+            }};
+            if (workspace && railToggle) {{
+                let railCollapsed = false;
+                try {{
+                    railCollapsed = localStorage.getItem(railStorageKey) === "1";
+                }} catch (_error) {{
+                    railCollapsed = false;
+                }}
+                setRailCollapsed(railCollapsed);
+                railToggle.addEventListener("click", () => {{
+                    setRailCollapsed(
+                        workspace.dataset.railCollapsed !== "true"
+                    );
+                }});
+            }}
         }})();
     </script>
 </body>

@@ -186,6 +186,23 @@ Détails dans `../COLLAB.md`.
   rail droit borné), panel rétractable (collapse + persistance), clic sur un
   élément → détail dans le panel, nav clavier. Ces pas touchent le DOM/JS de
   `view.py` → smoke visuel requis (§7).
+- (Claude) Lot 8 — **pas 2 : coquille 2 zones + rail rétractable**. `view.py`
+  enveloppe les sections dans `.workspace` (grid `minmax(0,1fr) 340px`) :
+  `.workspace__main` (gauche) + `<aside class="workspace__rail">` sticky borné
+  (droite). Le rail héberge « Next actions » (focus-summary **déplacé** de
+  l'overview vers le rail — meilleure place, toujours visible au scroll) + un
+  emplacement « Inspector » placeholder (rempli au pas 3). Toggle de repli
+  (`data-rail-toggle`) câblé **dans l'IIFE existant** (réutilise le pattern
+  localStorage try/catch, clé `synthesix:rail-collapsed:<id>`, persistance) —
+  **aucun contrat `queueAction`/`synthesixPage` touché**. Replié → bande 40px +
+  bouton de réouverture, le main reprend toute la largeur. `app--workspace`
+  (conteneur plus large 1480px). ⚠️ **Bug corrigé** : le grid `.workspace`
+  ne se dimensionnait pas (parent `.app` en `min()/calc()` → largeur indéfinie,
+  `1fr` repliait sur le contenu) → ajout `width: 100%`. Test focus-summary
+  recentré sur le rail (`//aside[...workspace__rail]`). Validé : `unittest
+  discover` (221), `git diff --check`, **smoke headless Chrome** (étendu +
+  replié, clair). Smoke via `frontend/README.md` §Visual check (chrome
+  `--headless --screenshot`). ⏳ Reste pas 3 (clic→détail) + pas 4 (clavier).
 - (Claude) Lot 7 — peaufinage infobulle score (retour utilisateur) : (1) chaque
   point `+X.X` est désormais **coloré et en gras** selon son poids
   (`utils.py` → `<span class="score__pts score__pts--{strong≥4|good≥2|low}">`,
