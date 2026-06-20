@@ -10,10 +10,24 @@ type OverlayActionElement = HTMLElement & {
   titleText?: string;
 };
 
+const POSITION_STORAGE_KEY = "synthesix:external-overlay-position";
+
+interface DragState {
+  height: number;
+  pointerId: number;
+  startLeft: number;
+  startTop: number;
+  startX: number;
+  startY: number;
+  width: number;
+}
+
 @customElement("sx-overlay-root")
 export class SxOverlayRoot extends LitElement {
   @property({ type: Boolean, reflect: true })
   collapsed = false;
+
+  private dragState: DragState | null = null;
 
   static styles = css`
     ${unsafeCSS(tokensCss)}
@@ -43,6 +57,41 @@ export class SxOverlayRoot extends LitElement {
         opacity 130ms ease,
         transform 130ms ease,
         filter 130ms ease;
+    }
+
+    .grip {
+      all: initial;
+      box-sizing: border-box;
+      display: inline-grid;
+      width: 16px;
+      height: 32px;
+      place-items: center;
+      border-radius: 999px;
+      color: rgba(226, 232, 240, 0.95);
+      cursor: grab;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .grip::before {
+      content: "";
+      display: block;
+      width: 8px;
+      height: 18px;
+      background:
+        radial-gradient(currentColor 1.4px, transparent 1.7px) 0 0 / 4px 6px;
+      opacity: 0.9;
+    }
+
+    .grip:hover,
+    .grip:focus-visible {
+      background: rgba(15, 23, 42, 0.28);
+      outline: none;
+    }
+
+    :host([dragging]) .grip {
+      cursor: grabbing;
     }
 
     .toggle,
@@ -98,12 +147,41 @@ export class SxOverlayRoot extends LitElement {
 
     :host([collapsed]) .collapsed {
       display: flex;
+      align-items: center;
+      gap: 6px;
       justify-content: flex-end;
       animation: sx-overlay-pop 140ms ease-out both;
     }
 
+    :host([collapsed]) .grip {
+      height: 36px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.2);
+    }
+
     :host([collapsed]) ::slotted(sx-overlay-capture-menu) {
       display: none !important;
+    }
+
+    :host([edge="left"]) ::slotted(sx-overlay-capture-menu) {
+      right: auto !important;
+      left: 0 !important;
+    }
+
+    :host([edge="right"]) ::slotted(sx-overlay-capture-menu) {
+      right: 0 !important;
+      left: auto !important;
+    }
+
+    :host([vertical-edge="top"]) ::slotted(sx-overlay-capture-menu) {
+      top: 50px !important;
+      bottom: auto !important;
+    }
+
+    :host([vertical-edge="bottom"]) ::slotted(sx-overlay-capture-menu) {
+      top: auto !important;
+      bottom: 50px !important;
     }
 
     @keyframes sx-overlay-pop {
@@ -118,6 +196,21 @@ export class SxOverlayRoot extends LitElement {
     }
   `;
 
+  connectedCallback(): void {
+    super.connectedCallback();
+    window.addEventListener("resize", this.handleResize);
+  }
+
+  disconnectedCallback(): void {
+    window.removeEventListener("resize", this.handleResize);
+    this.stopDrag();
+    super.disconnectedCallback();
+  }
+
+  protected firstUpdated(): void {
+    this.restorePosition();
+  }
+
   private setCollapsed(nextCollapsed: boolean): void {
     if (this.collapsed === nextCollapsed) {
       return;
@@ -130,6 +223,163 @@ export class SxOverlayRoot extends LitElement {
         composed: true,
       }),
     );
+  }
+
+  private handleResize = (): void => {
+    const rect = this.getBoundingClientRect();
+    if (!this.hasInlinePosition()) {
+      this.updateEdges(rect.left, rect.top, rect.width, rect.height);
+      return;
+    }
+    this.applyPosition(rect.left, rect.top, false);
+  };
+
+  private hasInlinePosition(): boolean {
+    return this.style.left !== "" && this.style.top !== "";
+  }
+
+  private restorePosition(): void {
+    try {
+      const rawPosition = window.localStorage.getItem(POSITION_STORAGE_KEY);
+      if (!rawPosition) {
+        const rect = this.getBoundingClientRect();
+        this.updateEdges(rect.left, rect.top, rect.width, rect.height);
+        return;
+      }
+      const position = JSON.parse(rawPosition) as {
+        left?: unknown;
+        top?: unknown;
+      };
+      if (
+        typeof position.left !== "number" ||
+        typeof position.top !== "number"
+      ) {
+        return;
+      }
+      this.applyPosition(position.left, position.top, false);
+    } catch (_error) {
+      const rect = this.getBoundingClientRect();
+      this.updateEdges(rect.left, rect.top, rect.width, rect.height);
+    }
+  }
+
+  private startDrag = (event: PointerEvent): void => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = this.getBoundingClientRect();
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
+    this.dragState = {
+      height: rect.height,
+      pointerId: event.pointerId,
+      startLeft: rect.left,
+      startTop: rect.top,
+      startX: event.clientX,
+      startY: event.clientY,
+      width: rect.width,
+    };
+    this.style.left = `${rect.left}px`;
+    this.style.top = `${rect.top}px`;
+    this.style.right = "auto";
+    this.style.bottom = "auto";
+    this.toggleAttribute("dragging", true);
+    window.addEventListener("pointermove", this.handleDragMove);
+    window.addEventListener("pointerup", this.handleDragEnd);
+    window.addEventListener("pointercancel", this.handleDragEnd);
+  };
+
+  private handleDragMove = (event: PointerEvent): void => {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) {
+      return;
+    }
+    const nextLeft =
+      this.dragState.startLeft + event.clientX - this.dragState.startX;
+    const nextTop =
+      this.dragState.startTop + event.clientY - this.dragState.startY;
+    this.applyPosition(nextLeft, nextTop, false);
+  };
+
+  private handleDragEnd = (event: PointerEvent): void => {
+    if (this.dragState && event.pointerId !== this.dragState.pointerId) {
+      return;
+    }
+    this.persistPosition();
+    this.stopDrag();
+  };
+
+  private stopDrag(): void {
+    this.dragState = null;
+    this.toggleAttribute("dragging", false);
+    window.removeEventListener("pointermove", this.handleDragMove);
+    window.removeEventListener("pointerup", this.handleDragEnd);
+    window.removeEventListener("pointercancel", this.handleDragEnd);
+  }
+
+  private applyPosition(left: number, top: number, persist: boolean): void {
+    const rect = this.getBoundingClientRect();
+    const width = rect.width || this.dragState?.width || 42;
+    const height = rect.height || this.dragState?.height || 36;
+    const position = this.clampPosition(left, top, width, height);
+    this.style.left = `${position.left}px`;
+    this.style.top = `${position.top}px`;
+    this.style.right = "auto";
+    this.style.bottom = "auto";
+    this.updateEdges(position.left, position.top, width, height);
+    if (persist) {
+      this.persistPosition();
+    }
+  }
+
+  private clampPosition(
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): { left: number; top: number } {
+    const margin = 8;
+    const viewportWidth =
+      window.innerWidth || document.documentElement.clientWidth || width;
+    const viewportHeight =
+      window.innerHeight || document.documentElement.clientHeight || height;
+    const maxLeft = Math.max(margin, viewportWidth - width - margin);
+    const maxTop = Math.max(margin, viewportHeight - height - margin);
+    return {
+      left: Math.min(Math.max(margin, left), maxLeft),
+      top: Math.min(Math.max(margin, top), maxTop),
+    };
+  }
+
+  private updateEdges(
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void {
+    const viewportWidth =
+      window.innerWidth || document.documentElement.clientWidth || width;
+    const viewportHeight =
+      window.innerHeight || document.documentElement.clientHeight || height;
+    this.setAttribute(
+      "edge",
+      left + width / 2 < viewportWidth / 2 ? "left" : "right",
+    );
+    this.setAttribute(
+      "vertical-edge",
+      top + height / 2 < viewportHeight / 2 ? "top" : "bottom",
+    );
+  }
+
+  private persistPosition(): void {
+    const rect = this.getBoundingClientRect();
+    try {
+      window.localStorage.setItem(
+        POSITION_STORAGE_KEY,
+        JSON.stringify({ left: Math.round(rect.left), top: Math.round(rect.top) }),
+      );
+    } catch (_error) {}
   }
 
   private action(selector: string): OverlayActionElement | null {
@@ -202,6 +452,14 @@ export class SxOverlayRoot extends LitElement {
   render() {
     return html`
       <div class="toolbar" data-synthesix-overlay-toolbar>
+        <button
+          class="grip"
+          type="button"
+          title="Drag Synthesix overlay"
+          aria-label="Drag Synthesix overlay"
+          data-synthesix-overlay-drag-handle
+          @pointerdown=${this.startDrag}
+        ></button>
         <slot name="toolbar"></slot>
         <button
           class="toggle"
@@ -215,6 +473,14 @@ export class SxOverlayRoot extends LitElement {
         </button>
       </div>
       <div class="collapsed" data-synthesix-overlay-collapsed>
+        <button
+          class="grip"
+          type="button"
+          title="Drag Synthesix overlay"
+          aria-label="Drag Synthesix overlay"
+          data-synthesix-overlay-drag-handle
+          @pointerdown=${this.startDrag}
+        ></button>
         <button
           class="collapsed-toggle"
           type="button"

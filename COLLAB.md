@@ -3,7 +3,8 @@
 Deux agents travaillent sur cette branche : **Claude** et **Codex**. Ce document
 est la **source de vérité** pour ne pas se marcher dessus. Lis-le en entier avant
 de coder. Complète `AGENTS.md` (règles générales) et `docs/UX_REDESIGN.md`
-(design system).
+(design system). Pour la suite opérationnelle de la refonte après le Palier 1,
+lis aussi `docs/CODEX_CLAUDE_WORKPLAN.md`.
 
 ## 1. But & décisions verrouillées
 

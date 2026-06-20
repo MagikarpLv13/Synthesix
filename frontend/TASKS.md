@@ -108,3 +108,8 @@ Détails dans `../COLLAB.md`.
   complète et `git diff --check` OK. ⚠️ Smoke navigateur intégré non réalisé :
   la policy Browser a bloqué l'URL `file://` de la démo ; à refaire via CDP live
   sur une vraie page pilotée par `python main.py`.
+- (Codex) Tâche 1 — ajustement UX post-validation : `<sx-overlay-root>` devient
+  déplaçable par un grip visible en mode ouvert et collapsed. La position est
+  bornée au viewport et persistée (`synthesix:external-overlay-position`) ; le
+  menu de capture s'aligne automatiquement selon le bord gauche/droit et
+  haut/bas pour ne pas sortir de l'écran.
