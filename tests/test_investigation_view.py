@@ -535,6 +535,37 @@ class InvestigationViewTestCase(unittest.TestCase):
         goto = panel.xpath(".//*[@data-inspector-goto='result-123']")
         self.assertEqual(len(goto), 1)
 
+    def test_entities_are_compact_rows_with_management_card_in_rail(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        # Compact, clickable row in the main-column entity list.
+        rows = tree.xpath(
+            "//*[contains(@class, 'graph-entity-list')]"
+            "//button[@data-entity-select='graph-entity-123']"
+        )
+        self.assertEqual(len(rows), 1)
+        # Full management card lives (hidden) in the rail inspector.
+        cards = tree.xpath(
+            "//aside[contains(@class, 'workspace__rail')]"
+            "//article[@data-inspector-entity='graph-entity-123']"
+        )
+        self.assertEqual(len(cards), 1)
+        self.assertIsNotNone(cards[0].get("hidden"))
+        # Management controls stay inside the card so CDP bindings hold.
+        self.assertEqual(
+            len(cards[0].xpath(".//*[contains(@class, 'save-graph-entity')]")),
+            1,
+        )
+
     def test_hides_raw_archive_text_source_in_entity_summary(self):
         workspace = workspace_payload()
         workspace["entities"][0]["source_field"] = "archive_text:capture-123"

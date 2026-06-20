@@ -672,7 +672,7 @@ def _graph_entities_markup(
         )
         cards.append(
             f"""
-            <article class="graph-entity-card" data-graph-entity-id="{_html(entity_id)}">
+            <article class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
                 <div class="graph-entity-heading">
                     <div>
                         <h4>{_html(entity.get("label", ""))}</h4>
@@ -761,17 +761,52 @@ def _graph_entities_markup(
             </article>
             """
         )
-    empty = (
-        ""
-        if cards
-        else """
+    return "".join(cards)
+
+
+def _entity_rows_markup(
+    graph_entities: list[Mapping],
+    *,
+    read_only: bool,
+) -> str:
+    """Compact, clickable entity list for the main column.
+
+    Each row selects the matching ``.graph-entity-card`` management panel
+    rendered (hidden) in the workspace rail.
+    """
+    if not graph_entities:
+        return """
             <p class="session-note">
                 No investigation entity yet. Create the person, company, place,
                 event, or other element that should appear in the final graph.
             </p>
         """
-    )
-    return empty + "".join(cards)
+    rows = []
+    for entity in graph_entities:
+        entity_id = str(entity.get("id", "") or "")
+        properties = entity.get("properties", {})
+        property_count = len(properties) if isinstance(properties, Mapping) else 0
+        source_count = sum(
+            1 for _ in entity.get("linked_result_ids", []) or []
+        )
+        tags = entity.get("tags", []) or []
+        tag_markup = "".join(
+            f'<span class="result-tag">{_html(tag)}</span>' for tag in tags
+        )
+        rows.append(
+            f"""
+            <button
+                type="button"
+                class="entity-row"
+                data-entity-select="{_html(entity_id)}"
+            >
+                <span class="entity-row__label">{_html(entity.get("label", ""))}</span>
+                <span class="entity-row__tags">{tag_markup}</span>
+                <span class="entity-row__meta">{property_count} prop · {source_count} src</span>
+            </button>
+            """
+        )
+    return "".join(rows)
 
 
 def _url_analysis_markup(
@@ -1738,6 +1773,12 @@ def generate_investigation_page(
         for result in results
     )
 
+    entity_inspector_cards = _graph_entities_markup(
+        graph_entities,
+        results_by_id,
+        read_only=read_only,
+    )
+
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1847,9 +1888,8 @@ def generate_investigation_page(
                 >Create entity</button>
             </form>
             <div class="graph-entity-list">
-                {_graph_entities_markup(
+                {_entity_rows_markup(
                     graph_entities,
-                    results_by_id,
                     read_only=read_only,
                 )}
             </div>
@@ -2076,8 +2116,9 @@ def generate_investigation_page(
                 </div>
                 <div class="rail-section" id="inspector-detail">
                     <p class="rail-section__title">Inspector</p>
-                    <p class="inspector-empty" data-inspector-empty>Select a saved page to inspect it here.</p>
+                    <p class="inspector-empty" data-inspector-empty>Select a saved page or entity to inspect it here.</p>
                     {inspector_panels}
+                    {entity_inspector_cards}
                 </div>
             </div>
         </aside>
@@ -2746,29 +2787,39 @@ def generate_investigation_page(
             const inspectorEmpty = inspectorDetail
                 ? inspectorDetail.querySelector("[data-inspector-empty]")
                 : null;
-            const inspectorPanels = inspectorDetail
+            const inspectorPagePanels = inspectorDetail
                 ? Array.from(
                     inspectorDetail.querySelectorAll("[data-inspector-panel]")
                 )
                 : [];
-            const selectInspector = (resultId) => {{
-                let matched = false;
-                inspectorPanels.forEach((panel) => {{
-                    const isMatch = panel.dataset.inspectorPanel === resultId;
-                    panel.hidden = !isMatch;
-                    if (isMatch) {{
-                        matched = true;
-                    }}
+            const inspectorEntityPanels = inspectorDetail
+                ? Array.from(
+                    inspectorDetail.querySelectorAll("[data-inspector-entity]")
+                )
+                : [];
+            const entityRows = Array.from(
+                document.querySelectorAll("[data-entity-select]")
+            );
+            const hideInspectorPanels = () => {{
+                inspectorPagePanels.forEach((panel) => {{
+                    panel.hidden = true;
                 }});
+                inspectorEntityPanels.forEach((panel) => {{
+                    panel.hidden = true;
+                }});
+            }};
+            const clearInspectorSelection = () => {{
+                resultCards.forEach((card) => {{
+                    card.classList.remove("is-inspected");
+                }});
+                entityRows.forEach((row) => {{
+                    row.classList.remove("is-inspected");
+                }});
+            }};
+            const revealInspector = (matched) => {{
                 if (inspectorEmpty) {{
                     inspectorEmpty.hidden = matched;
                 }}
-                resultCards.forEach((card) => {{
-                    card.classList.toggle(
-                        "is-inspected",
-                        matched && card.dataset.resultId === resultId
-                    );
-                }});
                 if (
                     matched
                     && workspace
@@ -2776,6 +2827,44 @@ def generate_investigation_page(
                 ) {{
                     setRailCollapsed(false);
                 }}
+            }};
+            const selectInspectorPage = (resultId) => {{
+                hideInspectorPanels();
+                clearInspectorSelection();
+                let matched = false;
+                inspectorPagePanels.forEach((panel) => {{
+                    if (panel.dataset.inspectorPanel === resultId) {{
+                        panel.hidden = false;
+                        matched = true;
+                    }}
+                }});
+                if (matched) {{
+                    resultCards.forEach((card) => {{
+                        if (card.dataset.resultId === resultId) {{
+                            card.classList.add("is-inspected");
+                        }}
+                    }});
+                }}
+                revealInspector(matched);
+            }};
+            const selectInspectorEntity = (entityId) => {{
+                hideInspectorPanels();
+                clearInspectorSelection();
+                let matched = false;
+                inspectorEntityPanels.forEach((panel) => {{
+                    if (panel.dataset.inspectorEntity === entityId) {{
+                        panel.hidden = false;
+                        matched = true;
+                    }}
+                }});
+                if (matched) {{
+                    entityRows.forEach((row) => {{
+                        if (row.dataset.entitySelect === entityId) {{
+                            row.classList.add("is-inspected");
+                        }}
+                    }});
+                }}
+                revealInspector(matched);
             }};
             resultCards.forEach((card) => {{
                 const heading = card.querySelector(".result-heading");
@@ -2788,8 +2877,14 @@ def generate_investigation_page(
                     )) {{
                         return;
                     }}
-                    selectInspector(card.dataset.resultId);
+                    selectInspectorPage(card.dataset.resultId);
                 }});
+            }});
+            entityRows.forEach((row) => {{
+                row.addEventListener(
+                    "click",
+                    () => selectInspectorEntity(row.dataset.entitySelect)
+                );
             }});
             if (inspectorDetail) {{
                 inspectorDetail.addEventListener("click", (event) => {{

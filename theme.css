@@ -1061,6 +1061,79 @@ a:focus-visible {
     box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.entity-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "label meta" "tags meta";
+    gap: 2px 10px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--secondary);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+}
+
+.entity-row:hover {
+    border-color: var(--accent);
+}
+
+.entity-row:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+}
+
+.entity-row.is-inspected {
+    border-left-color: var(--accent);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.entity-row__label {
+    grid-area: label;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.entity-row__tags {
+    grid-area: tags;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.entity-row__tags:empty {
+    display: none;
+}
+
+.entity-row__meta {
+    grid-area: meta;
+    align-self: center;
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.inspector-entity {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.inspector-entity .graph-entity-columns {
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.inspector-entity .graph-property-form {
+    grid-template-columns: 1fr;
+}
+
 @media (max-width: 1024px) {
     .workspace,
     .workspace[data-rail-collapsed="true"] {

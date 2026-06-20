@@ -32,6 +32,22 @@ Détails dans `../COLLAB.md`.
   (222), `git diff --check`, smoke headless (défaut / rail élargi 560px). ⏳
   Pas 2 : clic entité → gestion dans le rail. Pas 3 : cartes compactes, champs
   vides masqués, actions icônes.
+- (Claude) Lot 9 — **pas 2 : clic entité → gestion dans le rail** (à la
+  zeroneurone). Les `.graph-entity-card` (gestion complète : nom/tags/notes,
+  propriétés +/−, sources, « Manage entity ») sont **déplacées dans le rail**
+  (cachées, `hidden` + `data-inspector-entity`), et la colonne principale
+  affiche une **liste compacte cliquable** (`_entity_rows_markup` : label + tags
+  + « N prop · M src »). Clic sur une ligne → la carte de gestion correspondante
+  s'affiche dans l'Inspector. **Astuce clé** : les bindings JS existants ciblent
+  `.graph-entity-card` + `card.querySelector(...)` → ils fonctionnent quel que
+  soit l'emplacement de la carte ⇒ **zéro contrat CDP touché** (update/delete/
+  set/delete property intacts). Sélection unifiée pages+entités (mutuellement
+  exclusives, `hideInspectorPanels` + `.is-inspected`). CSS : `.entity-row`
+  (grille label/tags/meta), `.inspector-entity` sans bordure + colonnes
+  empilées dans le rail. Test `test_entities_are_compact_rows_with_management_card_in_rail`.
+  Validé : `unittest discover` (223), `git diff --check`, smoke headless (entité
+  sélectionnée rail 520px : gestion complète OK ; page sélectionnée). ⏳ Pas 3 :
+  champs vides masqués + actions en icônes.
 
 ## Palier 1.5 — Intégration
 
