@@ -123,7 +123,7 @@ export class SxResultCard extends LitElement {
       min-width: 0;
       overflow: hidden;
       color: var(--muted, #64748b);
-      font-size: 10px;
+      font-size: 12px;
       line-height: 1.3;
       white-space: nowrap;
       text-overflow: ellipsis;
