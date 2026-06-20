@@ -19,6 +19,7 @@ Détails dans `../COLLAB.md`.
 | # | Tâche | Fichier(s) cible(s) | Agent | Statut |
 |---|---|---|---|---|
 | 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | done |
+| 8 | Workspace investigation 2 zones + panel droit rétractable | `investigations/view.py`, `ui.py`, `theme.css`, `frontend/src/components/sx-inspector.ts` | Claude | in progress |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
@@ -174,6 +175,17 @@ Détails dans `../COLLAB.md`.
   `--focus` au clavier). Chemin rendu = `score_badge` light-DOM (pas le composant
   `sx-score`, démo-only) → **pas de rebuild bundle**. Validé : `test_utils`,
   `unittest discover` (221), `git diff --check`.
+- (Claude) Lot 8 — **pas 1 : densification** (CSS only, sans risque contrat JS) :
+  l'espacement de la vue investigation est resserré — `.investigation-topbar`
+  margin 34→20px, `.investigation-nav` margin 28→16px / padding 8→6px,
+  `.investigation-overview` gap 32→24px / padding-bottom 28→18px,
+  `.investigation-section` padding 30→18px. But : « la vue principale respire
+  moins » (critère d'acceptation Lot B). Validé : `test_investigation_view` (7),
+  `unittest discover` (221), `git diff --check`, rendu réel via
+  `workspace_payload`. ⏳ **Reste** (pas 2+) : coquille 2 zones (contenu gauche +
+  rail droit borné), panel rétractable (collapse + persistance), clic sur un
+  élément → détail dans le panel, nav clavier. Ces pas touchent le DOM/JS de
+  `view.py` → smoke visuel requis (§7).
 - (Claude) Lot 7 — peaufinage infobulle score (retour utilisateur) : (1) chaque
   point `+X.X` est désormais **coloré et en gras** selon son poids
   (`utils.py` → `<span class="score__pts score__pts--{strong≥4|good≥2|low}">`,
