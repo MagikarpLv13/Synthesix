@@ -1,5 +1,5 @@
 import { LitElement, html, css, unsafeCSS } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import { tokensCss } from "../tokens";
 
 type OverlayActionElement = HTMLElement & {
@@ -11,6 +11,9 @@ type OverlayActionElement = HTMLElement & {
 };
 
 const POSITION_STORAGE_KEY = "synthesix:external-overlay-position";
+const VIEWPORT_MARGIN = 16;
+const FLOATING_MENU_WIDTH = 200;
+const FLOATING_MENU_HEIGHT = 170;
 
 interface DragState {
   height: number;
@@ -26,6 +29,12 @@ interface DragState {
 export class SxOverlayRoot extends LitElement {
   @property({ type: Boolean, reflect: true })
   collapsed = false;
+
+  @state()
+  private horizontalEdge: "left" | "right" = "right";
+
+  @state()
+  private verticalEdge: "top" | "bottom" = "bottom";
 
   private dragState: DragState | null = null;
 
@@ -57,6 +66,10 @@ export class SxOverlayRoot extends LitElement {
         opacity 130ms ease,
         transform 130ms ease,
         filter 130ms ease;
+    }
+
+    :host([edge="left"]) .toolbar .grip {
+      order: 10;
     }
 
     .grip {
@@ -148,12 +161,26 @@ export class SxOverlayRoot extends LitElement {
     :host([collapsed]) .collapsed {
       display: flex;
       align-items: center;
+      flex-direction: column;
       gap: 6px;
       justify-content: flex-end;
       animation: sx-overlay-pop 140ms ease-out both;
     }
 
+    :host([collapsed][vertical-edge="top"]) .collapsed {
+      flex-direction: column-reverse;
+    }
+
+    :host([collapsed][edge="left"]) .collapsed {
+      align-items: flex-start;
+    }
+
+    :host([collapsed][edge="right"]) .collapsed {
+      align-items: flex-end;
+    }
+
     :host([collapsed]) .grip {
+      width: 42px;
       height: 36px;
       background: rgba(15, 23, 42, 0.92);
       border: 1px solid rgba(148, 163, 184, 0.45);
@@ -164,22 +191,22 @@ export class SxOverlayRoot extends LitElement {
       display: none !important;
     }
 
-    :host([edge="left"]) ::slotted(sx-overlay-capture-menu) {
+    :host([menu-edge="left"]) ::slotted(sx-overlay-capture-menu) {
       right: auto !important;
       left: 0 !important;
     }
 
-    :host([edge="right"]) ::slotted(sx-overlay-capture-menu) {
+    :host([menu-edge="right"]) ::slotted(sx-overlay-capture-menu) {
       right: 0 !important;
       left: auto !important;
     }
 
-    :host([vertical-edge="top"]) ::slotted(sx-overlay-capture-menu) {
+    :host([menu-vertical-edge="top"]) ::slotted(sx-overlay-capture-menu) {
       top: 50px !important;
       bottom: auto !important;
     }
 
-    :host([vertical-edge="bottom"]) ::slotted(sx-overlay-capture-menu) {
+    :host([menu-vertical-edge="bottom"]) ::slotted(sx-overlay-capture-menu) {
       top: auto !important;
       bottom: 50px !important;
     }
@@ -215,6 +242,11 @@ export class SxOverlayRoot extends LitElement {
     if (this.collapsed === nextCollapsed) {
       return;
     }
+    const previousRect = this.getBoundingClientRect();
+    const anchorRight = previousRect.right;
+    const anchorBottom = previousRect.bottom;
+    const previousHorizontalEdge = this.horizontalEdge;
+    const previousVerticalEdge = this.verticalEdge;
     this.collapsed = nextCollapsed;
     this.dispatchEvent(
       new CustomEvent("synthesix-overlay-toggle", {
@@ -223,6 +255,18 @@ export class SxOverlayRoot extends LitElement {
         composed: true,
       }),
     );
+    void this.updateComplete.then(() => {
+      const nextRect = this.getBoundingClientRect();
+      const nextLeft =
+        previousHorizontalEdge === "right"
+          ? anchorRight - nextRect.width
+          : previousRect.left;
+      const nextTop =
+        previousVerticalEdge === "bottom"
+          ? anchorBottom - nextRect.height
+          : previousRect.top;
+      this.applyPosition(nextLeft, nextTop, true);
+    });
   }
 
   private handleResize = (): void => {
@@ -339,16 +383,15 @@ export class SxOverlayRoot extends LitElement {
     width: number,
     height: number,
   ): { left: number; top: number } {
-    const margin = 8;
     const viewportWidth =
       window.innerWidth || document.documentElement.clientWidth || width;
     const viewportHeight =
       window.innerHeight || document.documentElement.clientHeight || height;
-    const maxLeft = Math.max(margin, viewportWidth - width - margin);
-    const maxTop = Math.max(margin, viewportHeight - height - margin);
+    const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
+    const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN);
     return {
-      left: Math.min(Math.max(margin, left), maxLeft),
-      top: Math.min(Math.max(margin, top), maxTop),
+      left: Math.min(Math.max(VIEWPORT_MARGIN, left), maxLeft),
+      top: Math.min(Math.max(VIEWPORT_MARGIN, top), maxTop),
     };
   }
 
@@ -362,14 +405,36 @@ export class SxOverlayRoot extends LitElement {
       window.innerWidth || document.documentElement.clientWidth || width;
     const viewportHeight =
       window.innerHeight || document.documentElement.clientHeight || height;
-    this.setAttribute(
-      "edge",
-      left + width / 2 < viewportWidth / 2 ? "left" : "right",
-    );
-    this.setAttribute(
-      "vertical-edge",
-      top + height / 2 < viewportHeight / 2 ? "top" : "bottom",
-    );
+    const roomRight = viewportWidth - left;
+    const roomLeft = left + width;
+    const roomBelow = viewportHeight - top;
+    const roomAbove = top + height;
+    const nextHorizontalEdge =
+      left + width / 2 < viewportWidth / 2 ? "left" : "right";
+    const nextVerticalEdge =
+      top + height / 2 < viewportHeight / 2 ? "top" : "bottom";
+    const nextMenuEdge =
+      roomRight >= FLOATING_MENU_WIDTH + VIEWPORT_MARGIN
+        ? "left"
+        : roomLeft >= FLOATING_MENU_WIDTH + VIEWPORT_MARGIN
+          ? "right"
+          : roomRight >= roomLeft
+            ? "left"
+            : "right";
+    const nextMenuVerticalEdge =
+      roomBelow >= FLOATING_MENU_HEIGHT + VIEWPORT_MARGIN
+        ? "top"
+        : roomAbove >= FLOATING_MENU_HEIGHT + VIEWPORT_MARGIN
+          ? "bottom"
+          : roomBelow >= roomAbove
+            ? "top"
+            : "bottom";
+    this.horizontalEdge = nextHorizontalEdge;
+    this.verticalEdge = nextVerticalEdge;
+    this.setAttribute("edge", nextHorizontalEdge);
+    this.setAttribute("vertical-edge", nextVerticalEdge);
+    this.setAttribute("menu-edge", nextMenuEdge);
+    this.setAttribute("menu-vertical-edge", nextMenuVerticalEdge);
   }
 
   private persistPosition(): void {
@@ -469,7 +534,7 @@ export class SxOverlayRoot extends LitElement {
           data-synthesix-overlay-collapse
           @click=${() => this.setCollapsed(true)}
         >
-          &rsaquo;
+          ${this.horizontalEdge === "left" ? html`&lsaquo;` : html`&rsaquo;`}
         </button>
       </div>
       <div class="collapsed" data-synthesix-overlay-collapsed>

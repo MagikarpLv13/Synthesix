@@ -113,3 +113,9 @@ Détails dans `../COLLAB.md`.
   bornée au viewport et persistée (`synthesix:external-overlay-position`) ; le
   menu de capture s'aligne automatiquement selon le bord gauche/droit et
   haut/bas pour ne pas sortir de l'écran.
+- (Codex) Tâche 1 — ajustement placement : à l'ouverture depuis l'état collapsed,
+  le root conserve son bord d'ancrage et recalcule sa position avec une marge de
+  sécurité. La flèche de repli et la poignée suivent les bords gauche/droit et
+  haut/bas pour éviter les contrôles hors écran. L'orientation du menu de
+  capture est calculée séparément (`menu-edge` / `menu-vertical-edge`) selon
+  l'espace réellement disponible avant ouverture.

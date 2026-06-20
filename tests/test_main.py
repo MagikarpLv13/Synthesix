@@ -549,6 +549,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("synthesix-overlay-toggle", tab.script)
         self.assertIn("synthesix:external-overlay-collapsed", tab.script)
         self.assertIn("synthesix:external-overlay-position", tab.script)
+        self.assertIn("menu-edge", tab.script)
         self.assertIn("host.__synthesixSaveButton", tab.script)
         self.assertIn("Case One", tab.script)
         self.assertIn("Save page", tab.script)
