@@ -18,9 +18,11 @@ Commit the generated `assets/*.js` bundles together with their source so
 
 ## Where the bundles are consumed
 
-- `assets/synthesix-ui.js` — ESM bundle of `<sx-*>` components. Load from a page
-  with `<script type="module" src="{asset_prefix}assets/synthesix-ui.js">`, then
-  use `<sx-chip>` etc. in markup (Python `ui.py` / `index.html`).
+- `assets/synthesix-ui.js` — IIFE bundle of `<sx-*>` components. Load from a page
+  with a classic `<script src="{asset_prefix}assets/synthesix-ui.js">` (NOT
+  `type="module"`: ES modules are CORS-blocked on `file://` pages, so the custom
+  elements would never upgrade). `ui.render_page` already injects it; then use
+  `<sx-chip>` etc. in markup (Python `ui.py`).
 - `assets/synthesix-overlay.js` — IIFE bundle read and injected by `main.py` into
   third-party pages via CDP (replaces the inline overlay over time).
 

@@ -1,7 +1,9 @@
 // Build the Synthesix UI bundles with esbuild.
 // Outputs are committed to ../assets so `python main.py` runs without Node:
-//   assets/synthesix-ui.js       app components (ESM, loaded via <script type=module>)
+//   assets/synthesix-ui.js       app components (IIFE, loaded via classic <script>)
 //   assets/synthesix-overlay.js  overlay (IIFE, injected into third-party pages by main.py)
+// Both are IIFE so they load over file:// without --allow-file-access-from-files
+// (ES modules are CORS-blocked on file:// pages).
 import { build, context } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +26,7 @@ const configs = [
     ...common,
     entryPoints: [resolve(root, "src/index.ts")],
     outfile: resolve(assets, "synthesix-ui.js"),
-    format: "esm",
+    format: "iife",
   },
   {
     ...common,

@@ -335,7 +335,7 @@ def render_page(*, title: str, asset_prefix: str, body: str, lang: str = "en",
     <link rel="stylesheet" href="{esc(asset_prefix)}theme.css">
     <script src="{esc(asset_prefix)}theme.js"></script>
     <script src="{esc(asset_prefix)}i18n.js"></script>
-    <script type="module" src="{esc(asset_prefix)}assets/synthesix-ui.js"></script>
+    <script src="{esc(asset_prefix)}assets/synthesix-ui.js"></script>
     {extra_head}
 </head>
 <body>

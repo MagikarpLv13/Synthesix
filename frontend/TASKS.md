@@ -155,3 +155,11 @@ Détails dans `../COLLAB.md`.
   `highlight` ; breadcrumb construit côté `ui.py` (urlsplit) → `_result_breadcrumb`
   retiré de `utils.py`. Validé : typecheck, build, `unittest discover` (221),
   diff-check, capture rapport (clair/sombre).
+- (Claude) **Fix file:// crucial** : le bundle app `synthesix-ui.js` passe de
+  **ESM → IIFE** (`build.mjs`) et `ui.render_page` le charge en `<script>`
+  classique (plus `type="module"`). Les modules ES sont bloqués par CORS sur les
+  pages `file://` (sans `--allow-file-access-from-files`), donc les `<sx-*>` ne
+  s'upgradaient pas dans l'app réelle (rendu en vrac). La capture headless le
+  masquait (j'avais le flag). Vérifié headless **sans** le flag → SERP OK.
+  ⚠️ Tout futur bundle app destiné aux pages `file://` doit rester **IIFE +
+  script classique** (comme l'overlay).
