@@ -958,7 +958,29 @@ a:focus-visible {
 .inspector-head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     margin-bottom: 2px;
+}
+
+.save-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--success-ink);
+    opacity: 0;
+    transition: opacity 160ms ease;
+    pointer-events: none;
+}
+
+.save-indicator.is-visible {
+    opacity: 1;
+}
+
+.save-indicator .icon {
+    width: 1em;
+    height: 1em;
 }
 
 .inspector-back {
@@ -1009,8 +1031,48 @@ a:focus-visible {
 }
 
 .inspector-entity .graph-property-list li {
-    padding: 3px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 5px 0;
     font-size: 12px;
+}
+
+.graph-property-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.graph-property-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+}
+
+.graph-property-value {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.graph-property-source {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: var(--muted);
+}
+
+.graph-property-source:hover {
+    color: var(--accent);
+}
+
+.graph-property-source .icon {
+    width: 1em;
+    height: 1em;
 }
 
 /* Minimalist, zeroneurone-style property rows. */
@@ -1091,8 +1153,23 @@ a:focus-visible {
 }
 
 .entity-field input,
-.entity-field textarea {
+.entity-field textarea,
+.tag-editor {
     width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.entity-field textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.tag-editor:focus-within {
+    border-color: var(--accent);
 }
 
 .entity-empty {
@@ -1152,6 +1229,14 @@ a:focus-visible {
 .tag-editor__input {
     flex: 1 1 110px;
     min-width: 90px;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+}
+
+.tag-editor__input:focus-visible {
+    box-shadow: none;
 }
 
 .inspector-entity .analyst-fields {

@@ -626,6 +626,35 @@ class InvestigationViewTestCase(unittest.TestCase):
             card.xpath(".//*[@data-graph-property-suggestion]"), []
         )
 
+    def test_property_links_back_to_its_extracted_source(self):
+        workspace = workspace_payload()
+        entity = workspace["graph_entities"][0]
+        entity["properties"] = {"Email": "analyst@example.com"}
+        extracted = workspace["entities"][0]
+        extracted["investigation_entity_id"] = entity["id"]
+        extracted["property_key"] = "Email"
+        extracted["status"] = "validated"
+        extracted["result_id"] = workspace["results"][0]["id"]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        card = tree.xpath(
+            "//article[@data-inspector-entity='graph-entity-123']"
+        )[0]
+        links = card.xpath(
+            ".//a[contains(@class, 'graph-property-source')]/@href"
+        )
+        self.assertEqual(links, [workspace["results"][0]["url"]])
+
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
         workspace["graph_entities"][0]["tags"] = []

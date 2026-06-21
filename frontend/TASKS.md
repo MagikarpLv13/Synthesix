@@ -145,6 +145,22 @@ Détails dans `../COLLAB.md`.
   discover` (227), `git diff --check`, smoke headless (IDENTITÉ en haut, chips +
   add input, propriétés compactes). ⚠️ **Smoke CDP live** : éditer Nom → cliquer
   ailleurs (blur) → persiste sans reload ; ajouter/retirer un tag → persiste.
+- (Claude) Lot 15 — finitions panneau entité (retour utilisateur). (1) **Indicateur
+  de sauvegarde** : « ✓ Enregistré » (`[data-save-indicator]`) flashe dans
+  l'en-tête de l'inspecteur à chaque save (`flashSaved`, 1,5 s). (2) **Suppression
+  de propriété sans reload** : `delete_graph_entity_property` extrait du bloc
+  partagé dans `main.py` (persiste + « Saved. », pas de reload) + retrait
+  optimiste du `<li>` côté frontend. (3) **Styles d'inputs cohérents** : Nom/Notes/
+  Tags reprennent le style standard (`padding/border/bg/radius` comme
+  `.analyst-fields`), tag-editor en conteneur d'input (focus-within). (4)
+  **Valeur de propriété sous la clé** : `<li>` en flex column (`graph-property-head`
+  clé+badge+actions, puis `graph-property-value` en dessous), aligné à gauche.
+  (5) **Lien vers la source par propriété** : icône `external` → la page d'où la
+  propriété a été extraite (map `property_key`→url des entités extraites
+  rattachées, résolue + brute pour robustesse). Test
+  `test_property_links_back_to_its_extracted_source`. Validé : `unittest discover`
+  (228), `git diff --check`, smoke headless (indicateur, valeur dessous, 🔗 source).
+  ⚠️ **Smoke CDP live** : supprimer une propriété → pas de reload.
 
 ## Palier 1.5 — Intégration
 

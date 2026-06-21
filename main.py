@@ -2617,13 +2617,30 @@ async def main():
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
+            if result["action"] == "delete_graph_entity_property":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                entity_id = str(result.get("entityId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.delete_graph_entity_property(
+                        investigation_id,
+                        entity_id,
+                        str(result.get("key", "") or ""),
+                    )
+                    # In-place delete: the row is removed client-side, so skip
+                    # the page reload.
+                    await _set_page_status(source_tab, "Saved.")
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
             if result["action"] in {
                 "create_graph_entity",
                 "create_graph_entity_from_result",
                 "create_graph_entity_from_extracted",
                 "delete_graph_entity",
                 "set_graph_entity_property",
-                "delete_graph_entity_property",
                 "link_result_to_graph_entity",
                 "unlink_result_from_graph_entity",
                 "attach_extracted_property",
@@ -2667,12 +2684,6 @@ async def main():
                             investigation_id,
                             entity_id,
                             result.get("property", {}),
-                        )
-                    elif action == "delete_graph_entity_property":
-                        investigation_service.delete_graph_entity_property(
-                            investigation_id,
-                            entity_id,
-                            str(result.get("key", "") or ""),
                         )
                     elif action == "link_result_to_graph_entity":
                         investigation_service.link_result_to_graph_entity(

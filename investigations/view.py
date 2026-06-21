@@ -95,6 +95,11 @@ _ACTION_ICON_PATHS = {
         '<line x1="19" y1="12" x2="5" y2="12"/>'
         '<polyline points="12 19 5 12 12 5"/>'
     ),
+    "external": (
+        '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
+        '<polyline points="15 3 21 3 21 9"/>'
+        '<line x1="10" y1="14" x2="21" y2="3"/>'
+    ),
 }
 
 
@@ -673,30 +678,68 @@ def _graph_entities_markup(
     graph_entities: list[Mapping],
     results_by_id: Mapping[str, Mapping],
     *,
+    entities: list[Mapping] = (),
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
+    # Map each curated entity's property keys to the saved page they were
+    # extracted from, so a property can link back to its source/proof.
+    sources_by_parent: dict[str, dict[str, str]] = {}
+    for extracted in entities or ():
+        parent_id = str(extracted.get("investigation_entity_id", "") or "")
+        if not parent_id or extracted.get("status") == "rejected":
+            continue
+        result = results_by_id.get(str(extracted.get("result_id", "") or ""))
+        url = str(result.get("url", "") or "") if result else ""
+        if not url.startswith(("http://", "https://")):
+            continue
+        keys = set()
+        resolved = _entity_property_key(extracted)
+        if resolved:
+            keys.add(resolved.casefold())
+        raw_key = str(extracted.get("property_key", "") or "").strip()
+        if raw_key:
+            keys.add(raw_key.casefold())
+        for key in keys:
+            sources_by_parent.setdefault(parent_id, {})[key] = url
     cards = []
     for entity in graph_entities:
         entity_id = str(entity.get("id", "") or "")
         properties = entity.get("properties", {})
         if not isinstance(properties, Mapping):
             properties = {}
+        property_sources = sources_by_parent.get(entity_id, {})
+
+        def _property_source_link(key: str) -> str:
+            url = property_sources.get(str(key).casefold(), "")
+            if not url:
+                return ""
+            return (
+                f'<a class="graph-property-source" href="{_html(url)}" '
+                'target="_blank" rel="noopener noreferrer" '
+                f'title="Open source" aria-label="Open source">{_icon("external")}</a>'
+            )
+
         property_rows = "".join(
             f"""
             <li>
-                <span class="graph-property-key">
-                    <strong>{_html(key)}</strong>{_property_type_badge(key)}
-                </span>
+                <div class="graph-property-head">
+                    <span class="graph-property-key">
+                        <strong>{_html(key)}</strong>{_property_type_badge(key)}
+                    </span>
+                    <span class="graph-property-actions">
+                        {_property_source_link(key)}
+                        <button
+                            type="button"
+                            class="icon-action icon-action--danger delete-graph-property"
+                            data-property-key="{_html(key)}"
+                            title="Remove property"
+                            aria-label="Remove property"
+                            {disabled}
+                        >{_icon("trash")}</button>
+                    </span>
+                </div>
                 <span class="graph-property-value">{_html(value)}</span>
-                <button
-                    type="button"
-                    class="icon-action icon-action--danger delete-graph-property"
-                    data-property-key="{_html(key)}"
-                    title="Remove property"
-                    aria-label="Remove property"
-                    {disabled}
-                >{_icon("trash")}</button>
             </li>
             """
             for key, value in properties.items()
@@ -1796,6 +1839,7 @@ def generate_investigation_page(
     entity_inspector_cards = _graph_entities_markup(
         graph_entities,
         results_by_id,
+        entities=entities,
         read_only=read_only,
     )
 
@@ -2158,6 +2202,12 @@ def generate_investigation_page(
                             class="inspector-back"
                             data-inspector-close
                         >{_icon("arrow-left")} Actions</button>
+                        <span
+                            class="save-indicator"
+                            data-save-indicator
+                            role="status"
+                            aria-live="polite"
+                        >{_icon("check")} Enregistré</span>
                     </div>
                     {inspector_panels}
                     {entity_inspector_cards}
@@ -2319,6 +2369,23 @@ def generate_investigation_page(
                 }}
             );
 
+            const saveIndicator = document.querySelector(
+                "[data-save-indicator]"
+            );
+            let saveIndicatorTimer = null;
+            const flashSaved = () => {{
+                if (!saveIndicator) {{
+                    return;
+                }}
+                saveIndicator.classList.add("is-visible");
+                if (saveIndicatorTimer) {{
+                    clearTimeout(saveIndicatorTimer);
+                }}
+                saveIndicatorTimer = setTimeout(() => {{
+                    saveIndicator.classList.remove("is-visible");
+                }}, 1500);
+            }};
+
             document.querySelectorAll(".graph-entity-card").forEach((card) => {{
                 const entityId = card.dataset.graphEntityId;
                 const chipsHost = card.querySelector("[data-tags-chips]");
@@ -2337,6 +2404,7 @@ def generate_investigation_page(
                         entityId,
                         entity: {{ label, tags, notes }}
                     }});
+                    flashSaved();
                     // Mirror the edit in the compact row without a reload.
                     const row = document.querySelector(
                         `[data-entity-select="${{entityId}}"]`
@@ -2430,6 +2498,8 @@ def generate_investigation_page(
                                 entityId,
                                 key: button.dataset.propertyKey
                             }});
+                            button.closest("li")?.remove();
+                            flashSaved();
                         }});
                     }}
                 );
