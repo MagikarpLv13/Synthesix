@@ -113,6 +113,24 @@ Détails dans `../COLLAB.md`.
   `:not([hidden])`. Test `test_inspector_starts_hidden_with_a_back_control`.
   Validé : `unittest discover` (227), `git diff --check`, smoke headless (entité
   + extraite : Next actions masqué, panel isolé et lisible).
+- (Claude) Lot 13 — **affinage propriétés + sauvegarde sans reload** (retour
+  utilisateur). (1) **Formulaire d'ajout de propriété retiré** (`graph-property-form`
+  + select de suggestions + handlers JS) : l'édition de propriétés est le rôle de
+  zeroneurone ; Synthesix = preuve de l'info. Reste l'affichage des propriétés
+  (+ suppression) et l'édition nom/tags/notes. (2) **Style propriétés minimaliste**
+  (façon zeroneurone) : `.graph-property-list` en **12px**, **badge de type**
+  `.prop-type` (`_property_type_badge` via `zeroneurone_property_type` → « Texte/
+  Nombre/Date/Pays/Lien… »), en-têtes PROPERTIES/SOURCES en petit uppercase muted.
+  (3) **Sauvegarde inline sans reload** : `main.py` — `update_graph_entity`,
+  `update_entity_metadata`, `update_entity_status` **persistent sans
+  `_generate_investigation_page` + `tab.reload()`** (statut « Saved. ») ;
+  `update_graph_entity` extrait du bloc partagé. Frontend : mise à jour
+  **optimiste** (titre h4 du rail + label/tags de la ligne compacte) au Save.
+  Test `test_entity_properties_show_type_badges_without_add_form` (remplace le
+  test de suggestions du Lot 11). Validé : `unittest discover` (227),
+  `git diff --check`, smoke headless (panel sans formulaire d'ajout, badges
+  « Texte »). ⚠️ **Smoke CDP live requis** pour (3) : changer un nom d'entité →
+  Save → pas de reload, valeur persistée.
 
 ## Palier 1.5 — Intégration
 

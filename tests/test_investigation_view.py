@@ -598,7 +598,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             1,
         )
 
-    def test_entity_property_form_suggests_typed_zeroneurone_properties(self):
+    def test_entity_properties_show_type_badges_without_add_form(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
             output_path = base_dir / "investigation.html"
@@ -613,12 +613,14 @@ class InvestigationViewTestCase(unittest.TestCase):
         card = tree.xpath(
             "//article[@data-inspector-entity='graph-entity-123']"
         )[0]
-        # The "Entreprise" tag drives canonical, typed property suggestions.
-        options = card.xpath(
-            ".//select[@data-graph-property-suggestion]/option/text()"
+        # Known property keys carry a small zeroneurone-style type chip.
+        badges = card.xpath(".//*[contains(@class, 'prop-type')]/text()")
+        self.assertIn("Texte", [text.strip() for text in badges])
+        # Property authoring belongs to zeroneurone: no manual add form here.
+        self.assertEqual(card.xpath(".//*[@data-new-property-key]"), [])
+        self.assertEqual(
+            card.xpath(".//*[@data-graph-property-suggestion]"), []
         )
-        self.assertIn("Date de création · date", options)
-        self.assertIn("Capital social · number", options)
 
     def test_entity_card_hides_empty_tags_and_notes(self):
         workspace = workspace_payload()

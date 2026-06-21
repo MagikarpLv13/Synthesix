@@ -1009,7 +1009,47 @@ a:focus-visible {
 }
 
 .inspector-entity .graph-property-list li {
-    padding: 2px 0;
+    padding: 3px 0;
+    font-size: 12px;
+}
+
+/* Minimalist, zeroneurone-style property rows. */
+.graph-property-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.graph-property-key strong {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.graph-property-value {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.prop-type {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+}
+
+.inspector-entity .graph-entity-columns > div > strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
 }
 
 .inspector-entity .analyst-fields {

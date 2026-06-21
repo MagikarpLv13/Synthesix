@@ -2599,11 +2599,28 @@ async def main():
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
+            if result["action"] == "update_graph_entity":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                entity_id = str(result.get("entityId", "") or "").strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation_service.update_graph_entity(
+                        investigation_id,
+                        entity_id,
+                        result.get("entity", {}),
+                    )
+                    # In-place save: the rail keeps the edited values, so skip
+                    # the page reload for a smoother editing flow.
+                    await _set_page_status(source_tab, "Saved.")
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
             if result["action"] in {
                 "create_graph_entity",
                 "create_graph_entity_from_result",
                 "create_graph_entity_from_extracted",
-                "update_graph_entity",
                 "delete_graph_entity",
                 "set_graph_entity_property",
                 "delete_graph_entity_property",
@@ -2638,12 +2655,6 @@ async def main():
                             str(
                                 result.get("extractedEntityId", "") or ""
                             ).strip(),
-                            result.get("entity", {}),
-                        )
-                    elif action == "update_graph_entity":
-                        investigation_service.update_graph_entity(
-                            investigation_id,
-                            entity_id,
                             result.get("entity", {}),
                         )
                     elif action == "delete_graph_entity":
@@ -2779,17 +2790,9 @@ async def main():
                         entity_id,
                         result.get("status", ""),
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # Persist in place; the panel already shows the new value,
+                    # so a full page reload would only disrupt the analyst.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -2805,17 +2808,8 @@ async def main():
                         entity_id,
                         result.get("entity", {}),
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # In-place save: no reload so the analyst keeps their place.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue

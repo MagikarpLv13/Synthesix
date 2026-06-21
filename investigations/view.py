@@ -9,8 +9,29 @@ from urllib.parse import quote
 
 from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSETS,
-    zeroneurone_tagset_suggested_properties,
+    zeroneurone_property_type,
 )
+
+_PROPERTY_TYPE_LABELS = {
+    "text": "Texte",
+    "number": "Nombre",
+    "date": "Date",
+    "datetime": "Date/heure",
+    "boolean": "Booléen",
+    "choice": "Choix",
+    "geo": "Géo",
+    "country": "Pays",
+    "link": "Lien",
+}
+
+
+def _property_type_badge(key: str) -> str:
+    """Small zeroneurone-style type chip for a known property key."""
+    property_type = zeroneurone_property_type(key)
+    if not property_type:
+        return ""
+    label = _PROPERTY_TYPE_LABELS.get(property_type, property_type)
+    return f'<span class="prop-type">{_html(label)}</span>'
 
 
 STATUS_LABELS = {
@@ -664,8 +685,10 @@ def _graph_entities_markup(
         property_rows = "".join(
             f"""
             <li>
-                <strong>{_html(key)}</strong>
-                <span>{_html(value)}</span>
+                <span class="graph-property-key">
+                    <strong>{_html(key)}</strong>{_property_type_badge(key)}
+                </span>
+                <span class="graph-property-value">{_html(value)}</span>
                 <button
                     type="button"
                     class="icon-action icon-action--danger delete-graph-property"
@@ -702,28 +725,6 @@ def _graph_entities_markup(
             if entity_tags
             else ""
         )
-        suggested_property_options = ""
-        seen_property_keys: set[str] = set()
-        for tag in entity_tags:
-            for suggestion in zeroneurone_tagset_suggested_properties(tag):
-                key = str(suggestion.get("key", "") or "")
-                folded = key.casefold()
-                if not key or folded in seen_property_keys:
-                    continue
-                seen_property_keys.add(folded)
-                suggested_property_options += (
-                    f'<option value="{_html(key)}">{_html(key)} · '
-                    f'{_html(suggestion.get("type", "text"))}</option>'
-                )
-        if suggested_property_options:
-            suggested_property_markup = (
-                '<select class="graph-property-suggestion" '
-                f'data-graph-property-suggestion{disabled}>'
-                '<option value="">Suggested property…</option>'
-                f"{suggested_property_options}</select>"
-            )
-        else:
-            suggested_property_markup = ""
         notes_text = str(entity.get("notes", "") or "").strip()
         notes_markup = (
             f'<p class="graph-entity-notes">{_html(notes_text)}</p>'
@@ -795,29 +796,6 @@ def _graph_entities_markup(
                             class="primary-button save-graph-entity"
                             {disabled}
                         >{_icon("check")} Save</button>
-                        {suggested_property_markup}
-                        <div class="graph-property-form">
-                            <input
-                                type="text"
-                                data-new-property-key
-                                maxlength="100"
-                                placeholder="Property name, e.g. SIREN"
-                                {disabled}
-                            >
-                            <input
-                                type="text"
-                                data-new-property-value
-                                maxlength="4000"
-                                placeholder="Value"
-                                {disabled}
-                            >
-                            <button
-                                type="button"
-                                class="secondary-button add-graph-property"
-                                title="Add property"
-                                {disabled}
-                            >{_icon("plus")} Add</button>
-                        </div>
                     </div>
                 </details>
             </article>
@@ -2361,54 +2339,58 @@ def generate_investigation_page(
                 const entityId = card.dataset.graphEntityId;
                 card.querySelector(".save-graph-entity")?.addEventListener(
                     "click",
-                    () => queueAction("update_graph_entity", {{
-                        entityId,
-                        entity: {{
-                            label: card.querySelector(
-                                "[data-graph-entity-label]"
-                            ).value.trim(),
-                            tags: card.querySelector(
-                                "[data-graph-entity-tags]"
-                            ).value.trim(),
-                            notes: card.querySelector(
-                                "[data-graph-entity-notes]"
-                            ).value.trim()
+                    () => {{
+                        const label = card.querySelector(
+                            "[data-graph-entity-label]"
+                        ).value.trim();
+                        const tags = card.querySelector(
+                            "[data-graph-entity-tags]"
+                        ).value.trim();
+                        const notes = card.querySelector(
+                            "[data-graph-entity-notes]"
+                        ).value.trim();
+                        queueAction("update_graph_entity", {{
+                            entityId,
+                            entity: {{ label, tags, notes }}
+                        }});
+                        // Reflect the edit in place (the save does not reload).
+                        const heading = card.querySelector("h4");
+                        if (heading && label) {{
+                            heading.textContent = label;
                         }}
-                    }})
+                        const row = document.querySelector(
+                            `[data-entity-select="${{entityId}}"]`
+                        );
+                        if (row) {{
+                            const rowLabel = row.querySelector(
+                                ".entity-row__label"
+                            );
+                            if (rowLabel && label) {{
+                                rowLabel.textContent = label;
+                            }}
+                            const rowTags = row.querySelector(
+                                ".entity-row__tags"
+                            );
+                            if (rowTags) {{
+                                rowTags.replaceChildren();
+                                tags.split(",").map((t) => t.trim())
+                                    .filter(Boolean).forEach((tag) => {{
+                                        const chip = document.createElement(
+                                            "span"
+                                        );
+                                        chip.className = "result-tag";
+                                        chip.textContent = tag;
+                                        rowTags.appendChild(chip);
+                                    }});
+                            }}
+                        }}
+                    }}
                 );
                 card.querySelector(".delete-graph-entity")?.addEventListener(
                     "click",
                     () => {{
                         if (confirm("Delete this entity from the final graph?")) {{
                             queueAction("delete_graph_entity", {{ entityId }});
-                        }}
-                    }}
-                );
-                card.querySelector("[data-graph-property-suggestion]")
-                    ?.addEventListener("change", (event) => {{
-                        const keyInput = card.querySelector(
-                            "[data-new-property-key]"
-                        );
-                        if (keyInput && event.target.value) {{
-                            keyInput.value = event.target.value;
-                            keyInput.focus();
-                        }}
-                        event.target.value = "";
-                    }});
-                card.querySelector(".add-graph-property")?.addEventListener(
-                    "click",
-                    () => {{
-                        const key = card.querySelector(
-                            "[data-new-property-key]"
-                        ).value.trim();
-                        const value = card.querySelector(
-                            "[data-new-property-value]"
-                        ).value.trim();
-                        if (key && value) {{
-                            queueAction("set_graph_entity_property", {{
-                                entityId,
-                                property: {{ key, value }}
-                            }});
                         }}
                     }}
                 );
