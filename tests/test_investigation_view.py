@@ -557,10 +557,14 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         self.assertEqual(len(cards), 1)
         self.assertIsNotNone(cards[0].get("hidden"))
-        # Management controls stay inside the card so CDP bindings hold.
+        # Editable identity fields live at the top (auto-saved, no Save button).
+        self.assertEqual(
+            len(cards[0].xpath(".//*[@data-graph-entity-label]")),
+            1,
+        )
         self.assertEqual(
             len(cards[0].xpath(".//*[contains(@class, 'save-graph-entity')]")),
-            1,
+            0,
         )
         # Destructive actions are icon buttons, not text labels.
         delete = cards[0].xpath(
@@ -622,11 +626,9 @@ class InvestigationViewTestCase(unittest.TestCase):
             card.xpath(".//*[@data-graph-property-suggestion]"), []
         )
 
-    def test_entity_card_hides_empty_tags_and_notes(self):
+    def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
-        entity = workspace["graph_entities"][0]
-        entity["tags"] = []
-        entity["notes"] = ""
+        workspace["graph_entities"][0]["tags"] = []
 
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -642,9 +644,16 @@ class InvestigationViewTestCase(unittest.TestCase):
         card = tree.xpath(
             "//article[@data-inspector-entity='graph-entity-123']"
         )[0]
-        self.assertFalse(card.xpath(".//*[contains(@class, 'result-tags')]"))
-        self.assertFalse(
-            card.xpath(".//*[contains(@class, 'graph-entity-notes')]")
+        # No tags -> no chips, but the add input (with tagset suggestions) stays.
+        self.assertFalse(card.xpath(".//*[contains(@class, 'tag-chip')]"))
+        self.assertEqual(
+            card.xpath(".//input[@data-tag-input]/@list"),
+            ["entity-tagsets"],
+        )
+        # Notes is an always-editable textarea, not a masked paragraph.
+        self.assertEqual(
+            len(card.xpath(".//textarea[@data-graph-entity-notes]")),
+            1,
         )
 
     def test_hides_raw_archive_text_source_in_entity_summary(self):

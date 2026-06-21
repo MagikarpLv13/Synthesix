@@ -131,6 +131,20 @@ Détails dans `../COLLAB.md`.
   `git diff --check`, smoke headless (panel sans formulaire d'ajout, badges
   « Texte »). ⚠️ **Smoke CDP live requis** pour (3) : changer un nom d'entité →
   Save → pas de reload, valeur persistée.
+- (Claude) Lot 14 — **panneau entité façon zeroneurone IDENTITÉ + auto-save**
+  (retour utilisateur). (1) **Édition en haut** : la carte entité du rail est
+  restructurée en sections `.entity-section` — **IDENTITÉ** d'abord (Nom, Notes,
+  Tags éditables + trash), puis PROPRIÉTÉS, puis SOURCES. Plus de `<details>`
+  « Manage entity » ni de bouton Save. (2) **Auto-save sur blur** : Nom/Notes
+  sauvegardent au `blur`, tags à l'ajout/retrait → `queueAction("update_graph_entity")`
+  (no-reload du Lot 13) + maj optimiste de la ligne compacte. (3) **Éditeur de
+  tags multi** type zeroneurone : chips `.tag-chip` avec `×` + input
+  « Nouveau tag… » (`data-tag-input`, datalist `entity-tagsets` = `ZERONEURONE_TAGSETS`).
+  Tests MAJ (`save-graph-entity` retiré → `data-graph-entity-label` ;
+  `test_entity_tag_editor_renders_chips_and_an_add_input`). Validé : `unittest
+  discover` (227), `git diff --check`, smoke headless (IDENTITÉ en haut, chips +
+  add input, propriétés compactes). ⚠️ **Smoke CDP live** : éditer Nom → cliquer
+  ailleurs (blur) → persiste sans reload ; ajouter/retirer un tag → persiste.
 
 ## Palier 1.5 — Intégration
 

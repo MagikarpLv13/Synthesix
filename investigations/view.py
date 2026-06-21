@@ -715,89 +715,70 @@ def _graph_entities_markup(
             if str(result_id) in results_by_id
         )
         entity_tags = entity.get("tags", []) or []
-        tags_markup = (
-            '<div class="result-tags">'
-            + "".join(
-                f'<span class="result-tag">{_html(tag)}</span>'
-                for tag in entity_tags
-            )
-            + "</div>"
-            if entity_tags
-            else ""
-        )
-        notes_text = str(entity.get("notes", "") or "").strip()
-        notes_markup = (
-            f'<p class="graph-entity-notes">{_html(notes_text)}</p>'
-            if notes_text
-            else ""
+        tag_chips = "".join(
+            f'<span class="tag-chip" data-tag="{_html(tag)}">{_html(tag)}'
+            '<button type="button" class="tag-chip__remove" data-tag-remove '
+            f'aria-label="Remove tag"{disabled}>&times;</button></span>'
+            for tag in entity_tags
         )
         cards.append(
             f"""
             <article class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
-                <div class="graph-entity-heading">
-                    <div>
-                        <h4>{_html(entity.get("label", ""))}</h4>
-                        {tags_markup}
-                    </div>
-                    <button
-                        type="button"
-                        class="icon-action icon-action--danger delete-graph-entity"
-                        title="Delete entity"
-                        aria-label="Delete entity"
-                        {disabled}
-                    >{_icon("trash")}</button>
-                </div>
-                {notes_markup}
-                <div class="graph-entity-columns">
-                    <div>
-                        <strong>Properties</strong>
-                        <ul class="graph-property-list">
-                            {property_rows or "<li>No property yet.</li>"}
-                        </ul>
-                    </div>
-                    <div>
-                        <strong>Sources</strong>
-                        <ul>{source_rows or "<li>No linked source.</li>"}</ul>
-                    </div>
-                </div>
-                <details class="analyst-details">
-                    <summary>Manage entity</summary>
-                    <div class="analyst-fields">
-                        <label>
-                            Name
-                            <input
-                                type="text"
-                                data-graph-entity-label
-                                maxlength="200"
-                                value="{_html(entity.get("label", ""))}"
-                                {disabled}
-                            >
-                        </label>
-                        <label>
-                            Tags
-                            <input
-                                type="text"
-                                data-graph-entity-tags
-                                list="tag-suggestions"
-                                value="{_html(", ".join(entity.get("tags", [])))}"
-                                {disabled}
-                            >
-                        </label>
-                        <label>
-                            Notes
-                            <textarea
-                                rows="3"
-                                data-graph-entity-notes
-                                {disabled}
-                            >{_html(entity.get("notes", ""))}</textarea>
-                        </label>
+                <div class="entity-section entity-identity">
+                    <div class="entity-section__head">
+                        <span class="entity-section__title">Identité</span>
                         <button
                             type="button"
-                            class="primary-button save-graph-entity"
+                            class="icon-action icon-action--danger delete-graph-entity"
+                            title="Delete entity"
+                            aria-label="Delete entity"
                             {disabled}
-                        >{_icon("check")} Save</button>
+                        >{_icon("trash")}</button>
                     </div>
-                </details>
+                    <label class="entity-field">
+                        <span class="entity-field__label">Nom</span>
+                        <input
+                            type="text"
+                            data-graph-entity-label
+                            maxlength="200"
+                            value="{_html(entity.get("label", ""))}"
+                            {disabled}
+                        >
+                    </label>
+                    <label class="entity-field">
+                        <span class="entity-field__label">Notes</span>
+                        <textarea
+                            rows="3"
+                            data-graph-entity-notes
+                            placeholder="Notes…"
+                            {disabled}
+                        >{_html(entity.get("notes", ""))}</textarea>
+                    </label>
+                    <div class="entity-field">
+                        <span class="entity-field__label">Tags</span>
+                        <div class="tag-editor" data-tags-editor>
+                            <div class="tag-editor__chips" data-tags-chips>{tag_chips}</div>
+                            <input
+                                type="text"
+                                class="tag-editor__input"
+                                data-tag-input
+                                list="entity-tagsets"
+                                placeholder="Nouveau tag…"
+                                {disabled}
+                            >
+                        </div>
+                    </div>
+                </div>
+                <div class="entity-section">
+                    <span class="entity-section__title">Propriétés</span>
+                    <ul class="graph-property-list">
+                        {property_rows or '<li class="entity-empty">Aucune propriété.</li>'}
+                    </ul>
+                </div>
+                <div class="entity-section">
+                    <span class="entity-section__title">Sources</span>
+                    <ul class="entity-source-list">{source_rows or '<li class="entity-empty">Aucune source liée.</li>'}</ul>
+                </div>
             </article>
             """
         )
@@ -1848,6 +1829,9 @@ def generate_investigation_page(
         <datalist id="tag-suggestions">
             {tag_datalist_options}
         </datalist>
+        <datalist id="entity-tagsets">
+            {"".join(f'<option value="{_html(tag)}"></option>' for tag in ZERONEURONE_TAGSETS)}
+        </datalist>
         <header class="topbar investigation-topbar">
             <div class="brand">
                 <img class="brand-logo" src="{asset_prefix}assets/synthesix-mark.svg" alt="">
@@ -2337,55 +2321,100 @@ def generate_investigation_page(
 
             document.querySelectorAll(".graph-entity-card").forEach((card) => {{
                 const entityId = card.dataset.graphEntityId;
-                card.querySelector(".save-graph-entity")?.addEventListener(
-                    "click",
-                    () => {{
-                        const label = card.querySelector(
-                            "[data-graph-entity-label]"
-                        ).value.trim();
-                        const tags = card.querySelector(
-                            "[data-graph-entity-tags]"
-                        ).value.trim();
-                        const notes = card.querySelector(
-                            "[data-graph-entity-notes]"
-                        ).value.trim();
-                        queueAction("update_graph_entity", {{
-                            entityId,
-                            entity: {{ label, tags, notes }}
-                        }});
-                        // Reflect the edit in place (the save does not reload).
-                        const heading = card.querySelector("h4");
-                        if (heading && label) {{
-                            heading.textContent = label;
+                const chipsHost = card.querySelector("[data-tags-chips]");
+                const gatherTags = () => Array.from(
+                    card.querySelectorAll(".tag-chip")
+                ).map((chip) => chip.dataset.tag).filter(Boolean);
+                const saveEntity = () => {{
+                    const label = card.querySelector(
+                        "[data-graph-entity-label]"
+                    ).value.trim();
+                    const notes = card.querySelector(
+                        "[data-graph-entity-notes]"
+                    ).value.trim();
+                    const tags = gatherTags().join(", ");
+                    queueAction("update_graph_entity", {{
+                        entityId,
+                        entity: {{ label, tags, notes }}
+                    }});
+                    // Mirror the edit in the compact row without a reload.
+                    const row = document.querySelector(
+                        `[data-entity-select="${{entityId}}"]`
+                    );
+                    if (row) {{
+                        const rowLabel = row.querySelector(".entity-row__label");
+                        if (rowLabel && label) {{
+                            rowLabel.textContent = label;
                         }}
-                        const row = document.querySelector(
-                            `[data-entity-select="${{entityId}}"]`
-                        );
-                        if (row) {{
-                            const rowLabel = row.querySelector(
-                                ".entity-row__label"
-                            );
-                            if (rowLabel && label) {{
-                                rowLabel.textContent = label;
-                            }}
-                            const rowTags = row.querySelector(
-                                ".entity-row__tags"
-                            );
-                            if (rowTags) {{
-                                rowTags.replaceChildren();
-                                tags.split(",").map((t) => t.trim())
-                                    .filter(Boolean).forEach((tag) => {{
-                                        const chip = document.createElement(
-                                            "span"
-                                        );
-                                        chip.className = "result-tag";
-                                        chip.textContent = tag;
-                                        rowTags.appendChild(chip);
-                                    }});
-                            }}
+                        const rowTags = row.querySelector(".entity-row__tags");
+                        if (rowTags) {{
+                            rowTags.replaceChildren();
+                            gatherTags().forEach((tag) => {{
+                                const chip = document.createElement("span");
+                                chip.className = "result-tag";
+                                chip.textContent = tag;
+                                rowTags.appendChild(chip);
+                            }});
                         }}
                     }}
-                );
+                }};
+                card.querySelector("[data-graph-entity-label]")
+                    ?.addEventListener("blur", saveEntity);
+                card.querySelector("[data-graph-entity-notes]")
+                    ?.addEventListener("blur", saveEntity);
+                const addTag = (value) => {{
+                    const tag = value.trim();
+                    if (!tag || !chipsHost) {{
+                        return;
+                    }}
+                    const exists = gatherTags().some(
+                        (existing) => existing.toLowerCase() === tag.toLowerCase()
+                    );
+                    if (exists) {{
+                        return;
+                    }}
+                    const chip = document.createElement("span");
+                    chip.className = "tag-chip";
+                    chip.dataset.tag = tag;
+                    chip.textContent = tag;
+                    const remove = document.createElement("button");
+                    remove.type = "button";
+                    remove.className = "tag-chip__remove";
+                    remove.dataset.tagRemove = "";
+                    remove.setAttribute("aria-label", "Remove tag");
+                    remove.textContent = "\\u00d7";
+                    chip.appendChild(remove);
+                    chipsHost.appendChild(chip);
+                    saveEntity();
+                }};
+                const tagInput = card.querySelector("[data-tag-input]");
+                if (tagInput) {{
+                    const commitTag = () => {{
+                        if (tagInput.value.trim()) {{
+                            addTag(tagInput.value);
+                            tagInput.value = "";
+                        }}
+                    }};
+                    tagInput.addEventListener("keydown", (event) => {{
+                        if (event.key === "Enter") {{
+                            event.preventDefault();
+                            commitTag();
+                        }}
+                    }});
+                    tagInput.addEventListener("change", commitTag);
+                    tagInput.addEventListener("blur", commitTag);
+                }}
+                card.addEventListener("click", (event) => {{
+                    const removeBtn = event.target.closest("[data-tag-remove]");
+                    if (!removeBtn) {{
+                        return;
+                    }}
+                    const chip = removeBtn.closest(".tag-chip");
+                    if (chip) {{
+                        chip.remove();
+                        saveEntity();
+                    }}
+                }});
                 card.querySelector(".delete-graph-entity")?.addEventListener(
                     "click",
                     () => {{
