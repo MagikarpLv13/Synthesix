@@ -1460,6 +1460,8 @@ def _attach_selection_to_graph_entity(
     if not value:
         raise InvestigationValidationError("Selected text is required.")
 
+    entity_type = str(property_payload.get("entity_type", "") or "").strip()
+
     investigation = service.get(investigation_id)
     workspace = service.workspace_payload(investigation_id)
     graph_entity = next(
@@ -1474,9 +1476,6 @@ def _attach_selection_to_graph_entity(
         raise InvestigationValidationError(
             f"Investigation entity not found: {entity_id}"
         )
-    properties = graph_entity.get("properties", {})
-    if not isinstance(properties, Mapping):
-        properties = {}
 
     saved = service.save_page(investigation_id, page_payload)
     service.link_result_to_graph_entity(
@@ -1484,15 +1483,23 @@ def _attach_selection_to_graph_entity(
         entity_id,
         saved.id,
     )
-    entity = service.set_graph_entity_property(
+    # Record the selection as a sourced extracted entity on the page, then
+    # attach it as a property. This makes it appear under the page's entities
+    # and lets the property link back to its source.
+    extracted = service.record_selection_entity(
         investigation_id,
-        entity_id,
-        {
-            "key": key,
-            "value": _append_property_text(properties.get(key), value),
-        },
+        saved.id,
+        value=value,
+        property_key=key,
+        entity_type=entity_type or "other",
     )
-    return investigation, saved, entity
+    if extracted is not None:
+        service.attach_extracted_property(
+            investigation_id,
+            extracted.id,
+            {"graph_entity_id": entity_id, "property_key": key},
+        )
+    return investigation, saved, graph_entity
 
 
 async def _delete_evidence_capture(

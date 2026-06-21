@@ -161,6 +161,21 @@ Détails dans `../COLLAB.md`.
   `test_property_links_back_to_its_extracted_source`. Validé : `unittest discover`
   (228), `git diff --check`, smoke headless (indicateur, valeur dessous, 🔗 source).
   ⚠️ **Smoke CDP live** : supprimer une propriété → pas de reload.
+- (Claude) Lot 16 — **attache overlay = entité extraite sourcée** (retour
+  utilisateur : une propriété ajoutée via une page n'apparaissait pas dans
+  « Entities » et n'avait pas de 🔗). `_attach_selection_to_graph_entity`
+  (`main.py`) ne fait plus `set_graph_entity_property` direct : il **crée une
+  entité extraite validée** sur la page (`service.record_selection_entity` →
+  `repository.upsert_extracted_entities` + statut validated) puis l'**attache**
+  comme propriété (`attach_extracted_property`, qui synchronise la valeur sur
+  l'entité graphe). Résultat : la sélection apparaît sous « Entities (N) » de la
+  page **et** la propriété récupère son lien 🔗 vers la source (Lot 15). Le JS
+  injecté de l'overlay est **inchangé**. Tests : `test_main` (helper recâblé sur
+  record/attach) + `test_record_selection_entity_creates_validated_sourced_fact`
+  (intégration repo réel). Validé : `unittest discover` (229), `git diff --check`.
+  ⚠️ **Smoke CDP live** : sélectionner du texte → attacher à une entité → vérifier
+  qu'il apparaît dans Entities de la page + 🔗 sur la propriété. Reste : **typage
+  des champs** (PropertyType zeroneurone) dans overlay + extraction (ask 3).
 
 ## Palier 1.5 — Intégration
 

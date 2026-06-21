@@ -638,7 +638,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-    def test_attach_selection_helper_links_source_and_appends_property(self):
+    def test_attach_selection_helper_records_sourced_extracted_entity(self):
         service = Mock()
         investigation = SimpleNamespace(id="case-1", status="active")
         saved = SimpleNamespace(
@@ -646,22 +646,18 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             url="https://example.com/profile",
             title="Profile",
         )
-        service.get.return_value = investigation
-        service.workspace_payload.return_value = {
-            "graph_entities": [
-                {
-                    "id": "entity-1",
-                    "label": "Jane Doe",
-                    "properties": {"Alias": "J. Doe"},
-                }
-            ]
-        }
-        service.save_page.return_value = saved
-        service.set_graph_entity_property.return_value = {
+        extracted = SimpleNamespace(id="extracted-1")
+        graph_entity = {
             "id": "entity-1",
             "label": "Jane Doe",
-            "properties": {"Alias": "J. Doe; JD"},
+            "properties": {"Alias": "J. Doe"},
         }
+        service.get.return_value = investigation
+        service.workspace_payload.return_value = {
+            "graph_entities": [graph_entity]
+        }
+        service.save_page.return_value = saved
+        service.record_selection_entity.return_value = extracted
 
         returned_investigation, returned_saved, entity = (
             _attach_selection_to_graph_entity(
@@ -677,16 +673,26 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(returned_investigation, investigation)
         self.assertIs(returned_saved, saved)
-        self.assertEqual(entity["properties"]["Alias"], "J. Doe; JD")
+        # The graph entity (with its label) is returned for the status message.
+        self.assertEqual(entity["label"], "Jane Doe")
         service.link_result_to_graph_entity.assert_called_once_with(
             "case-1",
             "entity-1",
             "result-1",
         )
-        service.set_graph_entity_property.assert_called_once_with(
+        # The selection is stored as a sourced extracted entity on the page...
+        service.record_selection_entity.assert_called_once_with(
             "case-1",
-            "entity-1",
-            {"key": "Alias", "value": "J. Doe; JD"},
+            "result-1",
+            value="JD",
+            property_key="Alias",
+            entity_type="other",
+        )
+        # ...then attached to the graph entity as a property.
+        service.attach_extracted_property.assert_called_once_with(
+            "case-1",
+            "extracted-1",
+            {"graph_entity_id": "entity-1", "property_key": "Alias"},
         )
 
     async def test_external_page_overlay_can_focus_home_without_active_case(self):

@@ -657,6 +657,58 @@ class InvestigationService:
             property_key="",
         ).to_payload()
 
+    def record_selection_entity(
+        self,
+        investigation_id: str,
+        result_id: str,
+        *,
+        value: str,
+        property_key: str,
+        entity_type: str = "other",
+    ):
+        """Persist an analyst-selected value as a validated extracted entity.
+
+        Used by the overlay so that text attached to a graph entity also shows
+        up under its source page's entities and links back to that page.
+        """
+        normalized_type = str(entity_type or "other").strip() or "other"
+        if normalized_type not in ENTITY_TYPES:
+            normalized_type = "other"
+        text = str(value or "").strip()
+        candidate = {
+            "entity_type": normalized_type,
+            "value": text,
+            "normalized_value": text,
+            "source_field": "selection",
+            "source_text": text,
+            "confidence": 1.0,
+            "confidence_reasons": ("Attached from page selection",),
+            "attributes": (
+                {"property_key": property_key} if property_key else {}
+            ),
+        }
+        created = self.repository.upsert_extracted_entities(
+            investigation_id,
+            result_id,
+            [candidate],
+        )
+        entity = next(
+            (
+                item
+                for item in created
+                if item.entity_type == normalized_type
+                and item.value_normalized == text
+            ),
+            None,
+        )
+        if entity is None:
+            return None
+        return self.repository.update_extracted_entity_status(
+            investigation_id,
+            entity.id,
+            "validated",
+        )
+
     def update_result(
         self,
         investigation_id: str,

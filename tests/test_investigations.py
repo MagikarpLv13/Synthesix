@@ -685,6 +685,54 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertIsNone(detached["investigation_entity_id"])
         self.assertEqual(detached["property_key"], "")
 
+    def test_record_selection_entity_creates_validated_sourced_fact(self):
+        investigation = self.service.create({"title": "Selection case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://www.750g.com/sandwich-au-poulet",
+                "title": "Recette Sandwich au poulet",
+                "description": "Sandwich au poulet en 10 minutes.",
+            },
+        )
+        entity = self.service.create_graph_entity(
+            investigation.id, {"label": "Justine Le Pottier"}
+        )
+
+        recorded = self.service.record_selection_entity(
+            investigation.id,
+            saved.id,
+            value="sandwich au poulet",
+            property_key="Sandwich",
+        )
+        self.assertIsNotNone(recorded)
+        self.assertEqual(recorded.status, "validated")
+        self.assertEqual(recorded.result_id, saved.id)
+        self.assertEqual(recorded.value_original, "sandwich au poulet")
+        self.assertEqual(recorded.entity_type, "other")
+
+        self.service.attach_extracted_property(
+            investigation.id,
+            recorded.id,
+            {"graph_entity_id": entity["id"], "property_key": "Sandwich"},
+        )
+
+        workspace = self.service.workspace_payload(investigation.id)
+        # The selection shows up as a (validated) extracted entity on the page...
+        page_entities = [
+            item
+            for item in workspace["entities"]
+            if item["result_id"] == saved.id
+        ]
+        self.assertEqual(len(page_entities), 1)
+        self.assertEqual(page_entities[0]["status"], "validated")
+        self.assertEqual(
+            page_entities[0]["investigation_entity_id"], entity["id"]
+        )
+        # ...and the curated entity carries the property value.
+        curated = workspace["graph_entities"][0]
+        self.assertEqual(curated["properties"]["Sandwich"], "sandwich au poulet")
+
     def test_builtin_tags_seed_default_entity_properties(self):
         investigation = self.service.create({"title": "Legal case"})
 
