@@ -1134,6 +1134,11 @@ a:focus-visible {
     grid-template-columns: 1fr;
 }
 
+.inspector-entity .graph-property-suggestion {
+    width: 100%;
+    margin-top: 8px;
+}
+
 .icon-action {
     display: inline-grid;
     place-items: center;

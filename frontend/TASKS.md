@@ -20,6 +20,7 @@ Détails dans `../COLLAB.md`.
 |---|---|---|---|---|
 | 9 | Entités/propriétés gérables dans le rail (à la zeroneurone) : rail redimensionnable, clic→gestion, champs vides masqués, actions icônes | `investigations/view.py`, `theme.css` | Claude | done |
 | 10 | Refonte entités **extraites** (par page) : compactes + gérées dans le rail, tags retirés, détection en infobulle, promote-to-entity | `investigations/view.py`, `theme.css` | Claude | done |
+| 11 | Alignement propriétés sur zeroneurone (cible export) : suggestions de propriétés typées par catégorie (A) + type précis dérivé des tagsets à l'export (B) | `investigations/view.py`, `exports/zeroneurone.py`, `exports/zeroneurone_tagsets.py` | Claude | done |
 
 - (Claude) Lot 9 — **pas 1 : rail redimensionnable + gouttières resserrées**.
   Le rail prend une largeur variable `--rail-w` (défaut 340px) ; une poignée
@@ -82,6 +83,23 @@ Détails dans `../COLLAB.md`.
   (strings/tags retirés). 2 bugs `[hidden]` corrigés (`.extracted-panel` +
   `.promote-entity__form` → `:not([hidden])`). Validé : `unittest discover`
   (224), `git diff --check`, smoke headless (ligne compacte + panel rail + promote).
+- (Claude) Lot 11 — **alignement propriétés ↔ zeroneurone** (cible de l'export ;
+  modèle : `Property{{key,value,type}}`, types ∈ text|number|date|datetime|
+  boolean|choice|geo|country|link). **A (UI)** : le formulaire « ajouter une
+  propriété » d'une entité-graphe (rail) propose désormais les **propriétés
+  canoniques typées** de la catégorie via `zeroneurone_tagset_suggested_properties`
+  (ex. *Entreprise* → SIREN·text, Date de création·date, Capital social·number) ;
+  choisir une suggestion remplit la clé (`data-graph-property-suggestion`, JS).
+  **B (export)** : nouvel helper `zeroneurone_property_type(key)` (map
+  clé→type depuis les tagsets) ; `_native_property_type` l'utilise **avant**
+  l'heuristique → les clés canoniques exportent leur **type précis** (Capital
+  social→number, Nationalité→country, Date…→date) au lieu de retomber sur text.
+  Sans changement de schéma DB (type dérivé de la clé canonique). Tests :
+  `test_property_type_lookup_uses_tagset_declared_type` +
+  `test_entity_property_form_suggests_typed_zeroneurone_properties`. Validé :
+  `unittest discover` (226), `git diff --check`, smoke headless (select de
+  suggestions Entreprise). Suite possible : (C) confiance 0-100 par paliers ;
+  étendre les suggestions au « promote-to-entity » des entités extraites.
 
 ## Palier 1.5 — Intégration
 

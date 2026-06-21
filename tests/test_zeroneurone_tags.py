@@ -6,6 +6,7 @@ from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSET_VISUALS,
     canonical_zeroneurone_tag,
     canonical_zeroneurone_tags,
+    zeroneurone_property_type,
     zeroneurone_tagset_suggested_properties,
     zeroneurone_tagset_visual,
 )
@@ -109,6 +110,18 @@ class ZeroNeuroneTagSetTestCase(unittest.TestCase):
                 "icon": "Building2",
             },
         )
+
+    def test_property_type_lookup_uses_tagset_declared_type(self):
+        # Declared tagset types win over heuristic inference.
+        self.assertEqual(zeroneurone_property_type("Capital social"), "number")
+        self.assertEqual(zeroneurone_property_type("Nationalité"), "country")
+        self.assertEqual(zeroneurone_property_type("Date de création"), "date")
+        self.assertEqual(zeroneurone_property_type("URL profil"), "link")
+        # Case-insensitive, trims whitespace.
+        self.assertEqual(zeroneurone_property_type("  siren  "), "text")
+        # Unknown keys return an empty string (caller falls back).
+        self.assertEqual(zeroneurone_property_type("Mystery field"), "")
+        self.assertEqual(zeroneurone_property_type(""), "")
 
 
 if __name__ == "__main__":

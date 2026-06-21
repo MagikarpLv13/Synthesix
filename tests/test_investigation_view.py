@@ -571,6 +571,28 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertEqual((delete[0].text or "").strip(), "")
         self.assertEqual(delete[0].get("aria-label"), "Delete entity")
 
+    def test_entity_property_form_suggests_typed_zeroneurone_properties(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        card = tree.xpath(
+            "//article[@data-inspector-entity='graph-entity-123']"
+        )[0]
+        # The "Entreprise" tag drives canonical, typed property suggestions.
+        options = card.xpath(
+            ".//select[@data-graph-property-suggestion]/option/text()"
+        )
+        self.assertIn("Date de création · date", options)
+        self.assertIn("Capital social · number", options)
+
     def test_entity_card_hides_empty_tags_and_notes(self):
         workspace = workspace_payload()
         entity = workspace["graph_entities"][0]

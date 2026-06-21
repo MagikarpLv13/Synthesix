@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import quote
 
-from exports.zeroneurone_tagsets import ZERONEURONE_TAGSETS
+from exports.zeroneurone_tagsets import (
+    ZERONEURONE_TAGSETS,
+    zeroneurone_tagset_suggested_properties,
+)
 
 
 STATUS_LABELS = {
@@ -695,6 +698,28 @@ def _graph_entities_markup(
             if entity_tags
             else ""
         )
+        suggested_property_options = ""
+        seen_property_keys: set[str] = set()
+        for tag in entity_tags:
+            for suggestion in zeroneurone_tagset_suggested_properties(tag):
+                key = str(suggestion.get("key", "") or "")
+                folded = key.casefold()
+                if not key or folded in seen_property_keys:
+                    continue
+                seen_property_keys.add(folded)
+                suggested_property_options += (
+                    f'<option value="{_html(key)}">{_html(key)} · '
+                    f'{_html(suggestion.get("type", "text"))}</option>'
+                )
+        if suggested_property_options:
+            suggested_property_markup = (
+                '<select class="graph-property-suggestion" '
+                f'data-graph-property-suggestion{disabled}>'
+                '<option value="">Suggested property…</option>'
+                f"{suggested_property_options}</select>"
+            )
+        else:
+            suggested_property_markup = ""
         notes_text = str(entity.get("notes", "") or "").strip()
         notes_markup = (
             f'<p class="graph-entity-notes">{_html(notes_text)}</p>'
@@ -766,6 +791,7 @@ def _graph_entities_markup(
                             class="primary-button save-graph-entity"
                             {disabled}
                         >{_icon("check")} Save</button>
+                        {suggested_property_markup}
                         <div class="graph-property-form">
                             <input
                                 type="text"
@@ -2349,6 +2375,17 @@ def generate_investigation_page(
                         }}
                     }}
                 );
+                card.querySelector("[data-graph-property-suggestion]")
+                    ?.addEventListener("change", (event) => {{
+                        const keyInput = card.querySelector(
+                            "[data-new-property-key]"
+                        );
+                        if (keyInput && event.target.value) {{
+                            keyInput.value = event.target.value;
+                            keyInput.focus();
+                        }}
+                        event.target.value = "";
+                    }});
                 card.querySelector(".add-graph-property")?.addEventListener(
                     "click",
                     () => {{

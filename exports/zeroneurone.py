@@ -17,6 +17,7 @@ from xml.etree import ElementTree
 from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSETS,
     canonical_zeroneurone_tag,
+    zeroneurone_property_type,
     zeroneurone_tagset_suggested_properties,
     zeroneurone_tagset_visual,
 )
@@ -1206,6 +1207,9 @@ NATIVE_LINK_PROPERTIES = {
 
 
 def _native_property_type(key: str, value: object) -> str:
+    declared = zeroneurone_property_type(key)
+    if declared:
+        return declared
     normalized_key = str(key).casefold()
     if normalized_key in {"url", "canonical_url"}:
         return "link"

@@ -343,3 +343,14 @@ def zeroneurone_tagset_suggested_properties(
             (),
         )
     )
+
+
+_PROPERTY_TYPE_BY_KEY: dict[str, str] = {}
+for _tagset_properties in ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES.values():
+    for _property_key, _property_type in _tagset_properties:
+        _PROPERTY_TYPE_BY_KEY.setdefault(_property_key.casefold(), _property_type)
+
+
+def zeroneurone_property_type(key: object) -> str:
+    """Declared zeroneurone PropertyType for a canonical tagset key, else ''."""
+    return _PROPERTY_TYPE_BY_KEY.get(str(key or "").strip().casefold(), "")
