@@ -925,8 +925,8 @@ a:focus-visible {
 .workspace__rail-body {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding: 14px 12px;
+    gap: 18px;
+    padding: 16px 16px 20px;
     overflow: auto;
 }
 
@@ -955,11 +955,75 @@ a:focus-visible {
     margin-top: 0;
 }
 
-.inspector-empty {
-    margin: 0;
+.inspector-head {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.inspector-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
     color: var(--muted);
-    font-size: 13px;
-    line-height: 1.5;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.inspector-back:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.inspector-back:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+}
+
+.inspector-back .icon {
+    width: 1em;
+    height: 1em;
+}
+
+/* Roomier, zeroneurone-style inspector rhythm. */
+.inspector-entity:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.inspector-entity .graph-entity-heading h4 {
+    font-size: 16px;
+}
+
+.inspector-entity .graph-entity-columns {
+    gap: 14px;
+}
+
+.inspector-entity .graph-property-list li {
+    padding: 2px 0;
+}
+
+.inspector-entity .analyst-fields {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 12px;
+}
+
+.inspector-entity .analyst-fields textarea {
+    width: 100%;
+}
+
+.extracted-panel:not([hidden]) {
+    gap: 14px;
 }
 
 .inspector-panel:not([hidden]) {

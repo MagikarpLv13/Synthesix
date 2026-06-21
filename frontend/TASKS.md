@@ -100,6 +100,19 @@ Détails dans `../COLLAB.md`.
   `unittest discover` (226), `git diff --check`, smoke headless (select de
   suggestions Entreprise). Suite possible : (C) confiance 0-100 par paliers ;
   étendre les suggestions au « promote-to-entity » des entités extraites.
+- (Claude) Lot 12 — **panel inspecteur façon zeroneurone** (retour utilisateur +
+  capture). (1) **« Next actions » disparaît à la sélection** : le rail bascule
+  entre `#rail-next-actions` (par défaut) et `#inspector-detail` (caché par
+  défaut, montré à la sélection) ; bouton **« ‹ Actions »** (`data-inspector-close`,
+  icône `arrow-left`) pour revenir. `revealInspector` masque l'un / montre
+  l'autre ; placeholder `data-inspector-empty` retiré. (2) **Lisibilité/espace** :
+  `.workspace__rail-body` padding/gap ↑, `.analyst-fields` **en 1 colonne** dans
+  le rail (labels Name/Tags ne se chevauchent plus), `.inspector-entity` flex
+  column gap 14px, propriétés/sources aérées. ⚠️ **3e piège `[hidden]`** :
+  `.inspector-entity { display:flex }` réaffichait la carte même masquée →
+  `:not([hidden])`. Test `test_inspector_starts_hidden_with_a_back_control`.
+  Validé : `unittest discover` (227), `git diff --check`, smoke headless (entité
+  + extraite : Next actions masqué, panel isolé et lisible).
 
 ## Palier 1.5 — Intégration
 

@@ -70,6 +70,10 @@ _ACTION_ICON_PATHS = {
         '<line x1="12" y1="16" x2="12" y2="12"/>'
         '<line x1="12" y1="8" x2="12.01" y2="8"/>'
     ),
+    "arrow-left": (
+        '<line x1="19" y1="12" x2="5" y2="12"/>'
+        '<polyline points="12 19 5 12 12 5"/>'
+    ),
 }
 
 
@@ -2181,13 +2185,18 @@ def generate_investigation_page(
                 >&rsaquo;</button>
             </div>
             <div class="workspace__rail-body" id="investigation-rail-body">
-                <div class="rail-section">
+                <div class="rail-section" id="rail-next-actions">
                     <p class="rail-section__title">Next actions</p>
                     {focus_summary}
                 </div>
-                <div class="rail-section" id="inspector-detail">
-                    <p class="rail-section__title">Inspector</p>
-                    <p class="inspector-empty" data-inspector-empty>Select a saved page or entity to inspect it here.</p>
+                <div class="rail-section inspector" id="inspector-detail" hidden>
+                    <div class="inspector-head">
+                        <button
+                            type="button"
+                            class="inspector-back"
+                            data-inspector-close
+                        >{_icon("arrow-left")} Actions</button>
+                    </div>
                     {inspector_panels}
                     {entity_inspector_cards}
                     {extracted_inspector_panels}
@@ -2725,8 +2734,9 @@ def generate_investigation_page(
             }}
 
             const inspectorDetail = document.getElementById("inspector-detail");
-            const inspectorEmpty = inspectorDetail
-                ? inspectorDetail.querySelector("[data-inspector-empty]")
+            const nextActions = document.getElementById("rail-next-actions");
+            const inspectorClose = inspectorDetail
+                ? inspectorDetail.querySelector("[data-inspector-close]")
                 : null;
             const inspectorPagePanels = inspectorDetail
                 ? Array.from(
@@ -2774,8 +2784,11 @@ def generate_investigation_page(
                 }});
             }};
             const revealInspector = (matched) => {{
-                if (inspectorEmpty) {{
-                    inspectorEmpty.hidden = matched;
+                if (nextActions) {{
+                    nextActions.hidden = matched;
+                }}
+                if (inspectorDetail) {{
+                    inspectorDetail.hidden = !matched;
                 }}
                 if (
                     matched
@@ -2785,6 +2798,19 @@ def generate_investigation_page(
                     setRailCollapsed(false);
                 }}
             }};
+            const closeInspector = () => {{
+                hideInspectorPanels();
+                clearInspectorSelection();
+                if (nextActions) {{
+                    nextActions.hidden = false;
+                }}
+                if (inspectorDetail) {{
+                    inspectorDetail.hidden = true;
+                }}
+            }};
+            if (inspectorClose) {{
+                inspectorClose.addEventListener("click", closeInspector);
+            }}
             const selectInspectorPage = (resultId) => {{
                 hideInspectorPanels();
                 clearInspectorSelection();

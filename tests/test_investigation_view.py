@@ -571,6 +571,33 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertEqual((delete[0].text or "").strip(), "")
         self.assertEqual(delete[0].get("aria-label"), "Delete entity")
 
+    def test_inspector_starts_hidden_with_a_back_control(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        # Next actions visible by default; inspector hidden until a selection.
+        self.assertEqual(
+            len(tree.xpath("//*[@id='rail-next-actions'][@hidden]")),
+            0,
+        )
+        self.assertEqual(
+            len(tree.xpath("//*[@id='inspector-detail'][@hidden]")),
+            1,
+        )
+        # A back control returns to the actions view.
+        self.assertEqual(
+            len(tree.xpath("//*[@id='inspector-detail']//*[@data-inspector-close]")),
+            1,
+        )
+
     def test_entity_property_form_suggests_typed_zeroneurone_properties(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
