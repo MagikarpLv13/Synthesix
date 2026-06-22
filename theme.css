@@ -1760,6 +1760,54 @@ a:focus-visible {
     gap: 6px;
 }
 
+.entity-chip-row__select {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.entity-batch-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--surface-2);
+}
+
+.entity-batch-bar[hidden] {
+    display: none;
+}
+
+.entity-batch-bar__count {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.entity-batch-bar__link {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-batch-bar__link:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
 /* Extracted-entity management panel (workspace rail). */
 .extracted-panel:not([hidden]) {
     display: flex;

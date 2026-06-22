@@ -498,6 +498,13 @@ def _extracted_entity_row(
             data-property-type="{_html(property_type)}"
         >
             <div class="entity-chip-row__head">
+                <input
+                    type="checkbox"
+                    class="entity-chip-row__select"
+                    data-entity-checkbox
+                    aria-label="Sélectionner pour une action groupée"
+                    {disabled}
+                >
                 {type_badge}
                 <span class="entity-chip-row__value" title="{_html(value)}">{_html(value)}</span>
                 <span class="entity-chip-row__actions">
@@ -594,6 +601,33 @@ def _entity_markup(
         if entities
         else '<p class="session-note">No entity candidate extracted yet.</p>'
     )
+    batch_attach = ""
+    if graph_entities:
+        options = ['<option value="">Lier la sélection à…</option>']
+        for graph_entity in graph_entities:
+            gid = str(graph_entity.get("id", "") or "")
+            options.append(
+                f'<option value="{_html(gid)}">'
+                f'{_html(graph_entity.get("label", ""))}</option>'
+            )
+        batch_attach = (
+            '<select class="entity-batch-bar__link" data-batch-attach'
+            f'{disabled}>{"".join(options)}</select>'
+        )
+    batch_bar = (
+        (
+            '<div class="entity-batch-bar" data-entity-batch hidden>'
+            '<span class="entity-batch-bar__count" data-batch-count></span>'
+            f'{batch_attach}'
+            '<button type="button" class="icon-action icon-action--danger" '
+            'data-batch-reject title="Rejeter la sélection" '
+            f'aria-label="Rejeter la sélection"{disabled}>'
+            f'{_icon("trash")}</button>'
+            "</div>"
+        )
+        if entities
+        else ""
+    )
     return f"""
         <div class="result-entities">
             <div class="entity-heading">
@@ -607,6 +641,7 @@ def _entity_markup(
                 >{_icon("search")}</button>
             </div>
             {empty}
+            {batch_bar}
             <div class="entity-chip-list">{rows}</div>
         </div>
     """
@@ -3091,6 +3126,73 @@ def generate_investigation_page(
                             }});
                         }}
                     }});
+            }});
+            document.querySelectorAll(".result-entities").forEach((section) => {{
+                const batchBar = section.querySelector("[data-entity-batch]");
+                if (!batchBar) {{
+                    return;
+                }}
+                const batchCount = batchBar.querySelector("[data-batch-count]");
+                const batchReject = batchBar.querySelector(
+                    "[data-batch-reject]"
+                );
+                const batchAttach = batchBar.querySelector(
+                    "[data-batch-attach]"
+                );
+                const checkboxes = Array.from(
+                    section.querySelectorAll("[data-entity-checkbox]")
+                );
+                const checkedRows = () => checkboxes
+                    .filter((box) => box.checked)
+                    .map((box) => box.closest(".entity-chip-row"))
+                    .filter((row) => row && !row.hidden);
+                const refreshBatch = () => {{
+                    const count = checkedRows().length;
+                    batchBar.hidden = count === 0;
+                    if (batchCount) {{
+                        batchCount.textContent = count + " sélectionnée(s)";
+                    }}
+                }};
+                checkboxes.forEach((box) => {{
+                    box.addEventListener("change", refreshBatch);
+                }});
+                batchReject?.addEventListener("click", () => {{
+                    const rows = checkedRows();
+                    if (!rows.length) {{
+                        return;
+                    }}
+                    const entityIds = rows.map((row) => row.dataset.entityId);
+                    rows.forEach((row) => {{ row.hidden = true; }});
+                    refreshBatch();
+                    queueAction("delete_entities", {{ entityIds }});
+                    flashSaved();
+                }});
+                batchAttach?.addEventListener("change", (event) => {{
+                    const graphEntityId = event.target.value;
+                    const rows = checkedRows();
+                    if (!graphEntityId || !rows.length) {{
+                        event.target.value = "";
+                        return;
+                    }}
+                    const items = rows.map((row) => {{
+                        const nameInput = row.querySelector(
+                            "[data-entity-custom-label]"
+                        );
+                        return {{
+                            extractedEntityId: row.dataset.entityId,
+                            propertyKey: nameInput
+                                ? nameInput.value.trim()
+                                : "",
+                            propertyType: row.dataset.propertyType || ""
+                        }};
+                    }});
+                    queueAction("attach_extracted_properties", {{
+                        graphEntityId,
+                        items
+                    }});
+                    event.target.value = "";
+                    flashSaved();
+                }});
             }});
             if (inspectorDetail) {{
                 inspectorDetail.addEventListener("click", (event) => {{

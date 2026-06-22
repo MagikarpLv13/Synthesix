@@ -2674,6 +2674,8 @@ async def main():
                 "unlink_result_from_graph_entity",
                 "attach_extracted_property",
                 "detach_extracted_property",
+                "delete_entities",
+                "attach_extracted_properties",
             }:
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -2734,6 +2736,52 @@ async def main():
                             ).strip(),
                             result.get("property", {}),
                         )
+                    elif action == "delete_entities":
+                        for raw_id in result.get("entityIds", []) or []:
+                            candidate = str(raw_id or "").strip()
+                            if not candidate:
+                                continue
+                            try:
+                                investigation_service.delete_entity(
+                                    investigation_id,
+                                    candidate,
+                                )
+                            except InvestigationError:
+                                logger.debug(
+                                    "Batch delete skipped one entity",
+                                    exc_info=True,
+                                )
+                    elif action == "attach_extracted_properties":
+                        graph_entity_id = str(
+                            result.get("graphEntityId", "") or ""
+                        ).strip()
+                        for item in result.get("items", []) or []:
+                            if not isinstance(item, Mapping):
+                                continue
+                            extracted_id = str(
+                                item.get("extractedEntityId", "") or ""
+                            ).strip()
+                            if not extracted_id:
+                                continue
+                            try:
+                                investigation_service.attach_extracted_property(
+                                    investigation_id,
+                                    extracted_id,
+                                    {
+                                        "graph_entity_id": graph_entity_id,
+                                        "property_key": str(
+                                            item.get("propertyKey", "") or ""
+                                        ).strip(),
+                                        "property_type": str(
+                                            item.get("propertyType", "") or ""
+                                        ).strip(),
+                                    },
+                                )
+                            except InvestigationError:
+                                logger.debug(
+                                    "Batch attach skipped one entity",
+                                    exc_info=True,
+                                )
                     else:
                         investigation_service.detach_extracted_property(
                             investigation_id,

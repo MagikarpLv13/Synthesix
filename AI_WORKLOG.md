@@ -22,19 +22,7 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| AI-20260622-003 | Claude | in_progress | 2026-06-22 | 2026-06-22 | Détail page : retirer URL analysis, fix overflow evidence, rejet entité = suppression, actions batch | `investigations/view.py`, `theme.css`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
-
-**Plan AI-20260622-003 (retours utilisateur) :**
-
-- Retirer la section « Technical URL analysis » du détail (jugée inutile pour
-  l'instant) ; garder le handler `analyze_result_url` et l'action CDP.
-- Corriger l'overflow horizontal du rail (SHA-256 d'URL analysis + liens evidence
-  non wrappés) : liens evidence en `flex-wrap`, item evidence en 2 colonnes dans
-  le rail.
-- **Rejet d'une entité extraite = suppression réelle** (`delete_entity`) et plus
-  `update_entity_status('rejected')`, sinon elle réapparaît au refresh.
-- **Actions batch** : sélection multiple de lignes → rejeter/supprimer en lot et
-  lier plusieurs propriétés à une même entité.
+| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
 > Reste basse priorité (hors lot) : durcir la regex téléphone
 > (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
@@ -397,6 +385,42 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   smoke headless des lignes (`tmp_ui_render`, capturé).
 - **Vérifications non exécutées :** smoke CDP live des actions inline
   (attach/detach, validate/reject, rename, promote) — à confirmer en live.
+- **Relais :** aucun. Reste basse priorité : durcir la regex téléphone
+  (`analysis/entities.py`).
+
+### AI-20260622-003 — Détail page : URL analysis, overflow, rejet, batch
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend` — `d723309` (1-3) + lot batch.
+- **Objectif :** retours live — retirer la section URL analysis, corriger
+  l'overflow du rail, faire que rejeter supprime vraiment, et ajouter des
+  actions groupées.
+- **Changements :**
+  - Section « Technical URL analysis » retirée du détail page (fonction
+    `_url_analysis_markup` et action `analyze_result_url` conservées pour
+    réactivation).
+  - Overflow horizontal du rail corrigé : item evidence en 2 colonnes
+    (vignette + texte) avec liens artefacts en `flex-wrap` sur leur propre
+    ligne ; la longue ligne SHA-256 d'URL analysis disparaît avec la section.
+  - **Rejet d'une entité = `delete_entity`** (suppression réelle) au lieu de
+    `update_entity_status('rejected')` → ne réapparaît plus au refresh.
+  - **Actions groupées** : case à cocher par ligne + barre d'actions (« N
+    sélectionnée(s) », « Lier la sélection à… », rejeter). Deux nouvelles
+    actions CDP `delete_entities` (liste d'IDs) et `attach_extracted_properties`
+    (`graphEntityId` + `items[]`), traitées en boucle dans le handler partagé de
+    `main.py` avec **un seul reload** (le reload vide la file in-page, donc
+    boucler `queueAction` côté client était impossible). Erreurs isolées par
+    item.
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `main.py`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** ajout des actions CDP `delete_entities` et
+  `attach_extracted_properties` (réutilisent `delete_entity` /
+  `attach_extracted_property` côté service).
+- **Tests exécutés :** `unittest discover` (232) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (rail sans overflow, batch bar capturée).
+- **Vérifications non exécutées :** smoke CDP live des deux actions batch
+  (`delete_entities`, `attach_extracted_properties`) — à confirmer en live.
 - **Relais :** aucun. Reste basse priorité : durcir la regex téléphone
   (`analysis/entities.py`).
 
