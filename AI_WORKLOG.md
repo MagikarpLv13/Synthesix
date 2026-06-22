@@ -510,20 +510,19 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
     désormais les clés classiques ET les noms déjà utilisés dans l'enquête
     (`custom_label` / `property_key` des entités + clés des propriétés du graphe)
     via `_property_suggestion_keys`. Aucun stockage ajouté.
-  - **Lot C — propriétés classiques** : l'inspecteur d'une entité du graphe
-    affiche une section « Propriétés classiques » listant les propriétés suggérées
-    de son/ses tagset(s) comme champs de valeur éditables (pré-remplis si déjà
-    présents), sauvegarde au blur via `set_graph_entity_property` (passé en
-    no-reload).
-- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `main.py`,
-  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
-- **Contrats ou décisions :** `set_graph_entity_property` rejoint les actions
-  no-reload ; aucune nouvelle action CDP.
-- **Tests exécutés :** `unittest discover` (234) OK ; `git diff --check` OK
-  (CRLF) ; smoke headless (filtre, datalist, éditeur de propriétés classiques).
-- **Vérifications non exécutées :** smoke CDP live de la saisie au blur des
-  propriétés classiques et du filtre — à confirmer en live.
-- **Relais :** aucun. Reste basse priorité : durcir la regex téléphone.
+  - **Lot C — propriétés classiques (annulé)** : un bloc « Propriétés classiques »
+    avait été ajouté sur l'inspecteur d'entité du graphe (commit `efcac6a`) puis
+    **retiré** (commit suivant) — l'utilisateur n'en voulait pas. Le besoin réel
+    était autre (voir AI-20260622-008).
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md` (lots A+B) ; `main.py` +
+  `theme.css` pour le lot C puis son annulation.
+- **Contrats ou décisions :** aucune nouvelle action CDP. Lot C annulé.
+- **Tests exécutés :** `unittest discover` (233) OK ; `git diff --check` OK (CRLF) ;
+  smoke headless (filtre, datalist).
+- **Vérifications non exécutées :** smoke CDP live du filtre — à confirmer en live.
+- **Relais :** clarifier le découpage propriétés source/page vs entité
+  (AI-20260622-008) avant de re-livrer.
 
 ## Modèle de compte rendu terminé
 

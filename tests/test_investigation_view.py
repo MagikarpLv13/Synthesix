@@ -838,36 +838,6 @@ class InvestigationViewTestCase(unittest.TestCase):
             )
         )
 
-    def test_graph_entity_lists_classic_tagset_properties(self):
-        workspace = workspace_payload()
-        with TemporaryDirectory() as temp_dir:
-            base_dir = Path(temp_dir)
-            output_path = base_dir / "investigation.html"
-            generate_investigation_page(
-                workspace,
-                output_path,
-                base_dir=base_dir,
-                history_report_path=base_dir / "history.html",
-            )
-            content = output_path.read_text(encoding="utf-8")
-            tree = html.fromstring(content)
-
-        card = tree.xpath(
-            "//article[@data-graph-entity-id='graph-entity-123']"
-        )[0]
-        classic_keys = card.xpath(
-            ".//input[@data-classic-property]/@data-classic-key"
-        )
-        # The "Entreprise" tagset suggests SIREN / Forme juridique / etc.
-        self.assertIn("SIREN", classic_keys)
-        self.assertIn("Forme juridique", classic_keys)
-        # Existing values are pre-filled, empty ones are editable blanks.
-        self.assertEqual(
-            card.xpath(".//input[@data-classic-key='SIREN']/@value"),
-            ["732829320"],
-        )
-        self.assertIn('queueAction("set_graph_entity_property"', content)
-
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
         workspace["graph_entities"][0]["tags"] = []

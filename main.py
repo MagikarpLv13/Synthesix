@@ -2797,7 +2797,6 @@ async def main():
                         "detach_extracted_property",
                         "delete_entities",
                         "attach_extracted_properties",
-                        "set_graph_entity_property",
                     }:
                         await _set_page_status(source_tab, "Saved.")
                     else:
