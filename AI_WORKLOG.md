@@ -22,31 +22,10 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| AI-20260622-002 | Claude | claimed | 2026-06-22 | 2026-06-22 | Refonte triage des entités extraites (liste actionnable + extract→proposée) | `investigations/service.py`, `investigations/view.py` (rows/JS), `theme.css`, `tests/test_investigations.py`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
+| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
-**Plan AI-20260622-002 (design validé avec l'utilisateur) :**
-
-- **Backend** : « extract entities » doit laisser les candidats en **proposée**.
-  Cause actuelle : `_auto_attach_result_properties` (appelé par `extract_entities`
-  ET `link_result_to_graph_entity`) rattache + **valide** automatiquement quand la
-  page est liée à une seule entité. Décision : ne plus auto-rattacher/valider à
-  l'extraction (triage explicite). ⚠️ Auditer les tests `extract_entities` qui
-  pourraient s'appuyer sur l'auto-attach avant de retirer.
-- **Liste actionnable (rail, par page sélectionnée)** : chaque ligne d'entité
-  extraite devient auto-suffisante (quitte à 2 lignes) :
-  - **nom de propriété éditable** (onChange, sans bouton) au lieu de `other` ;
-  - valeur ;
-  - **ⓘ** infobulle sur l'extrait source (`_detection_title`) ;
-  - **✓ valider** / **✗ rejeter** (icônes ; rejeter = statut `rejected` masqué) ;
-  - **↗ promouvoir en entité** ;
-  - **select onChange** « lier à une entité » (rattache sans bouton) ;
-  - **pas** de label analyste, **pas** de sélecteur de type (type auto via
-    page/extraction), **pas** de `%` affiché (gardé pour le tri).
-  - supprime le panneau détail séparé `_extracted_entity_panel` (redondant).
-- **Vérifs** : `unittest discover`, smoke headless, et smoke CDP live (overlay)
-  signalé à l'utilisateur.
-- Aussi en attente (basse priorité, pas dans ce lot) : durcir la regex
-  téléphone (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
+> Reste basse priorité (hors lot) : durcir la regex téléphone
+> (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
 
 ## Verrous de fichiers
 
@@ -366,6 +345,48 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   uniquement) ; à confirmer en live.
 - **Relais :** aucun. Reste demandé : refonte affichage des entités proposées
   (triage inline) et durcissement regex téléphone.
+
+### AI-20260622-002 — Refonte triage des entités extraites (liste actionnable)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend` — `8b493b8` (backend) + lot frontend
+  (rows/CSS/JS).
+- **Objectif :** rendre chaque entité extraite triable directement dans la liste
+  (toutes les actions de l'ancien panneau détail), et garder les candidats en
+  « proposée » jusqu'au triage analyste.
+- **Changements :**
+  - **Backend (`8b493b8`)** : suppression des deux appels
+    `_auto_attach_result_properties` (`extract_entities` +
+    `link_result_to_graph_entity`) → plus d'auto-rattachement/validation ;
+    méthode morte et helpers retirés ; test
+    `test_extracts_entities_from_saved_archive_text` adapté.
+  - **Frontend (`investigations/view.py`)** : `_extracted_entity_row` réécrite en
+    ligne auto-suffisante — L1 : badge type (masqué si `other`) + **valeur** en
+    avant + ⓘ source + ✓ valider + 🗑 rejeter (masque la ligne) + ↗ promouvoir ;
+    L2 : input **nom de propriété** (onChange → `update_entity_metadata`) ;
+    L3 : select **« Lier à une entité… »** (onChange → attach/detach) ;
+    mini-formulaire de promotion (toggle). `data-entity-type` /
+    `data-property-type` portés sur la ligne pour les payloads.
+  - Suppression du panneau `_extracted_entity_panel`, de son injection et du drill
+    (`selectInspectorExtracted`, `inspectorExtractedPanels`).
+  - Plus d'étiquette analyste, plus de sélecteur de type, plus de `%` affiché.
+  - **CSS (`theme.css`)** : `.entity-chip-row` en colonne flex
+    (`__head/__value/__name/__actions/__link/__promote`).
+- **Fichiers modifiés :** `investigations/service.py`, `investigations/view.py`,
+  `theme.css`, `tests/test_investigations.py`, `tests/test_investigation_view.py`,
+  `AI_WORKLOG.md`
+- **Contrats ou décisions :** actions CDP inchangées (`update_entity_status`,
+  `update_entity_metadata`, `attach_extracted_property`,
+  `detach_extracted_property`, `create_graph_entity_from_extracted`) ;
+  `delete_entity` n'est plus émis par l'UI (rejet =
+  `update_entity_status('rejected')`).
+- **Tests exécutés :** `unittest discover` (232) OK ; `git diff --check` OK (CRLF) ;
+  smoke headless des lignes (`tmp_ui_render`, capturé).
+- **Vérifications non exécutées :** smoke CDP live des actions inline
+  (attach/detach, validate/reject, rename, promote) — à confirmer en live.
+- **Relais :** aucun. Reste basse priorité : durcir la regex téléphone
+  (`analysis/entities.py`).
 
 ## Modèle de compte rendu terminé
 

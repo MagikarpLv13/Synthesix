@@ -416,30 +416,136 @@ def _entity_property_type(entity: Mapping) -> str:
     return declared if declared in PROPERTY_TYPE_VALUES else ""
 
 
-def _extracted_entity_row(entity: Mapping) -> str:
-    """Compact, clickable extracted-entity row shown in the saved-page body."""
+def _extracted_entity_row(
+    entity: Mapping,
+    *,
+    graph_entities: list[Mapping] = (),
+    read_only: bool = False,
+) -> str:
+    """Self-contained, inline-actionable extracted-entity row (rail triage)."""
+    disabled = " disabled" if read_only else ""
     entity_id = str(entity.get("id", "") or "")
     entity_type = str(entity.get("entity_type", "") or "")
-    type_label = ENTITY_TYPE_LABELS.get(entity_type, entity_type or "Other")
+    type_label = ENTITY_TYPE_LABELS.get(entity_type, entity_type or "")
     status = str(entity.get("status", "proposed") or "proposed")
-    status_label = ENTITY_STATUS_LABELS.get(status, status)
     value = str(
-        entity.get("custom_label")
-        or entity.get("value_original")
+        entity.get("value_original")
         or entity.get("value_normalized")
         or ""
     )
-    confidence = max(0.0, min(1.0, float(entity.get("confidence", 0) or 0)))
+    property_name = str(entity.get("custom_label", "") or "")
+    parent_id = str(entity.get("investigation_entity_id", "") or "")
+    property_type = _entity_property_type(entity)
+    type_badge = (
+        f'<span class="entity-chip-row__type">{_html(type_label)}</span>'
+        if entity_type and entity_type != "other"
+        else ""
+    )
+    if graph_entities:
+        options = ['<option value="">Lier à une entité…</option>']
+        for graph_entity in graph_entities:
+            gid = str(graph_entity.get("id", "") or "")
+            selected = " selected" if gid and gid == parent_id else ""
+            options.append(
+                f'<option value="{_html(gid)}"{selected}>'
+                f'{_html(graph_entity.get("label", ""))}</option>'
+            )
+        attach_row = (
+            '<div class="entity-chip-row__link-row">'
+            f'<select class="entity-chip-row__link" data-extracted-attach{disabled}>'
+            f'{"".join(options)}</select></div>'
+        )
+    else:
+        attach_row = (
+            '<div class="entity-chip-row__link-row">'
+            '<span class="field-hint">Créez une entité pour rattacher.</span>'
+            "</div>"
+        )
+    promote_form = f"""
+        <div class="entity-chip-row__promote" hidden>
+            <input
+                type="text"
+                data-quick-entity-category
+                list="tag-suggestions"
+                maxlength="50"
+                placeholder="Catégorie"
+                value="{_html(_default_entity_category(entity_type))}"
+                {disabled}
+            >
+            <input
+                type="text"
+                data-quick-entity-label
+                maxlength="200"
+                placeholder="Nom de l'entité"
+                value="{_html(property_name or value)}"
+                {disabled}
+            >
+            <div class="entity-chip-row__promote-actions">
+                <button
+                    type="button"
+                    class="primary-button create-entity-from-property"
+                    {disabled}
+                >{_icon("check")} Créer</button>
+                <button
+                    type="button"
+                    class="secondary-button promote-cancel"
+                >Annuler</button>
+            </div>
+        </div>
+    """
     return f"""
-        <button
-            type="button"
+        <div
             class="entity-chip-row entity-item--{_html(status)}"
-            data-extracted-select="{_html(entity_id)}"
+            data-entity-id="{_html(entity_id)}"
+            data-entity-type="{_html(entity_type)}"
+            data-property-type="{_html(property_type)}"
         >
-            <span class="entity-chip-row__type">{_html(type_label)}</span>
-            <span class="entity-chip-row__value">{_html(value)}</span>
-            <span class="entity-chip-row__meta">{confidence:.0%} · {_html(status_label)}</span>
-        </button>
+            <div class="entity-chip-row__head">
+                {type_badge}
+                <span class="entity-chip-row__value" title="{_html(value)}">{_html(value)}</span>
+                <span class="entity-chip-row__actions">
+                    <span
+                        class="info-tip"
+                        tabindex="0"
+                        role="img"
+                        aria-label="Détection"
+                        title="{_html(_detection_title(entity))}"
+                    >{_icon("info")}</span>
+                    <button
+                        type="button"
+                        class="icon-action entity-validate"
+                        title="Valider"
+                        aria-label="Valider"
+                        {disabled}
+                    >{_icon("check")}</button>
+                    <button
+                        type="button"
+                        class="icon-action icon-action--danger entity-reject"
+                        title="Rejeter"
+                        aria-label="Rejeter"
+                        {disabled}
+                    >{_icon("trash")}</button>
+                    <button
+                        type="button"
+                        class="icon-action entity-promote-toggle"
+                        title="Promouvoir en entité"
+                        aria-label="Promouvoir en entité"
+                        {disabled}
+                    >{_icon("plus")}</button>
+                </span>
+            </div>
+            <input
+                type="text"
+                class="entity-chip-row__name"
+                data-entity-custom-label
+                maxlength="120"
+                value="{_html(property_name or _entity_property_key(entity))}"
+                placeholder="Nom de propriété"
+                {disabled}
+            >
+            {attach_row}
+            {promote_form}
+        </div>
     """
 
 
@@ -469,197 +575,21 @@ def _detection_title(entity: Mapping) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def _extracted_entity_panel(
-    entity: Mapping,
-    *,
-    graph_entities: list[Mapping],
-    graph_entity_names: Mapping[str, str],
-    read_only: bool,
-) -> str:
-    """Full (hidden) management panel for an extracted entity, shown in the rail."""
-    disabled = " disabled" if read_only else ""
-    entity_id = str(entity.get("id", "") or "")
-    entity_type = str(entity.get("entity_type", "") or "")
-    status = str(entity.get("status", "proposed") or "proposed")
-    confidence = max(0.0, min(1.0, float(entity.get("confidence", 0) or 0)))
-    property_key = _entity_property_key(entity)
-    property_type = _entity_property_type(entity)
-    parent_id = str(entity.get("investigation_entity_id", "") or "")
-    quick_entity_name = str(
-        entity.get("custom_label")
-        or entity.get("value_original")
-        or entity.get("value_normalized")
-        or ""
-    )
-    if parent_id:
-        property_control = f"""
-            <div class="extracted-prop">
-                <span>Property <strong>{_html(property_key)}</strong> on
-                <strong>{_html(graph_entity_names.get(parent_id, parent_id))}</strong></span>
-                <button
-                    type="button"
-                    class="icon-action icon-action--danger detach-extracted-property"
-                    title="Detach property"
-                    aria-label="Detach property"
-                    {disabled}
-                >{_icon("trash")}</button>
-            </div>
-        """
-    elif graph_entities:
-        property_control = f"""
-            <div class="extracted-prop entity-property-link">
-                <select data-property-graph-entity{disabled}>
-                    {_graph_entity_options(graph_entities)}
-                </select>
-                <input
-                    type="text"
-                    data-property-key
-                    maxlength="100"
-                    value="{_html(property_key)}"
-                    placeholder="Property name"
-                    {disabled}
-                >
-                <button
-                    type="button"
-                    class="secondary-button attach-extracted-property"
-                    {disabled}
-                >Use as property</button>
-            </div>
-        """
-    else:
-        property_control = (
-            '<p class="session-note">Create an investigation entity to use '
-            "this candidate as a property.</p>"
-        )
-    promote_markup = f"""
-        <div class="promote-entity">
-            <button
-                type="button"
-                class="secondary-button promote-entity-toggle"
-                {disabled}
-            >{_icon("plus")} Promote to entity</button>
-            <div class="promote-entity__form" hidden>
-                <label>
-                    Category
-                    <input
-                        type="text"
-                        data-quick-entity-category
-                        list="tag-suggestions"
-                        maxlength="50"
-                        value="{_html(_default_entity_category(entity_type))}"
-                        {disabled}
-                    >
-                </label>
-                <label>
-                    Name
-                    <input
-                        type="text"
-                        data-quick-entity-label
-                        maxlength="200"
-                        value="{_html(quick_entity_name)}"
-                        {disabled}
-                    >
-                </label>
-                <label>
-                    Property name
-                    <input
-                        type="text"
-                        data-quick-property-key
-                        maxlength="100"
-                        value="{_html(property_key)}"
-                        {disabled}
-                    >
-                </label>
-                <div class="promote-entity__actions">
-                    <button
-                        type="button"
-                        class="primary-button create-entity-from-property"
-                        {disabled}
-                    >{_icon("check")} Confirm</button>
-                    <button
-                        type="button"
-                        class="secondary-button promote-entity-cancel"
-                    >Cancel</button>
-                </div>
-            </div>
-        </div>
-    """
-    return f"""
-        <div
-            class="extracted-panel"
-            data-inspector-extracted="{_html(entity_id)}"
-            data-entity-id="{_html(entity_id)}"
-            hidden
-        >
-            <div class="extracted-panel__head">
-                <code class="entity-value">{_html(entity.get("value_original", ""))}</code>
-                <span
-                    class="info-tip"
-                    tabindex="0"
-                    role="img"
-                    aria-label="Detection details"
-                    title="{_html(_detection_title(entity))}"
-                >{_icon("info")}</span>
-            </div>
-            <span class="entity-confidence">{confidence:.0%} deterministic confidence</span>
-            <div class="extracted-panel__controls">
-                <label>
-                    <span class="sr-only">Entity type</span>
-                    <select data-entity-type{disabled}>
-                        {_entity_type_options(entity_type)}
-                    </select>
-                </label>
-                <label>
-                    <span class="sr-only">Review status</span>
-                    <select data-entity-status{disabled}>
-                        {_entity_status_options(status)}
-                    </select>
-                </label>
-                <label>
-                    <span class="sr-only">Property type</span>
-                    <select data-property-type{disabled}>
-                        {_property_type_options(property_type)}
-                    </select>
-                </label>
-            </div>
-            <label class="extracted-panel__field">
-                Analyst label
-                <input
-                    type="text"
-                    data-entity-custom-label
-                    maxlength="120"
-                    value="{_html(entity.get("custom_label", ""))}"
-                    placeholder="e.g. Registered office, Parent company"
-                    {disabled}
-                >
-            </label>
-            {property_control}
-            {promote_markup}
-            <div class="extracted-panel__actions">
-                <button
-                    type="button"
-                    class="primary-button save-entity-metadata"
-                    {disabled}
-                >{_icon("check")} Save</button>
-                <button
-                    type="button"
-                    class="icon-action icon-action--danger delete-entity"
-                    title="Delete entity"
-                    aria-label="Delete entity"
-                    {disabled}
-                >{_icon("trash")}</button>
-            </div>
-        </div>
-    """
-
-
 def _entity_markup(
     entities: list[Mapping],
     *,
+    graph_entities: list[Mapping] = (),
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
-    rows = "".join(_extracted_entity_row(entity) for entity in entities)
+    rows = "".join(
+        _extracted_entity_row(
+            entity,
+            graph_entities=graph_entities,
+            read_only=read_only,
+        )
+        for entity in entities
+    )
     empty = (
         ""
         if entities
@@ -1829,6 +1759,7 @@ def generate_investigation_page(
                 )
                 + _entity_markup(
                     entities_by_result.get(str(result.get("id", "")), []),
+                    graph_entities=graph_entities,
                     read_only=read_only,
                 )
                 + _evidence_markup(
@@ -1849,19 +1780,6 @@ def generate_investigation_page(
         read_only=read_only,
     )
 
-    graph_entity_names = {
-        str(entity.get("id", "") or ""): str(entity.get("label", "") or "")
-        for entity in graph_entities
-    }
-    extracted_inspector_panels = "".join(
-        _extracted_entity_panel(
-            entity,
-            graph_entities=graph_entities,
-            graph_entity_names=graph_entity_names,
-            read_only=read_only,
-        )
-        for entity in entities
-    )
     metric_items = (
         ("⌕", len(searches), "Searches"),
         ("▣", len(results), "Saved pages"),
@@ -2286,7 +2204,6 @@ def generate_investigation_page(
                     </form>
                     {inspector_panels}
                     {entity_inspector_cards}
-                    {extracted_inspector_panels}
                 </div>
             </div>
         </aside>
@@ -2973,24 +2890,14 @@ def generate_investigation_page(
                 }}
             }};
             entityFilterQuery?.addEventListener("input", applyEntityFilter);
-            const inspectorExtractedPanels = inspectorDetail
-                ? Array.from(
-                    inspectorDetail.querySelectorAll(
-                        "[data-inspector-extracted]"
-                    )
-                )
-                : [];
             const extractedRows = Array.from(
-                document.querySelectorAll("[data-extracted-select]")
+                document.querySelectorAll(".entity-chip-row")
             );
             const hideInspectorPanels = () => {{
                 inspectorPagePanels.forEach((panel) => {{
                     panel.hidden = true;
                 }});
                 inspectorEntityPanels.forEach((panel) => {{
-                    panel.hidden = true;
-                }});
-                inspectorExtractedPanels.forEach((panel) => {{
                     panel.hidden = true;
                 }});
                 if (inspectorCreateEntity) {{
@@ -3002,9 +2909,6 @@ def generate_investigation_page(
                     card.classList.remove("is-inspected");
                 }});
                 entityRows.forEach((row) => {{
-                    row.classList.remove("is-inspected");
-                }});
-                extractedRows.forEach((row) => {{
                     row.classList.remove("is-inspected");
                 }});
             }};
@@ -3083,25 +2987,6 @@ def generate_investigation_page(
                 }}
                 revealInspector(matched);
             }};
-            const selectInspectorExtracted = (entityId) => {{
-                hideInspectorPanels();
-                clearInspectorSelection();
-                let matched = false;
-                inspectorExtractedPanels.forEach((panel) => {{
-                    if (panel.dataset.inspectorExtracted === entityId) {{
-                        panel.hidden = false;
-                        matched = true;
-                    }}
-                }});
-                if (matched) {{
-                    extractedRows.forEach((row) => {{
-                        if (row.dataset.extractedSelect === entityId) {{
-                            row.classList.add("is-inspected");
-                        }}
-                    }});
-                }}
-                revealInspector(matched);
-            }};
             resultCards.forEach((card) => {{
                 // The whole card opens the detail rail; only the title link
                 // (and explicit controls) keep their own behaviour.
@@ -3121,97 +3006,89 @@ def generate_investigation_page(
                 );
             }});
             extractedRows.forEach((row) => {{
-                row.addEventListener(
+                const entityId = row.dataset.entityId;
+                const nameInput = row.querySelector("[data-entity-custom-label]");
+                nameInput?.addEventListener("change", () => {{
+                    queueAction("update_entity_metadata", {{
+                        entityId,
+                        entity: {{
+                            entity_type: row.dataset.entityType,
+                            custom_label: nameInput.value.trim(),
+                            property_type: row.dataset.propertyType || ""
+                        }}
+                    }});
+                    flashSaved();
+                }});
+                row.querySelector(".entity-validate")?.addEventListener(
                     "click",
-                    () => selectInspectorExtracted(row.dataset.extractedSelect)
-                );
-            }});
-            inspectorExtractedPanels.forEach((panel) => {{
-                const entityId = panel.dataset.entityId;
-                panel.querySelector("[data-entity-status]")
-                    ?.addEventListener("change", (event) => {{
+                    () => {{
+                        row.className =
+                            "entity-chip-row entity-item--validated";
                         queueAction("update_entity_status", {{
                             entityId,
-                            status: event.target.value
+                            status: "validated"
                         }});
-                    }});
-                panel.querySelector(".save-entity-metadata")
-                    ?.addEventListener("click", () => {{
-                        queueAction("update_entity_metadata", {{
+                        flashSaved();
+                    }}
+                );
+                row.querySelector(".entity-reject")?.addEventListener(
+                    "click",
+                    () => {{
+                        queueAction("update_entity_status", {{
                             entityId,
-                            entity: {{
-                                entity_type: panel.querySelector(
-                                    "[data-entity-type]"
-                                ).value,
-                                custom_label: panel.querySelector(
-                                    "[data-entity-custom-label]"
-                                ).value.trim(),
-                                property_type: panel.querySelector(
-                                    "[data-property-type]"
-                                )?.value || ""
-                            }}
+                            status: "rejected"
                         }});
-                    }});
-                panel.querySelector(".attach-extracted-property")
-                    ?.addEventListener("click", () => {{
-                        const graphEntityId = panel.querySelector(
-                            "[data-property-graph-entity]"
-                        )?.value || "";
-                        const propertyKey = panel.querySelector(
-                            "[data-property-key]"
-                        )?.value.trim() || "";
+                        row.hidden = true;
+                        flashSaved();
+                    }}
+                );
+                row.querySelector("[data-extracted-attach]")?.addEventListener(
+                    "change",
+                    (event) => {{
+                        const graphEntityId = event.target.value;
+                        const propertyKey = nameInput?.value.trim() || "";
                         if (graphEntityId && propertyKey) {{
                             queueAction("attach_extracted_property", {{
                                 extractedEntityId: entityId,
                                 property: {{
                                     graph_entity_id: graphEntityId,
                                     property_key: propertyKey,
-                                    property_type: panel.querySelector(
-                                        "[data-property-type]"
-                                    )?.value || ""
+                                    property_type: row.dataset.propertyType || ""
                                 }}
                             }});
+                        }} else if (!graphEntityId) {{
+                            queueAction("detach_extracted_property", {{
+                                extractedEntityId: entityId
+                            }});
                         }}
-                    }});
-                panel.querySelector(".detach-extracted-property")
-                    ?.addEventListener("click", () => {{
-                        queueAction("detach_extracted_property", {{
-                            extractedEntityId: entityId
-                        }});
-                    }});
-                panel.querySelector(".delete-entity")
-                    ?.addEventListener("click", () => {{
-                        if (confirm("Delete this extracted entity?")) {{
-                            queueAction("delete_entity", {{ entityId }});
-                        }}
-                    }});
-                const promoteToggle = panel.querySelector(
-                    ".promote-entity-toggle"
+                        flashSaved();
+                    }}
                 );
-                const promoteForm = panel.querySelector(
-                    ".promote-entity__form"
+                const promoteToggle = row.querySelector(
+                    ".entity-promote-toggle"
+                );
+                const promoteForm = row.querySelector(
+                    ".entity-chip-row__promote"
                 );
                 if (promoteToggle && promoteForm) {{
                     promoteToggle.addEventListener("click", () => {{
                         promoteForm.hidden = !promoteForm.hidden;
                     }});
-                    panel.querySelector(".promote-entity-cancel")
-                        ?.addEventListener("click", () => {{
-                            promoteForm.hidden = true;
-                        }});
+                    row.querySelector(".promote-cancel")?.addEventListener(
+                        "click",
+                        () => {{ promoteForm.hidden = true; }}
+                    );
                 }}
-                panel.querySelector(".create-entity-from-property")
+                row.querySelector(".create-entity-from-property")
                     ?.addEventListener("click", () => {{
-                        const label = panel.querySelector(
+                        const label = row.querySelector(
                             "[data-quick-entity-label]"
                         )?.value.trim() || "";
-                        const category = panel.querySelector(
+                        const category = row.querySelector(
                             "[data-quick-entity-category]"
                         )?.value.trim() || "";
-                        const propertyKey = panel.querySelector(
-                            "[data-quick-property-key]"
-                        )?.value.trim() || "";
-                        if (label && category && propertyKey) {{
+                        const propertyKey = nameInput?.value.trim() || label;
+                        if (label && category) {{
                             queueAction("create_graph_entity_from_extracted", {{
                                 extractedEntityId: entityId,
                                 entity: {{

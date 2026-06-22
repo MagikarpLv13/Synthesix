@@ -1608,29 +1608,22 @@ a:focus-visible {
 }
 
 .entity-chip-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     width: 100%;
     text-align: left;
-    padding: 7px 10px;
+    padding: 8px 10px;
     border: 1px solid var(--line);
     border-left: 3px solid var(--secondary);
     border-radius: 6px;
     background: var(--surface);
     color: var(--text);
     font: inherit;
-    cursor: pointer;
 }
 
-.entity-chip-row:hover {
-    border-color: var(--accent);
-}
-
-.entity-chip-row:focus-visible {
-    outline: none;
-    box-shadow: var(--focus);
+.entity-chip-row[hidden] {
+    display: none;
 }
 
 .entity-chip-row.entity-item--proposed {
@@ -1645,30 +1638,111 @@ a:focus-visible {
     border-left-color: var(--danger);
 }
 
-.entity-chip-row.is-inspected {
-    border-left-color: var(--accent);
-    box-shadow: inset 3px 0 0 var(--accent);
+.entity-chip-row__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .entity-chip-row__type {
-    font-size: 11px;
+    flex: 0 0 auto;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: var(--muted);
 }
 
+.entity-chip-row__name {
+    width: 100%;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-chip-row__name:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
 .entity-chip-row__value {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--text);
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
 
-.entity-chip-row__meta {
+.entity-chip-row__actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.entity-chip-row__actions .icon-action {
+    width: 26px;
+    height: 26px;
+}
+
+.entity-chip-row .entity-validate:hover {
+    color: var(--success-ink);
+}
+
+.entity-chip-row__link {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
     font-size: 12px;
-    color: var(--muted);
-    white-space: nowrap;
+}
+
+.entity-chip-row__link:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
+.entity-chip-row__promote {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--line);
+}
+
+.entity-chip-row__promote[hidden] {
+    display: none;
+}
+
+.entity-chip-row__promote input {
+    flex: 1 1 120px;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-chip-row__promote-actions {
+    flex: 1 1 100%;
+    display: flex;
+    gap: 6px;
 }
 
 /* Extracted-entity management panel (workspace rail). */

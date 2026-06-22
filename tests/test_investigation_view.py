@@ -297,7 +297,6 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("analyze_result_url"', content)
         self.assertIn('queueAction("update_entity_status"', content)
         self.assertIn('queueAction("update_entity_metadata"', content)
-        self.assertIn('queueAction("delete_entity"', content)
         self.assertIn('queueAction("create_graph_entity"', content)
         self.assertIn(
             '"create_graph_entity_from_extracted"',
@@ -308,7 +307,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("attach_extracted_property"', content)
         self.assertNotIn("Créer une entité depuis ce site", content)
         self.assertNotIn("create_graph_entity_from_result", content)
-        self.assertIn("Promote to entity", content)
+        self.assertIn("Promouvoir en entité", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
         self.assertIn("Significant change", content)
@@ -345,13 +344,12 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Example SAS", content)
         self.assertIn("Forme juridique", content)
         self.assertIn("Linked entities", content)
-        self.assertIn("Use as property", content)
+        self.assertIn("Lier à une entité", content)
         self.assertIn("analyst@example.com", content)
         self.assertIn('class="info-tip"', content)
-        self.assertIn("99% deterministic confidence", content)
         self.assertIn("Primary contact", content)
         self.assertEqual(
-            tree.xpath("//input[@data-quick-property-key]/@value"),
+            tree.xpath("//input[@data-entity-custom-label]/@value"),
             ["Primary contact"],
         )
         self.assertIn("Suggested Email", content)
@@ -373,15 +371,12 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn(">Manifest</a>", content)
         self.assertIn("2 assets", content)
         self.assertIn("Delete export</button>", content)
-        self.assertEqual(
-            tree.xpath("//select[@data-entity-status]/@value"),
-            [],
-        )
-        self.assertEqual(
+        self.assertEqual(tree.xpath("//select[@data-entity-status]"), [])
+        self.assertTrue(
             tree.xpath(
-                "//select[@data-entity-status]/option[@selected]/@value"
-            ),
-            ["proposed"],
+                "//*[contains(@class, 'entity-chip-row')]"
+                "[contains(@class, 'entity-item--proposed')]"
+            )
         )
         self.assertIn("Registry header", content)
         self.assertIn("Selected area", content)
@@ -772,11 +767,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         self.assertEqual([text.strip() for text in source_refs], ["1"])
 
-    def test_extracted_entity_panel_stores_property_type(self):
+    def test_extracted_row_carries_property_type_without_a_type_select(self):
         workspace = workspace_payload()
-        extracted = workspace["entities"][0]
-        extracted["property_key"] = "Sandwich"
-        extracted["attributes"]["property_type"] = "text"
+        workspace["entities"][0]["attributes"]["property_type"] = "text"
 
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -790,22 +783,14 @@ class InvestigationViewTestCase(unittest.TestCase):
             content = output_path.read_text(encoding="utf-8")
             tree = html.fromstring(content)
 
-        panel = tree.xpath(
-            "//div[@data-inspector-extracted='entity-123']"
+        row = tree.xpath(
+            "//*[contains(@class, 'entity-chip-row')]"
+            "[@data-entity-id='entity-123']"
         )[0]
-        self.assertEqual(
-            panel.xpath(".//select[@data-property-type]/option[@selected]/@value"),
-            ["text"],
-        )
-        option_values = panel.xpath(
-            ".//select[@data-property-type]/option/@value"
-        )
-        self.assertNotIn("boolean", option_values)
-        self.assertNotIn("choice", option_values)
-        self.assertIn(
-            'property_type: panel.querySelector(',
-            content,
-        )
+        # Type is carried on the row for export, not editable here (no select).
+        self.assertEqual(row.get("data-property-type"), "text")
+        self.assertEqual(tree.xpath("//select[@data-property-type]"), [])
+        self.assertIn("property_type: row.dataset.propertyType", content)
 
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
@@ -975,16 +960,18 @@ class InvestigationViewTestCase(unittest.TestCase):
             ["disabled"],
         )
         self.assertEqual(
-            tree.xpath("//select[@data-entity-status]/@disabled"),
-            ["disabled"],
-        )
-        self.assertEqual(
-            tree.xpath("//select[@data-entity-type]/@disabled"),
-            ["disabled"],
-        )
-        self.assertEqual(
             tree.xpath("//input[@data-entity-custom-label]/@disabled"),
             ["disabled"],
+        )
+        self.assertTrue(
+            tree.xpath(
+                "//button[contains(@class, 'entity-validate')]/@disabled"
+            )
+        )
+        self.assertTrue(
+            tree.xpath(
+                "//button[contains(@class, 'entity-reject')]/@disabled"
+            )
         )
         self.assertFalse(tree.xpath("//select[@data-result-tag-suggestion]"))
         self.assertFalse(tree.xpath("//button[contains(@class, 'add-result-tag')]"))
