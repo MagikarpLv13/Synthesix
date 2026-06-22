@@ -1653,8 +1653,14 @@ a:focus-visible {
     color: var(--muted);
 }
 
+.entity-chip-row__fields {
+    display: flex;
+    gap: 6px;
+}
+
 .entity-chip-row__name {
-    width: 100%;
+    flex: 1 1 50%;
+    min-width: 0;
     padding: 4px 7px;
     border: 1px solid var(--line);
     border-radius: 5px;
@@ -1678,6 +1684,7 @@ a:focus-visible {
     white-space: nowrap;
     color: var(--text);
     font-weight: 500;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -1699,7 +1706,8 @@ a:focus-visible {
 }
 
 .entity-chip-row__link {
-    width: 100%;
+    flex: 1 1 50%;
+    min-width: 0;
     padding: 4px 6px;
     border: 1px solid var(--line);
     border-radius: 5px;

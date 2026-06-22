@@ -450,16 +450,13 @@ def _extracted_entity_row(
                 f'<option value="{_html(gid)}"{selected}>'
                 f'{_html(graph_entity.get("label", ""))}</option>'
             )
-        attach_row = (
-            '<div class="entity-chip-row__link-row">'
-            f'<select class="entity-chip-row__link" data-extracted-attach{disabled}>'
-            f'{"".join(options)}</select></div>'
+        attach_control = (
+            '<select class="entity-chip-row__link" '
+            f'data-extracted-attach{disabled}>{"".join(options)}</select>'
         )
     else:
-        attach_row = (
-            '<div class="entity-chip-row__link-row">'
+        attach_control = (
             '<span class="field-hint">Créez une entité pour rattacher.</span>'
-            "</div>"
         )
     promote_form = f"""
         <div class="entity-chip-row__promote" hidden>
@@ -534,16 +531,18 @@ def _extracted_entity_row(
                     >{_icon("plus")}</button>
                 </span>
             </div>
-            <input
-                type="text"
-                class="entity-chip-row__name"
-                data-entity-custom-label
-                maxlength="120"
-                value="{_html(property_name or _entity_property_key(entity))}"
-                placeholder="Nom de propriété"
-                {disabled}
-            >
-            {attach_row}
+            <div class="entity-chip-row__fields">
+                <input
+                    type="text"
+                    class="entity-chip-row__name"
+                    data-entity-custom-label
+                    maxlength="120"
+                    value="{_html(property_name or _entity_property_key(entity))}"
+                    placeholder="Nom de propriété"
+                    {disabled}
+                >
+                {attach_control}
+            </div>
             {promote_form}
         </div>
     """
