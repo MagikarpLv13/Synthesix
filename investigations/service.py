@@ -174,27 +174,6 @@ def _extracted_property_value(entity) -> str:
     )
 
 
-def _is_auto_property_candidate(entity) -> bool:
-    if str(getattr(entity, "status", "") or "") == "rejected":
-        return False
-    if str(getattr(entity, "entity_type", "") or "") in {"url", "domain"}:
-        return False
-    try:
-        confidence = float(getattr(entity, "confidence", 0) or 0)
-    except (TypeError, ValueError):
-        confidence = 0.0
-    return confidence >= 0.8
-
-
-def _is_auto_property_recipient(entity) -> bool:
-    tags = {
-        canonical_zeroneurone_tag(tag).casefold()
-        for tag in getattr(entity, "tags", ())
-        if str(tag).strip()
-    }
-    return "site web" not in tags
-
-
 class InvestigationService:
     def __init__(
         self,
@@ -597,11 +576,8 @@ class InvestigationService:
             entity_id,
             result_id,
         )
-        self._auto_attach_result_properties(
-            investigation_id,
-            result_id,
-            preferred_entity_id=entity_id,
-        )
+        # Linking no longer auto-attaches the page's extracted candidates:
+        # the analyst validates/attaches them explicitly (AI-20260622-002).
         return next(
             entity.to_payload()
             for entity in self.repository.list_investigation_entities(
@@ -812,7 +788,8 @@ class InvestigationService:
             result_id,
             (asdict(candidate) for candidate in candidates),
         )
-        self._auto_attach_result_properties(investigation_id, result_id)
+        # Extracted candidates stay "proposed" for explicit analyst triage;
+        # no automatic attach/validation (see AI-20260622-002).
         return [
             entity.to_payload()
             for entity in self.repository.list_extracted_entities(
@@ -856,55 +833,6 @@ class InvestigationService:
                 value,
             ),
         )
-
-    def _auto_attach_result_properties(
-        self,
-        investigation_id: str,
-        result_id: str,
-        *,
-        preferred_entity_id: str | None = None,
-    ) -> None:
-        graph_entities = [
-            entity
-            for entity in self.repository.list_investigation_entities(
-                investigation_id
-            )
-            if result_id in entity.linked_result_ids
-            and _is_auto_property_recipient(entity)
-        ]
-        if preferred_entity_id:
-            graph_entities = [
-                entity
-                for entity in graph_entities
-                if entity.id == preferred_entity_id
-            ]
-        if len(graph_entities) != 1:
-            return
-        target = graph_entities[0]
-        extracted_entities = [
-            entity
-            for entity in self.repository.list_extracted_entities(
-                investigation_id
-            )
-            if entity.result_id == result_id
-            and _is_auto_property_candidate(entity)
-        ]
-        for entity in extracted_entities:
-            property_key = _extracted_property_key(entity)
-            if not property_key:
-                continue
-            attached = self.repository.attach_extracted_entity_property(
-                investigation_id,
-                entity.id,
-                target.id,
-                property_key=property_key,
-            )
-            self._sync_extracted_property_to_graph_entity(
-                investigation_id,
-                target.id,
-                attached,
-                property_key,
-            )
 
     def update_entity_status(
         self,

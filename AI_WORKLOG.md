@@ -22,7 +22,31 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
+| AI-20260622-002 | Claude | claimed | 2026-06-22 | 2026-06-22 | Refonte triage des entités extraites (liste actionnable + extract→proposée) | `investigations/service.py`, `investigations/view.py` (rows/JS), `theme.css`, `tests/test_investigations.py`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
+
+**Plan AI-20260622-002 (design validé avec l'utilisateur) :**
+
+- **Backend** : « extract entities » doit laisser les candidats en **proposée**.
+  Cause actuelle : `_auto_attach_result_properties` (appelé par `extract_entities`
+  ET `link_result_to_graph_entity`) rattache + **valide** automatiquement quand la
+  page est liée à une seule entité. Décision : ne plus auto-rattacher/valider à
+  l'extraction (triage explicite). ⚠️ Auditer les tests `extract_entities` qui
+  pourraient s'appuyer sur l'auto-attach avant de retirer.
+- **Liste actionnable (rail, par page sélectionnée)** : chaque ligne d'entité
+  extraite devient auto-suffisante (quitte à 2 lignes) :
+  - **nom de propriété éditable** (onChange, sans bouton) au lieu de `other` ;
+  - valeur ;
+  - **ⓘ** infobulle sur l'extrait source (`_detection_title`) ;
+  - **✓ valider** / **✗ rejeter** (icônes ; rejeter = statut `rejected` masqué) ;
+  - **↗ promouvoir en entité** ;
+  - **select onChange** « lier à une entité » (rattache sans bouton) ;
+  - **pas** de label analyste, **pas** de sélecteur de type (type auto via
+    page/extraction), **pas** de `%` affiché (gardé pour le tri).
+  - supprime le panneau détail séparé `_extracted_entity_panel` (redondant).
+- **Vérifs** : `unittest discover`, smoke headless, et smoke CDP live (overlay)
+  signalé à l'utilisateur.
+- Aussi en attente (basse priorité, pas dans ce lot) : durcir la regex
+  téléphone (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
 
 ## Verrous de fichiers
 

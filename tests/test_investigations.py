@@ -1046,9 +1046,26 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertTrue(
             address["source_field"].startswith("archive_text:")
         )
-        self.assertEqual(address["property_key"], "Siège social")
-        self.assertEqual(address["investigation_entity_id"], company["id"])
         self.assertEqual(address["attributes"]["postal_code"], "75002")
+        # Extraction no longer auto-attaches: candidates stay proposed for
+        # explicit analyst triage (AI-20260622-002).
+        self.assertEqual(address["status"], "proposed")
+        self.assertIsNone(address["investigation_entity_id"])
+
+        # Attaching explicitly syncs the value onto the curated entity.
+        siret = next(
+            item for item in extracted if item["entity_type"] == "siret"
+        )
+        self.service.attach_extracted_property(
+            investigation.id,
+            siret["id"],
+            {"graph_entity_id": company["id"], "property_key": "SIRET"},
+        )
+        self.service.attach_extracted_property(
+            investigation.id,
+            address["id"],
+            {"graph_entity_id": company["id"], "property_key": "Siège social"},
+        )
         refreshed_company = next(
             entity
             for entity in self.service.workspace_payload(
