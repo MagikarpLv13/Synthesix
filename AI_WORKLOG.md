@@ -441,6 +441,33 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** —
 - **Relais :** aucun.
 
+### AI-20260622-005 — Entités : suggestions, état validé, header allégé
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend`.
+- **Objectif :** retours live sur le triage et le header du rail.
+- **Changements :**
+  - Input nom de propriété : `list="property-suggestions"` — nouvelle datalist
+    `#property-suggestions` (union dédupliquée des clés de
+    `ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES`) ; saisie libre conservée ;
+    sauvegarde au blur via l'event `change` (déjà en place).
+  - Bouton ✓ « Valider » masqué quand l'entité est `validated` (rendu
+    conditionnel + masquage immédiat côté JS après validation no-reload). Lier à
+    une entité valide côté serveur → re-render sans ✓.
+  - Boutons retirés : « Go to card » (panneau page) et « ← Actions » (header
+    inspecteur) ; l'indicateur « Enregistré » reste.
+  - Hover « bizarre » de la carte page corrigé : suppression du
+    `.result-heading:hover` (et de son `cursor`) résiduel qui doublait le hover
+    `.investigation-result:hover` depuis que toute la carte est cliquable.
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP modifié.
+- **Tests exécutés :** `unittest discover` (233) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (datalist présente, ✓ masqué sur entité validée).
+- **Vérifications non exécutées :** rendu live du datalist au focus (statique).
+- **Relais :** aucun. Reste basse priorité : durcir la regex téléphone.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

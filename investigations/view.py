@@ -8,8 +8,20 @@ from typing import Iterable, Mapping
 from urllib.parse import quote
 
 from exports.zeroneurone_tagsets import (
+    ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES,
     ZERONEURONE_TAGSETS,
     zeroneurone_property_type,
+)
+
+# Classic zeroneurone property keys, deduplicated across tagsets, used as
+# free-text suggestions for the extracted-entity property-name input.
+_PROPERTY_SUGGESTION_KEYS = sorted(
+    {
+        key
+        for properties in ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES.values()
+        for key, _property_type in properties
+    },
+    key=str.casefold,
 )
 
 _PROPERTY_TYPE_LABELS = {
@@ -458,6 +470,16 @@ def _extracted_entity_row(
         attach_control = (
             '<span class="field-hint">Créez une entité pour rattacher.</span>'
         )
+    # A validated candidate no longer needs the validate button.
+    validate_button = (
+        ""
+        if status == "validated"
+        else (
+            '<button type="button" class="icon-action entity-validate" '
+            f'title="Valider" aria-label="Valider"{disabled}>'
+            f'{_icon("check")}</button>'
+        )
+    )
     promote_form = f"""
         <div class="entity-chip-row__promote" hidden>
             <input
@@ -515,13 +537,7 @@ def _extracted_entity_row(
                         aria-label="Détection"
                         title="{_html(_detection_title(entity))}"
                     >{_icon("info")}</span>
-                    <button
-                        type="button"
-                        class="icon-action entity-validate"
-                        title="Valider"
-                        aria-label="Valider"
-                        {disabled}
-                    >{_icon("check")}</button>
+                    {validate_button}
                     <button
                         type="button"
                         class="icon-action icon-action--danger entity-reject"
@@ -543,6 +559,7 @@ def _extracted_entity_row(
                     type="text"
                     class="entity-chip-row__name"
                     data-entity-custom-label
+                    list="property-suggestions"
                     maxlength="120"
                     value="{_html(property_name or _entity_property_key(entity))}"
                     placeholder="Nom de propriété"
@@ -1126,8 +1143,6 @@ def _inspector_panel(
         f'data-result-id="{_html(result_id)}" hidden>'
         f"{title_markup}{url_markup}"
         f'<div class="inspector-panel__badges">{"".join(badges)}</div>'
-        '<button type="button" class="secondary-button inspector-goto" '
-        f'data-inspector-goto="{_html(result_id)}">Go to card</button>'
         f'<div class="inspector-panel__details">{details_markup}</div>'
         "</div>"
     )
@@ -1852,6 +1867,9 @@ def generate_investigation_page(
         <datalist id="entity-tagsets">
             {"".join(f'<option value="{_html(tag)}"></option>' for tag in ZERONEURONE_TAGSETS)}
         </datalist>
+        <datalist id="property-suggestions">
+            {"".join(f'<option value="{_html(key)}"></option>' for key in _PROPERTY_SUGGESTION_KEYS)}
+        </datalist>
         <header class="topbar investigation-topbar">
             <div class="brand">
                 <img class="brand-logo" src="{asset_prefix}assets/synthesix-mark.svg" alt="">
@@ -2167,11 +2185,6 @@ def generate_investigation_page(
                 </div>
                 <div class="rail-section inspector" id="inspector-detail" hidden>
                     <div class="inspector-head">
-                        <button
-                            type="button"
-                            class="inspector-back"
-                            data-inspector-close
-                        >{_icon("arrow-left")} Actions</button>
                         <span
                             class="save-indicator"
                             data-save-indicator
@@ -3049,18 +3062,16 @@ def generate_investigation_page(
                     }});
                     flashSaved();
                 }});
-                row.querySelector(".entity-validate")?.addEventListener(
-                    "click",
-                    () => {{
-                        row.className =
-                            "entity-chip-row entity-item--validated";
-                        queueAction("update_entity_status", {{
-                            entityId,
-                            status: "validated"
-                        }});
-                        flashSaved();
-                    }}
-                );
+                const validateButton = row.querySelector(".entity-validate");
+                validateButton?.addEventListener("click", () => {{
+                    row.className = "entity-chip-row entity-item--validated";
+                    validateButton.hidden = true;
+                    queueAction("update_entity_status", {{
+                        entityId,
+                        status: "validated"
+                    }});
+                    flashSaved();
+                }});
                 row.querySelector(".entity-reject")?.addEventListener(
                     "click",
                     () => {{

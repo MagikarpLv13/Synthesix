@@ -1449,12 +1449,7 @@ a:focus-visible {
 }
 
 .result-heading {
-    cursor: pointer;
     border-radius: 6px;
-}
-
-.result-heading:hover {
-    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
 }
 
 .investigation-result.is-inspected {

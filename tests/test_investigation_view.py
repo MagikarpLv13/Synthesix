@@ -310,6 +310,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("attach_extracted_properties"', content)
         self.assertIn("data-entity-checkbox", content)
         self.assertIn("data-entity-batch", content)
+        self.assertIn('id="property-suggestions"', content)
+        self.assertIn('list="property-suggestions"', content)
+        self.assertNotIn("Go to card", content)
         self.assertNotIn("Créer une entité depuis ce site", content)
         self.assertNotIn("create_graph_entity_from_result", content)
         self.assertIn("Promouvoir en entité", content)
@@ -565,8 +568,8 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertNotIn("Observations", panel_text)
         self.assertFalse(panel.xpath(".//*[contains(@class, 'inspector-stats')]"))
         self.assertIn("Relevant", panel_text)
-        goto = panel.xpath(".//*[@data-inspector-goto='result-123']")
-        self.assertEqual(len(goto), 1)
+        # The "Go to card" button was removed (added nothing).
+        self.assertFalse(panel.xpath(".//*[@data-inspector-goto]"))
 
     def test_entities_are_compact_rows_with_management_card_in_rail(self):
         with TemporaryDirectory() as temp_dir:
@@ -691,10 +694,12 @@ class InvestigationViewTestCase(unittest.TestCase):
             len(tree.xpath("//*[@id='inspector-detail'][@hidden]")),
             1,
         )
-        # A back control returns to the actions view.
-        self.assertEqual(
-            len(tree.xpath("//*[@id='inspector-detail']//*[@data-inspector-close]")),
-            1,
+        # The "Actions" back control was removed; the save indicator stays.
+        self.assertFalse(
+            tree.xpath("//*[@id='inspector-detail']//*[@data-inspector-close]")
+        )
+        self.assertTrue(
+            tree.xpath("//*[@id='inspector-detail']//*[@data-save-indicator]")
         )
 
     def test_entity_properties_show_type_badges_without_add_form(self):
@@ -793,6 +798,38 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertEqual(row.get("data-property-type"), "text")
         self.assertEqual(tree.xpath("//select[@data-property-type]"), [])
         self.assertIn("property_type: row.dataset.propertyType", content)
+
+    def test_validated_extracted_entity_hides_the_validate_button(self):
+        workspace = workspace_payload()
+        validated = dict(workspace["entities"][0])
+        validated["id"] = "entity-456"
+        validated["status"] = "validated"
+        workspace["entities"] = [workspace["entities"][0], validated]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        proposed_row = tree.xpath("//*[@data-entity-id='entity-123']")[0]
+        validated_row = tree.xpath("//*[@data-entity-id='entity-456']")[0]
+        self.assertTrue(
+            proposed_row.xpath(
+                ".//button[contains(@class, 'entity-validate')]"
+            )
+        )
+        self.assertFalse(
+            validated_row.xpath(
+                ".//button[contains(@class, 'entity-validate')]"
+            )
+        )
 
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
