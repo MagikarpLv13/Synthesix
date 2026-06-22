@@ -2674,6 +2674,7 @@ async def main():
                 "unlink_result_from_graph_entity",
                 "attach_extracted_property",
                 "detach_extracted_property",
+                "set_entity_property_scope",
                 "delete_entities",
                 "attach_extracted_properties",
             }:
@@ -2736,6 +2737,14 @@ async def main():
                             ).strip(),
                             result.get("property", {}),
                         )
+                    elif action == "set_entity_property_scope":
+                        investigation_service.set_entity_property_scope(
+                            investigation_id,
+                            str(
+                                result.get("extractedEntityId", "") or ""
+                            ).strip(),
+                            str(result.get("scope", "") or "").strip(),
+                        )
                     elif action == "delete_entities":
                         for raw_id in result.get("entityIds", []) or []:
                             candidate = str(raw_id or "").strip()
@@ -2795,6 +2804,7 @@ async def main():
                     if action in {
                         "attach_extracted_property",
                         "detach_extracted_property",
+                        "set_entity_property_scope",
                         "delete_entities",
                         "attach_extracted_properties",
                     }:
@@ -3094,17 +3104,9 @@ async def main():
                         investigation_id,
                         capture_id,
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # The evidence row is removed client-side. Keep the rail
+                    # context instead of refreshing the whole investigation.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue

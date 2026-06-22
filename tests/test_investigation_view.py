@@ -304,7 +304,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             content,
         )
         self.assertIn('queueAction("update_graph_entity"', content)
-        self.assertIn('queueAction("link_result_to_graph_entity"', content)
+        self.assertNotIn('queueAction("link_result_to_graph_entity"', content)
         self.assertIn('queueAction("attach_extracted_property"', content)
         self.assertIn('queueAction("delete_entities"', content)
         self.assertIn('queueAction("attach_extracted_properties"', content)
@@ -313,15 +313,45 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("data-entity-filter-query", content)
         self.assertIn("data-entity-filter-status", content)
         self.assertIn('id="property-suggestions"', content)
-        self.assertIn('list="property-suggestions"', content)
+        self.assertIn('id="property-suggestions-site-web"', content)
+        self.assertIn('id="property-suggestions-result-123"', content)
+        self.assertIn('list="property-suggestions-result-123"', content)
+        self.assertIn("data-extracted-entity-count", content)
+        self.assertIn("refreshExtractedEntityState", content)
+        self.assertIn("removeEvidenceItem", content)
+        self.assertIn('queueAction("set_entity_property_scope"', content)
         # The property suggestions reuse names already used in this case.
         self.assertIn(
             "Primary contact",
             tree.xpath("//datalist[@id='property-suggestions']/option/@value"),
         )
+        scoped_property_values = set(
+            tree.xpath(
+                "//datalist[@id='property-suggestions-result-123']/option/@value"
+            )
+        )
+        self.assertIn("SIREN", scoped_property_values)
+        self.assertIn("Primary contact", scoped_property_values)
         self.assertNotIn("Go to card", content)
         self.assertNotIn("Créer une entité depuis ce site", content)
         self.assertNotIn("create_graph_entity_from_result", content)
+        self.assertNotIn("Linked entities", content)
+        self.assertNotIn("Link source to", content)
+        self.assertNotIn("data-link-graph-entity", content)
+        self.assertIn("Entités utilisant cette page", content)
+        self.assertIn("data-page-linked-entity", content)
+        self.assertIn("selectInspectorEntity(button.dataset.pageLinkedEntity)", content)
+        self.assertFalse(
+            tree.xpath(
+                "//button[contains(@class, 'extract-result-entities')]/@disabled"
+            )
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//button[contains(@class, 'evidence-extract-properties')]/@title"
+            ),
+            ["Extraire les propriétés depuis cette archive"],
+        )
         self.assertIn("Promouvoir en entité", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
@@ -351,14 +381,25 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Intl.DateTimeFormat", content)
         self.assertIn('src="../../i18n.js"', content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
-        self.assertIn("Evidence (1)", content)
-        self.assertIn("Entities (1)", content)
+        self.assertIn("data-evidence-count", content)
+        self.assertEqual(
+            tree.xpath(
+                "string(//*[contains(@class, 'result-evidence')]/summary)"
+            ).strip(),
+            "Evidence (1)",
+        )
+        self.assertEqual(
+            tree.xpath(
+                "string(//*[contains(@class, 'result-entities')]"
+                "//*[contains(@class, 'provenance-label')])"
+            ).strip(),
+            "Entities (1)",
+        )
         self.assertIn(">Entités</h3>", content)
         self.assertNotIn("Final graph", content)
         self.assertNotIn("Final graph node", content)
         self.assertIn("Example SAS", content)
         self.assertIn("Forme juridique", content)
-        self.assertIn("Linked entities", content)
         self.assertIn("Lier à une entité", content)
         self.assertIn("analyst@example.com", content)
         self.assertIn('class="info-tip"', content)
@@ -445,8 +486,17 @@ class InvestigationViewTestCase(unittest.TestCase):
             saved_page_card.xpath(".//*[contains(@class, 'result-provenance')]")
         )
         inspector = tree.xpath("//*[@data-inspector-panel='result-123']")[0]
+        linked_page_entities = inspector.xpath(
+            ".//button[contains(concat(' ', normalize-space(@class), ' '), "
+            "' page-linked-entity ')]"
+        )
+        self.assertEqual(len(linked_page_entities), 1)
+        self.assertEqual(
+            linked_page_entities[0].get("data-page-linked-entity"),
+            "graph-entity-123",
+        )
         self.assertTrue(inspector.xpath(".//*[contains(@class, 'result-evidence')]"))
-        self.assertTrue(
+        self.assertFalse(
             inspector.xpath(".//*[contains(@class, 'result-entity-links')]")
         )
         self.assertFalse(
@@ -455,7 +505,7 @@ class InvestigationViewTestCase(unittest.TestCase):
                 "' link-result-entity ')]"
             )
         )
-        self.assertTrue(inspector.xpath(".//select[@data-link-graph-entity]"))
+        self.assertFalse(inspector.xpath(".//select[@data-link-graph-entity]"))
         self.assertEqual(
             tree.xpath("//input[@data-result-favorite]/@type"),
             ["checkbox"],
@@ -865,15 +915,128 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Propriétés de la page", content)
         entity_row = tree.xpath("//*[@data-entity-id='entity-123']")[0]
         source_row = tree.xpath("//*[@data-entity-id='entity-dom']")[0]
-        # Entity-fact row keeps the link select; the page/source row drops it
-        # along with the promote-to-entity control.
+        # Entity-fact row keeps controls visible; the page/source row keeps
+        # them in the DOM for no-reload toggling; only attach/promote are hidden
+        # by data scope so page properties still support batch selection.
         self.assertTrue(entity_row.xpath(".//select[@data-extracted-attach]"))
-        self.assertFalse(source_row.xpath(".//select[@data-extracted-attach]"))
+        self.assertEqual(entity_row.get("data-property-scope"), "entity")
+        self.assertTrue(source_row.xpath(".//select[@data-extracted-attach]"))
+        self.assertEqual(source_row.get("data-property-scope"), "page")
+        self.assertEqual(
+            source_row.xpath(".//input[@data-entity-custom-label]/@list"),
+            ["property-suggestions-site-web"],
+        )
+        self.assertEqual(
+            source_row.get("data-page-property-list"),
+            "property-suggestions-site-web",
+        )
+        site_values = set(
+            tree.xpath("//datalist[@id='property-suggestions-site-web']/option/@value")
+        )
+        self.assertIn("URL", site_values)
+        self.assertIn("Domaine", site_values)
+        self.assertIn("Registrar", site_values)
+        self.assertNotIn("Administration", site_values)
+        self.assertTrue(source_row.xpath(".//button[@data-scope-toggle]"))
+
+    def test_disables_entity_scan_without_html_or_text_archive(self):
+        workspace = workspace_payload()
+        workspace["evidence"] = [
+            {
+                **workspace["evidence"][0],
+                "artifacts": [
+                    artifact
+                    for artifact in workspace["evidence"][0]["artifacts"]
+                    if artifact["artifact_type"] == "png"
+                ],
+            }
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        self.assertNotIn("scan-warning", content)
+        self.assertIn("Archive HTML/texte requise", content)
+        self.assertEqual(
+            tree.xpath("//button[contains(@class, 'extract-result-entities')]/@disabled"),
+            ["disabled"],
+        )
         self.assertFalse(
-            source_row.xpath(
-                ".//button[contains(@class, 'entity-promote-toggle')]"
+            tree.xpath("//button[contains(@class, 'evidence-extract-properties')]")
+        )
+
+    def test_property_scope_override_moves_rows_between_groups(self):
+        workspace = workspace_payload()
+        entity_property = workspace["entities"][0]
+        entity_property["attributes"]["property_scope"] = "page"
+        source_property = dict(entity_property)
+        source_property["id"] = "entity-domain"
+        source_property["entity_type"] = "domain"
+        source_property["value_original"] = "example.com"
+        source_property["value_normalized"] = "example.com"
+        source_property["attributes"] = {"property_scope": "entity"}
+        workspace["entities"] = [entity_property, source_property]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        page_group_rows = tree.xpath(
+            "//*[@data-entity-group='page']//*[@data-entity-id]/@data-entity-id"
+        )
+        entity_group_rows = tree.xpath(
+            "//*[@data-entity-group='entity']//*[@data-entity-id]/@data-entity-id"
+        )
+        self.assertIn("entity-123", page_group_rows)
+        self.assertIn("entity-domain", entity_group_rows)
+
+    def test_scoped_property_datalist_uses_linked_entity_tagset(self):
+        workspace = workspace_payload()
+        workspace["graph_entities"][0]["tags"] = ["Personne"]
+        workspace["graph_entities"][0]["properties"] = {}
+        workspace["entities"][0]["custom_label"] = "Sandwich"
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        row = tree.xpath("//*[@data-entity-id='entity-123']")[0]
+        self.assertEqual(
+            row.xpath(".//input[@data-entity-custom-label]/@list"),
+            ["property-suggestions-result-123"],
+        )
+        values = set(
+            tree.xpath(
+                "//datalist[@id='property-suggestions-result-123']/option/@value"
             )
         )
+        self.assertIn("Date de naissance", values)
+        self.assertIn("Profession", values)
+        self.assertIn("Sandwich", values)
+        self.assertNotIn("Forme juridique", values)
 
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()

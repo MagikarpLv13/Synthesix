@@ -22,7 +22,7 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| AI-20260622-008 | Claude | in_progress | 2026-06-22 | 2026-06-22 | Découpage propriétés extraites : section « à rattacher à une entité » vs « propriétés de la page » (auto par type) | `investigations/view.py`, `theme.css`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
+| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
 **Plan AI-20260622-008 (design validé avec l'utilisateur) :**
 
@@ -46,7 +46,6 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
 |---|---|---|---|---|---|
-| _Aucun verrou actif_ |  |  |  |  |  |
 
 Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `frontend/**`. Pour un lot multi-fichiers, lister les fichiers chauds ; les fichiers dédiés à un nouveau composant peuvent rester couverts par la tâche sans verrou séparé.
 
@@ -538,6 +537,174 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** smoke CDP live du filtre — à confirmer en live.
 - **Relais :** clarifier le découpage propriétés source/page vs entité
   (AI-20260622-008) avant de re-livrer.
+
+### AI-20260622-008 — Découpage propriétés extraites, lots 2 et 3
+
+- **Agent :** Claude puis Codex pour les lots 2/3
+- **Période UTC :** 2026-06-22 ; reprise Codex 16:09-16:11
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** terminer la bascule manuelle persistée page/entité et les suggestions de propriétés scopées par tagset lié.
+- **Changements :**
+  - ajout de l'action CDP no-reload `set_entity_property_scope` ;
+  - persistance dédiée de `attributes.property_scope` via service/repository, sans passer par `update_entity_metadata` ;
+  - bouton-icône par `.entity-chip-row` pour basculer entre « À rattacher à une entité » et « Propriétés de la page » ;
+  - déplacement optimiste de la ligne entre groupes côté client, avec ajustement des contrôles visibles ;
+  - datalists `property-suggestions-{result_id}` fondées sur les tagsets des entités du graphe liées à la page, avec mémoire des noms déjà saisis ;
+  - fallback conservé vers `#property-suggestions` quand aucune entité liée ne donne de tagset exploitable.
+- **Fichiers modifiés :**
+  - `main.py`
+  - `investigations/view.py`
+  - `investigations/service.py`
+  - `investigations/repository.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `tests/test_investigations.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - `scope` accepté : `page` ou `entity` uniquement ;
+  - aucun bundle Lit à reconstruire, la page reste rendue par Python + JS inline ;
+  - le Lot 4 export ZeroNeurone reste à faire séparément.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_investigations` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 237 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome — OK, captures `tmp_ui_render/property_scope_lots_2_3.png` et `tmp_ui_render/property_scope_lots_2_3_rail.png`
+- **Vérifications non exécutées :**
+  - smoke CDP live de l'action `set_entity_property_scope` non exécuté dans une vraie session navigateur.
+- **Risques / reste à faire :**
+  - Lot 4 : adapter `exports/zeroneurone.py` pour rattacher les propriétés scope `page` au nœud source/page plutôt qu'à l'entité ;
+  - confirmer en live que la bascule no-reload garde bien la position et le statut « Saved. ».
+- **Relais :** prochain lot exact : export ZeroNeurone des propriétés `property_scope="page"`.
+
+### AI-20260622-009 — Nettoyage du workspace page
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 16:18-16:44
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** alléger le rail des pages enregistrées et renforcer la cohérence entre propriétés de page, propriétés d'entité et preuves.
+- **Changements :**
+  - suppression du bloc manuel « Linked entities / Link source to... » et des actions `link/unlink` du workspace page ;
+  - datalist dédiée `property-suggestions-site-web` pour les propriétés de page/site web, fondée sur le tagset « Site web » et les noms source déjà utilisés ;
+  - groupes repliables « À rattacher à une entité », « Propriétés de la page » et `Evidence`, avec sélection multiple et filtre commun sur les propriétés extraites ;
+  - compteur `Entities (n)` mis à jour côté client après suppression simple ou groupée ;
+  - suppression d'evidence en no-reload : la ligne est retirée côté client et le handler CDP se contente d'enregistrer ;
+  - suppression d'une propriété du rail entité avec confirmation explicite et suppression des propriétés extraites liées au même couple entité/propriété ;
+  - indication dans le rail que le scan de propriétés s'appuie sur les archives HTML/texte enregistrées.
+- **Fichiers modifiés :**
+  - `main.py`
+  - `investigations/view.py`
+  - `investigations/service.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `tests/test_investigations.py`
+  - `AI_WORKLOG.md`
+  - `investigations/repository.py` : verrou pris mais aucun changement nouveau pour ce lot.
+- **Contrats ou décisions :**
+  - `delete_evidence_capture` devient no-reload dans la page d'enquête ;
+  - `delete_graph_entity_property` supprime aussi les propriétés extraites liées pour éviter les résidus dans les pages enregistrées.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_investigations` — OK, 55 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 238 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome — OK, captures `tmp_ui_render/cases/page_workspace_cleanup.png` et `tmp_ui_render/cases/page_workspace_cleanup_rail.png`
+- **Vérifications non exécutées :**
+  - smoke CDP live de suppression evidence/propriété non exécuté dans une vraie session navigateur.
+- **Risques / reste à faire :**
+  - Lot 4 : adapter l'export ZeroNeurone des propriétés `property_scope="page"` vers le nœud source/page ;
+  - confirmer en live que les handlers no-reload conservent bien l'état du rail pendant une session CDP réelle.
+- **Relais :** aucun blocage ; prochain lot recommandé : export ZeroNeurone des propriétés de page.
+
+### AI-20260622-010 — Ajustements rail page après retour visuel
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 17:19-17:24
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** conserver la lecture des entités utilisant une page, clarifier les groupes repliables et conditionner le scan aux archives HTML/texte.
+- **Changements :**
+  - ajout d'un bloc lecture seule « Entités utilisant cette page » dans le rail page, construit depuis les liens explicites et les propriétés extraites déjà rattachées ;
+  - les entrées de ce bloc ouvrent directement le détail de l'entité dans le workspace ;
+  - ajout d'un chevron CSS visible sur les groupes repliables d'entités/propriétés de page ;
+  - désactivation du bouton de scan quand la page n'a aucune archive exploitable (`html`, `mhtml`, `text`/`txt` ou mime texte/html) ;
+  - warning orange dans ce cas pour expliquer l'action attendue ;
+  - tests de rendu pour la liste liée et le scan désactivé.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - la datalist de propriétés reste une combinaison du tagset global applicable et des noms déjà présents dans l'enquête courante uniquement ;
+  - `extract_result_entities` conserve son reload : l'action produit de nouvelles lignes calculées côté Python.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 20 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 239 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome — OK, captures `tmp_ui_render/cases/page_workspace_archive_ready_rail.png` et `tmp_ui_render/cases/page_workspace_no_archive_rail.png`
+- **Vérifications non exécutées :**
+  - smoke CDP live non exécuté.
+- **Risques / reste à faire :**
+  - le scan reste volontairement avec reload ; une version no-reload demanderait un rendu partiel ou un contrat CDP de retour de lignes.
+- **Relais :** aucun.
+
+### AI-20260622-011 — Extraction depuis les archives Evidence
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 17:33-17:37
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** replacer l'action d'extraction automatique au niveau de l'archive source et alléger le rail `Entities`.
+- **Changements :**
+  - suppression du message warning inline dans `Entities` ;
+  - conservation d'une icône désactivée avec tooltip dans `Entities` uniquement quand aucune archive HTML/texte exploitable n'existe ;
+  - ajout d'un bouton d'extraction sur chaque evidence disposant d'un artefact exploitable (`html`, `mhtml`, `text`/`txt` ou mime texte/html) ;
+  - espacement vertical renforcé dans le bloc `Entities` ;
+  - tests adaptés au nouveau placement du scan.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - l'action reste `extract_result_entities` au niveau page/résultat ; le bouton est déplacé visuellement sur l'archive exploitable.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 20 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 239 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome — OK, captures `tmp_ui_render/cases/page_workspace_archive_ready_rail.png` et `tmp_ui_render/cases/page_workspace_no_archive_rail.png`
+- **Vérifications non exécutées :**
+  - smoke CDP live non exécuté.
+- **Risques / reste à faire :**
+  - si l'on veut scanner une archive précise parmi plusieurs, il faudra faire évoluer le contrat CDP pour accepter un `captureId`.
+- **Relais :** aucun.
+
+### AI-20260622-010 — Fix overflow rail + persistance file d'actions
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22 (par-dessus le travail non committé de Codex,
+  lots 2/3 et 009).
+- **Objectif :** deux bugs signalés en live : rail qui déborde horizontalement
+  sur valeur longue, et éléments supprimés (entités/preuves) qui réapparaissent
+  au refresh.
+- **Changements :**
+  - `theme.css` : `min-width: 0` ajouté sur `.result-entities` (& voisins de la
+    grille `.inspector-panel__details`), `.entity-group` et `.entity-chip-list`,
+    pour que l'ellipsis de `.entity-chip-row__value` s'applique enfin malgré les
+    nouveaux conteneurs (groupes `<details>` de Codex) → plus d'overflow.
+  - `investigations/view.py` (JS) : la file d'actions (`actionQueue`) est
+    persistée en `localStorage` (clé `synthesix:action-queue:{id}`), relue au
+    chargement, et réécrite à chaque `queueAction`/`consumeAction`. Une action
+    no-reload encore en attente (ex. une suppression) survit donc à un refresh
+    manuel au lieu d'être perdue → l'élément ne réapparaît plus.
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP modifié ; comportement no-reload
+  conservé mais rendu sûr au refresh.
+- **Tests exécutés :** `unittest discover` (239) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (URL longue tronquée, rail sans overflow).
+- **Vérifications non exécutées :** smoke CDP live (rejouer une suppression après
+  refresh) — à confirmer en live.
+- **Risques / reste à faire :** après refresh, un élément supprimé mais pas encore
+  consommé peut se réafficher brièvement le temps que l'action rejouée passe (puis
+  disparaît) ; acceptable vs perte définitive. Lot 4 export reste à faire.
 
 ## Modèle de compte rendu terminé
 

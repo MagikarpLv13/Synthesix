@@ -558,12 +558,23 @@ class InvestigationService:
         )
         if not normalized_key:
             raise InvestigationValidationError("Property name is required.")
-        return self.repository.set_investigation_entity_property(
+        updated = self.repository.set_investigation_entity_property(
             investigation_id,
             entity_id,
             key=normalized_key,
             value=None,
-        ).to_payload()
+        )
+        normalized_key_fold = normalized_key.casefold()
+        for extracted in self.repository.list_extracted_entities(investigation_id):
+            if extracted.investigation_entity_id != entity_id:
+                continue
+            if extracted.property_key.casefold() != normalized_key_fold:
+                continue
+            self.repository.delete_extracted_entity(
+                investigation_id,
+                extracted.id,
+            )
+        return updated.to_payload()
 
     def link_result_to_graph_entity(
         self,
@@ -882,6 +893,23 @@ class InvestigationService:
             custom_label=custom_label,
             tags=tags,
             property_type=property_type,
+        ).to_payload()
+
+    def set_entity_property_scope(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        scope: str,
+    ) -> dict:
+        normalized_scope = str(scope or "").strip()
+        if normalized_scope not in {"page", "entity"}:
+            raise InvestigationValidationError(
+                f"Unsupported property scope: {normalized_scope}"
+            )
+        return self.repository.set_extracted_entity_property_scope(
+            investigation_id,
+            entity_id,
+            normalized_scope,
         ).to_payload()
 
     def delete_entity(

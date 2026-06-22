@@ -685,6 +685,51 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertIsNone(detached["investigation_entity_id"])
         self.assertEqual(detached["property_key"], "")
 
+    def test_deleting_graph_property_deletes_linked_extracted_property(self):
+        investigation = self.service.create({"title": "Linked property case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://www.pappers.fr/entreprise/acme-732829320",
+                "title": "ACME SAS - Pappers",
+                "description": "SIRET 732 829 320 00074",
+                "referrer": "https://www.google.com/",
+            },
+        )
+        graph_entity = self.service.create_graph_entity(
+            investigation.id,
+            {"label": "ACME SAS", "tags": "Company"},
+        )
+        extracted = self.service.extract_entities(investigation.id, saved.id)
+        siret = next(
+            entity
+            for entity in extracted
+            if entity["entity_type"] == "siret"
+        )
+        self.service.attach_extracted_property(
+            investigation.id,
+            siret["id"],
+            {
+                "graph_entity_id": graph_entity["id"],
+                "property_key": "SIRET",
+            },
+        )
+
+        updated = self.service.delete_graph_entity_property(
+            investigation.id,
+            graph_entity["id"],
+            "SIRET",
+        )
+
+        self.assertNotIn("SIRET", updated["properties"])
+        remaining_entity_ids = {
+            entity["id"]
+            for entity in self.service.workspace_payload(investigation.id)[
+                "entities"
+            ]
+        }
+        self.assertNotIn(siret["id"], remaining_entity_ids)
+
     def test_record_selection_entity_creates_validated_sourced_fact(self):
         investigation = self.service.create({"title": "Selection case"})
         saved = self.service.save_page(
@@ -965,6 +1010,54 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             self.repository.table_count("extracted_entities"),
             0,
         )
+
+    def test_sets_extracted_entity_property_scope_without_metadata_loss(self):
+        investigation = self.service.create({"title": "Scope case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Public profile",
+                "description": "Contact jane@example.org.",
+                "referrer": "https://example.org/directory",
+            },
+        )
+        extracted = self.service.extract_entities(investigation.id, saved.id)
+        email = next(
+            entity for entity in extracted if entity["entity_type"] == "email"
+        )
+
+        scoped = self.service.set_entity_property_scope(
+            investigation.id,
+            email["id"],
+            "page",
+        )
+        self.assertEqual(scoped["attributes"]["property_scope"], "page")
+
+        relabeled = self.service.update_entity_metadata(
+            investigation.id,
+            email["id"],
+            {
+                "entity_type": "email",
+                "custom_label": "Primary email",
+                "property_type": "text",
+            },
+        )
+        self.assertEqual(relabeled["attributes"]["property_scope"], "page")
+        self.assertEqual(relabeled["attributes"]["property_type"], "text")
+
+        rescoped = self.service.set_entity_property_scope(
+            investigation.id,
+            email["id"],
+            "entity",
+        )
+        self.assertEqual(rescoped["attributes"]["property_scope"], "entity")
+        with self.assertRaises(InvestigationValidationError):
+            self.service.set_entity_property_scope(
+                investigation.id,
+                email["id"],
+                "invalid",
+            )
 
     def test_extracts_entities_from_saved_archive_text(self):
         investigation = self.service.create({"title": "Archive entities"})

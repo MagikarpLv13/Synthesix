@@ -4,12 +4,13 @@ import os
 import json
 from html import escape
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES,
     ZERONEURONE_TAGSETS,
+    zeroneurone_tagset_suggested_properties,
     zeroneurone_property_type,
 )
 
@@ -75,6 +76,93 @@ def _property_suggestion_keys(
                 text = str(key or "").strip()
                 if text:
                     keys.add(text)
+    return sorted(keys, key=str.casefold)
+
+
+def _used_property_suggestion_keys(
+    entities: list[Mapping],
+    graph_entities: list[Mapping],
+) -> set[str]:
+    """Property names already typed or curated in this investigation."""
+    keys: set[str] = set()
+    for entity in entities:
+        for candidate in (entity.get("custom_label"), entity.get("property_key")):
+            text = str(candidate or "").strip()
+            if text:
+                keys.add(text)
+        attributes = entity.get("attributes", {})
+        if isinstance(attributes, Mapping):
+            text = str(attributes.get("property_key", "") or "").strip()
+            if text:
+                keys.add(text)
+    for graph_entity in graph_entities:
+        properties = graph_entity.get("properties", {})
+        if isinstance(properties, Mapping):
+            for key in properties:
+                text = str(key or "").strip()
+                if text:
+                    keys.add(text)
+    return keys
+
+
+def _dom_id_fragment(value: object) -> str:
+    text = str(value or "").strip()
+    cleaned = "".join(char if char.isalnum() else "-" for char in text)
+    cleaned = cleaned.strip("-")
+    return cleaned or "item"
+
+
+def _scoped_property_suggestion_keys(
+    result: Mapping,
+    graph_entities: list[Mapping],
+    used_keys: set[str],
+) -> list[str]:
+    """Property suggestions from tagsets of graph entities linked to a page."""
+    result_id = str(result.get("id", "") or "")
+    tagset_keys: set[str] = set()
+    for graph_entity in graph_entities:
+        linked_result_ids = {
+            str(value)
+            for value in graph_entity.get("linked_result_ids", []) or []
+        }
+        if result_id not in linked_result_ids:
+            continue
+        for tag in graph_entity.get("tags", []) or []:
+            for property_ in zeroneurone_tagset_suggested_properties(tag):
+                key = str(property_.get("key", "") or "").strip()
+                if key:
+                    tagset_keys.add(key)
+    if not tagset_keys:
+        return []
+    return sorted(tagset_keys | set(used_keys), key=str.casefold)
+
+
+def _property_datalist_options(keys: Iterable[object]) -> str:
+    return "".join(
+        f'<option value="{_html(key)}"></option>'
+        for key in keys
+        if str(key or "").strip()
+    )
+
+
+def _source_property_suggestion_keys(entities: Iterable[Mapping]) -> list[str]:
+    keys = {
+        str(property_.get("key", "") or "").strip()
+        for property_ in zeroneurone_tagset_suggested_properties("Site web")
+        if str(property_.get("key", "") or "").strip()
+    }
+    for entity in entities:
+        if not _is_source_property(entity):
+            continue
+        for candidate in (entity.get("custom_label"), entity.get("property_key")):
+            text = str(candidate or "").strip()
+            if text:
+                keys.add(text)
+        attributes = entity.get("attributes", {})
+        if isinstance(attributes, Mapping):
+            text = str(attributes.get("property_key", "") or "").strip()
+            if text:
+                keys.add(text)
     return sorted(keys, key=str.casefold)
 
 _PROPERTY_TYPE_LABELS = {
@@ -235,6 +323,12 @@ _ACTION_ICON_PATHS = {
         '<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'
         '<line x1="7" y1="12" x2="17" y2="12"/>'
     ),
+    "swap": (
+        '<path d="M7 7h11l-3-3"/>'
+        '<path d="M17 17H6l3 3"/>'
+        '<path d="M18 7l-3 3"/>'
+        '<path d="M6 17l3-3"/>'
+    ),
     "arrow-left": (
         '<line x1="19" y1="12" x2="5" y2="12"/>'
         '<polyline points="12 19 5 12 12 5"/>'
@@ -371,24 +465,6 @@ def _tag_select_options() -> str:
     )
 
 
-def _graph_entity_options(
-    graph_entities: list[Mapping],
-    *,
-    selected: str = "",
-) -> str:
-    options = ['<option value="">Select an entity...</option>']
-    for entity in graph_entities:
-        entity_id = str(entity.get("id", "") or "")
-        selection = " selected" if entity_id == selected else ""
-        options.append(
-            (
-                f'<option value="{_html(entity_id)}"{selection}>'
-                f'{_html(entity.get("label", entity_id))}</option>'
-            )
-        )
-    return "".join(options)
-
-
 def _default_property_key(entity_type: str) -> str:
     return {
         "email": "Email",
@@ -492,6 +568,9 @@ def _extracted_entity_row(
     entity: Mapping,
     *,
     graph_entities: list[Mapping] = (),
+    property_suggestions_id: str = "property-suggestions",
+    entity_property_suggestions_id: str = "property-suggestions",
+    page_property_suggestions_id: str = "property-suggestions",
     read_only: bool = False,
     is_source: bool = False,
 ) -> str:
@@ -513,14 +592,19 @@ def _extracted_entity_row(
     property_name = str(entity.get("custom_label", "") or "")
     parent_id = str(entity.get("investigation_entity_id", "") or "")
     property_type = _entity_property_type(entity)
+    property_scope = "page" if is_source else "entity"
+    next_scope = "entity" if is_source else "page"
+    scope_title = (
+        "Ranger avec les propriétés à rattacher"
+        if is_source
+        else "Ranger avec les propriétés de la page"
+    )
     type_badge = (
         f'<span class="entity-chip-row__type">{_html(type_label)}</span>'
         if entity_type and entity_type != "other"
         else ""
     )
-    if is_source:
-        attach_control = ""
-    elif graph_entities:
+    if graph_entities:
         options = ['<option value="">Lier à une entité…</option>']
         for graph_entity in graph_entities:
             gid = str(graph_entity.get("id", "") or "")
@@ -548,18 +632,11 @@ def _extracted_entity_row(
         )
     )
     promote_button = (
-        ""
-        if is_source
-        else (
-            '<button type="button" class="icon-action entity-promote-toggle" '
-            f'title="Promouvoir en entité" aria-label="Promouvoir en entité"'
-            f'{disabled}>{_icon("plus")}</button>'
-        )
+        '<button type="button" class="icon-action entity-promote-toggle" '
+        f'title="Promouvoir en entité" aria-label="Promouvoir en entité"'
+        f'{disabled}>{_icon("plus")}</button>'
     )
-    promote_form = (
-        ""
-        if is_source
-        else f"""
+    promote_form = f"""
         <div class="entity-chip-row__promote" hidden>
             <input
                 type="text"
@@ -591,13 +668,15 @@ def _extracted_entity_row(
             </div>
         </div>
     """
-    )
     return f"""
         <div
             class="entity-chip-row entity-item--{_html(status)}"
             data-entity-id="{_html(entity_id)}"
             data-entity-type="{_html(entity_type)}"
             data-property-type="{_html(property_type)}"
+            data-property-scope="{_html(property_scope)}"
+            data-entity-property-list="{_html(entity_property_suggestions_id)}"
+            data-page-property-list="{_html(page_property_suggestions_id)}"
         >
             <div class="entity-chip-row__head">
                 <input
@@ -617,6 +696,15 @@ def _extracted_entity_row(
                         aria-label="Détection"
                         title="{_html(_detection_title(entity))}"
                     >{_icon("info")}</span>
+                    <button
+                        type="button"
+                        class="icon-action entity-scope-toggle"
+                        data-scope-toggle
+                        data-next-scope="{_html(next_scope)}"
+                        title="{_html(scope_title)}"
+                        aria-label="{_html(scope_title)}"
+                        {disabled}
+                    >{_icon("swap")}</button>
                     {validate_button}
                     <button
                         type="button"
@@ -633,7 +721,7 @@ def _extracted_entity_row(
                     type="text"
                     class="entity-chip-row__name"
                     data-entity-custom-label
-                    list="property-suggestions"
+                    list="{_html(property_suggestions_id)}"
                     maxlength="120"
                     value="{_html(property_name or _entity_property_key(entity))}"
                     placeholder="Nom de propriété"
@@ -659,7 +747,7 @@ def _detection_title(entity: Mapping) -> str:
     attributes = entity.get("attributes", {})
     if isinstance(attributes, Mapping):
         for key, value in sorted(attributes.items()):
-            if key == "property_type":
+            if key in {"property_type", "property_scope"}:
                 continue
             if value in ("", None, [], {}):
                 continue
@@ -676,15 +764,31 @@ def _entity_markup(
     entities: list[Mapping],
     *,
     graph_entities: list[Mapping] = (),
+    property_suggestions_id: str = "property-suggestions",
+    page_property_suggestions_id: str = "property-suggestions",
+    has_extractable_archive: bool = False,
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
+    scan_hint = (
+        ""
+        if has_extractable_archive
+        else (
+            '<button type="button" '
+            'class="icon-action icon-action--frame extract-result-entities" '
+            'title="Archive HTML/texte requise pour scanner la page" '
+            'aria-label="Archive HTML/texte requise pour scanner la page" '
+            f'disabled>{_icon("scan")}</button>'
+        )
+    )
     entity_candidates = [e for e in entities if not _is_source_property(e)]
     source_candidates = [e for e in entities if _is_source_property(e)]
     entity_rows = "".join(
         _extracted_entity_row(
             entity,
             graph_entities=graph_entities,
+            property_suggestions_id=property_suggestions_id,
+            entity_property_suggestions_id=property_suggestions_id,
             read_only=read_only,
         )
         for entity in entity_candidates
@@ -693,30 +797,27 @@ def _entity_markup(
         _extracted_entity_row(
             entity,
             graph_entities=graph_entities,
+            property_suggestions_id=page_property_suggestions_id,
+            entity_property_suggestions_id=property_suggestions_id,
+            page_property_suggestions_id=page_property_suggestions_id,
             read_only=read_only,
             is_source=True,
         )
         for entity in source_candidates
     )
     entity_group = (
-        (
-            '<div class="entity-group">'
-            '<span class="entity-group__label">À rattacher à une entité</span>'
-            f'<div class="entity-chip-list">{entity_rows}</div>'
-            "</div>"
-        )
-        if entity_candidates
-        else ""
+        '<details class="entity-group" data-entity-group="entity" open'
+        f'{" hidden" if not entity_candidates else ""}>'
+        '<summary class="entity-group__label">À rattacher à une entité</summary>'
+        f'<div class="entity-chip-list" data-entity-list="entity">{entity_rows}</div>'
+        "</details>"
     )
     source_group = (
-        (
-            '<div class="entity-group entity-group--source">'
-            '<span class="entity-group__label">Propriétés de la page</span>'
-            f'<div class="entity-chip-list">{source_rows}</div>'
-            "</div>"
-        )
-        if source_candidates
-        else ""
+        '<details class="entity-group entity-group--source" data-entity-group="page" open'
+        f'{" hidden" if not source_candidates else ""}>'
+        '<summary class="entity-group__label">Propriétés de la page</summary>'
+        f'<div class="entity-chip-list" data-entity-list="page">{source_rows}</div>'
+        "</details>"
     )
     empty = (
         ""
@@ -770,75 +871,16 @@ def _entity_markup(
     return f"""
         <div class="result-entities">
             <div class="entity-heading">
-                <span class="provenance-label">Entities ({len(entities)})</span>
-                <button
-                    type="button"
-                    class="icon-action icon-action--frame extract-result-entities"
-                    title="Extraire les entités de la page"
-                    aria-label="Extraire les entités de la page"
-                    {disabled}
-                >{_icon("scan")}</button>
+                <span class="provenance-label">
+                    Entities (<span data-extracted-entity-count>{len(entities)}</span>)
+                </span>
+                {scan_hint}
             </div>
             {empty}
             {filter_bar}
             {batch_bar}
             {entity_group}
             {source_group}
-        </div>
-    """
-
-
-def _result_entity_links_markup(
-    result: Mapping,
-    graph_entities: list[Mapping],
-    *,
-    read_only: bool,
-) -> str:
-    result_id = str(result.get("id", "") or "")
-    disabled = " disabled" if read_only else ""
-    linked = [
-        entity
-        for entity in graph_entities
-        if result_id in {
-            str(value)
-            for value in entity.get("linked_result_ids", [])
-        }
-    ]
-    linked_markup = "".join(
-        f"""
-        <span class="source-entity-link" data-graph-entity-id="{_html(entity.get("id", ""))}">
-            {_html(entity.get("label", ""))}
-            <button
-                type="button"
-                class="icon-action icon-action--danger unlink-result-entity"
-                title="Unlink this source"
-                aria-label="Unlink this source"
-                {disabled}
-            >{_icon("x")}</button>
-        </span>
-        """
-        for entity in linked
-    )
-    if graph_entities:
-        control = f"""
-            <select data-link-graph-entity{disabled}>
-                <option value="">Link source to...</option>
-                {_graph_entity_options(graph_entities)}
-            </select>
-        """
-    else:
-        control = """
-            <span class="session-note">
-                Create an investigation entity before linking this source.
-            </span>
-        """
-    return f"""
-        <div class="result-entity-links">
-            <span class="provenance-label">Linked entities</span>
-            <div class="source-entity-list">
-                {linked_markup or '<span class="session-note">No linked entity.</span>'}
-            </div>
-            <div class="source-entity-controls">{control}</div>
         </div>
     """
 
@@ -1272,6 +1314,67 @@ def _inspector_panel(
     )
 
 
+def _has_extractable_archive(captures: Sequence[Mapping]) -> bool:
+    archive_types = {"html", "mhtml", "text", "txt"}
+    for capture in captures:
+        for artifact in capture.get("artifacts", []) or []:
+            if not isinstance(artifact, Mapping):
+                continue
+            artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
+            mime_type = str(artifact.get("mime_type", "") or "").casefold()
+            if artifact_type in archive_types:
+                return True
+            if "html" in mime_type or mime_type.startswith("text/"):
+                return True
+    return False
+
+
+def _page_linked_entities_markup(
+    result: Mapping,
+    graph_entities: Sequence[Mapping],
+    extracted_entities: Sequence[Mapping],
+) -> str:
+    result_id = str(result.get("id", "") or "")
+    linked_parent_ids = {
+        str(entity.get("investigation_entity_id", "") or "")
+        for entity in extracted_entities
+        if str(entity.get("investigation_entity_id", "") or "").strip()
+        and entity.get("status") != "rejected"
+    }
+    linked = []
+    for graph_entity in graph_entities:
+        entity_id = str(graph_entity.get("id", "") or "")
+        linked_result_ids = {
+            str(value)
+            for value in graph_entity.get("linked_result_ids", []) or []
+        }
+        if result_id in linked_result_ids or entity_id in linked_parent_ids:
+            linked.append(graph_entity)
+    if not linked:
+        return ""
+    items = "".join(
+        f"""
+        <button
+            type="button"
+            class="page-linked-entity"
+            data-page-linked-entity="{_html(entity.get("id", ""))}"
+            title="Ouvrir le détail de {_html(entity.get("label", ""))}"
+            aria-label="Ouvrir le détail de {_html(entity.get("label", ""))}"
+        >
+            <span class="page-linked-entity__label">{_html(entity.get("label", ""))}</span>
+            <span class="page-linked-entity__meta">↗</span>
+        </button>
+        """
+        for entity in linked
+    )
+    return f"""
+        <div class="result-page-entities">
+            <span class="provenance-label">Entités utilisant cette page</span>
+            <div class="page-linked-entity-list">{items}</div>
+        </div>
+    """
+
+
 def _evidence_markup(
     captures: list[Mapping],
     *,
@@ -1325,6 +1428,7 @@ def _evidence_markup(
         capture_kind = str(
             capture.get("capture_kind", "screenshot") or "screenshot"
         )
+        can_extract_properties = _has_extractable_archive([capture])
         if capture_kind == "page_archive":
             scope = "Page archive"
         else:
@@ -1386,6 +1490,18 @@ def _evidence_markup(
                 </div>
                 <div class="evidence-links">
                     {artifact_links}
+                    {
+                        (
+                            '<button type="button" '
+                            'class="icon-action icon-action--frame '
+                            'extract-result-entities evidence-extract-properties" '
+                            'title="Extraire les propriétés depuis cette archive" '
+                            'aria-label="Extraire les propriétés depuis cette archive" '
+                            f'{disabled}>{_icon("scan")}</button>'
+                        )
+                        if can_extract_properties
+                        else ""
+                    }
                     <button
                         type="button"
                         class="icon-action icon-action--frame verify-evidence"
@@ -1409,10 +1525,12 @@ def _evidence_markup(
             """
         )
     return (
-        '<div class="result-evidence">'
-        f'<span class="provenance-label">Evidence ({len(items)})</span>'
+        '<details class="result-evidence" open>'
+        '<summary class="provenance-label">'
+        f'Evidence (<span data-evidence-count>{len(items)}</span>)'
+        "</summary>"
         f'<ul class="evidence-list">{"".join(items)}</ul>'
-        "</div>"
+        "</details>"
     )
 
 
@@ -1854,6 +1972,29 @@ def generate_investigation_page(
     )
     tag_datalist_options = _tag_datalist_options(suggested_tags)
     property_suggestion_keys = _property_suggestion_keys(entities, graph_entities)
+    source_property_suggestion_keys = _source_property_suggestion_keys(entities)
+    used_property_suggestion_keys = _used_property_suggestion_keys(
+        entities,
+        graph_entities,
+    )
+    scoped_property_suggestions_by_result: dict[str, tuple[str, list[str]]] = {}
+    for result in results:
+        result_id = str(result.get("id", "") or "")
+        scoped_keys = _scoped_property_suggestion_keys(
+            result,
+            graph_entities,
+            used_property_suggestion_keys,
+        )
+        if scoped_keys:
+            scoped_property_suggestions_by_result[result_id] = (
+                f"property-suggestions-{_dom_id_fragment(result_id)}",
+                scoped_keys,
+            )
+    scoped_property_datalists = "".join(
+        f'<datalist id="{_html(datalist_id)}">'
+        f"{_property_datalist_options(keys)}</datalist>"
+        for datalist_id, keys in scoped_property_suggestions_by_result.values()
+    )
     investigation_tags = "".join(
         f'<span class="result-tag">{_html(tag)}</span>'
         for tag in investigation.get("tags", [])
@@ -1917,31 +2058,48 @@ def generate_investigation_page(
         "</div>"
     )
 
-    inspector_panels = "".join(
-        _inspector_panel(
-            result,
-            is_monitored=str(result.get("id", "")) in monitors_by_result,
-            details_markup=(
-                _result_entity_links_markup(
-                    result,
-                    graph_entities,
-                    read_only=read_only,
-                )
-                + _entity_markup(
-                    entities_by_result.get(str(result.get("id", "")), []),
-                    graph_entities=graph_entities,
-                    read_only=read_only,
-                )
-                + _evidence_markup(
-                    evidence_by_result.get(str(result.get("id", "")), []),
-                    output_dir=output_dir,
-                    base_dir=base_dir,
-                    read_only=read_only,
-                )
-            ),
+    inspector_panel_items = []
+    for result in results:
+        result_id = str(result.get("id", ""))
+        result_entities = entities_by_result.get(result_id, [])
+        result_evidence = evidence_by_result.get(result_id, [])
+        inspector_panel_items.append(
+            _inspector_panel(
+                result,
+                is_monitored=result_id in monitors_by_result,
+                details_markup=(
+                    _page_linked_entities_markup(
+                        result,
+                        graph_entities,
+                        result_entities,
+                    )
+                    + _entity_markup(
+                        result_entities,
+                        graph_entities=graph_entities,
+                        property_suggestions_id=(
+                            scoped_property_suggestions_by_result.get(
+                                result_id,
+                                ("property-suggestions", []),
+                            )[0]
+                        ),
+                        page_property_suggestions_id=(
+                            "property-suggestions-site-web"
+                        ),
+                        has_extractable_archive=_has_extractable_archive(
+                            result_evidence
+                        ),
+                        read_only=read_only,
+                    )
+                    + _evidence_markup(
+                        result_evidence,
+                        output_dir=output_dir,
+                        base_dir=base_dir,
+                        read_only=read_only,
+                    )
+                ),
+            )
         )
-        for result in results
-    )
+    inspector_panels = "".join(inspector_panel_items)
 
     entity_inspector_cards = _graph_entities_markup(
         graph_entities,
@@ -1993,8 +2151,12 @@ def generate_investigation_page(
             {"".join(f'<option value="{_html(tag)}"></option>' for tag in ZERONEURONE_TAGSETS)}
         </datalist>
         <datalist id="property-suggestions">
-            {"".join(f'<option value="{_html(key)}"></option>' for key in property_suggestion_keys)}
+            {_property_datalist_options(property_suggestion_keys)}
         </datalist>
+        <datalist id="property-suggestions-site-web">
+            {_property_datalist_options(source_property_suggestion_keys)}
+        </datalist>
+        {scoped_property_datalists}
         <header class="topbar investigation-topbar">
             <div class="brand">
                 <img class="brand-logo" src="{asset_prefix}assets/synthesix-mark.svg" alt="">
@@ -2380,7 +2542,29 @@ def generate_investigation_page(
     <script>
         (() => {{
             const investigationId = {json.dumps(str(investigation.get("id", "")))};
-            const actionQueue = [];
+            // Persist the queue so a no-reload action (e.g. a delete) that is
+            // still pending is not lost if the analyst refreshes the page.
+            const actionQueueKey = `synthesix:action-queue:${{investigationId}}`;
+            const loadActionQueue = () => {{
+                try {{
+                    const stored = JSON.parse(
+                        localStorage.getItem(actionQueueKey) || "[]"
+                    );
+                    return Array.isArray(stored) ? stored : [];
+                }} catch (_error) {{
+                    return [];
+                }}
+            }};
+            const actionQueue = loadActionQueue();
+            const persistActionQueue = () => {{
+                try {{
+                    localStorage.setItem(
+                        actionQueueKey, JSON.stringify(actionQueue)
+                    );
+                }} catch (_error) {{
+                    // The queue still works in memory without persistence.
+                }}
+            }};
             const resultCards = Array.from(
                 document.querySelectorAll(".investigation-result")
             );
@@ -2421,6 +2605,7 @@ def generate_investigation_page(
 
             const queueAction = (action, payload = {{}}) => {{
                 actionQueue.push({{ action, investigationId, ...payload }});
+                persistActionQueue();
             }};
 
             const formatLocalDatetimes = () => {{
@@ -2447,7 +2632,9 @@ def generate_investigation_page(
 
             window.synthesixPage = {{
                 consumeAction() {{
-                    return actionQueue.shift() || null;
+                    const next = actionQueue.shift() || null;
+                    persistActionQueue();
+                    return next;
                 }},
                 setStatus(message, isError = false) {{
                     const status = document.getElementById(
@@ -2696,12 +2883,24 @@ def generate_investigation_page(
                 card.querySelectorAll(".delete-graph-property").forEach(
                     (button) => {{
                         button.addEventListener("click", () => {{
-                            queueAction("delete_graph_entity_property", {{
-                                entityId,
-                                key: button.dataset.propertyKey
-                            }});
-                            button.closest("li")?.remove();
-                            flashSaved();
+                            if (
+                                confirm(
+                                    "Supprimer cette propriété ? Les propriétés "
+                                    + "extraites liées aux pages enregistrées "
+                                    + "seront aussi supprimées."
+                                )
+                            ) {{
+                                queueAction("delete_graph_entity_property", {{
+                                    entityId,
+                                    key: button.dataset.propertyKey
+                                }});
+                                removeLinkedExtractedRows(
+                                    entityId,
+                                    button.dataset.propertyKey
+                                );
+                                button.closest("li")?.remove();
+                                flashSaved();
+                            }}
                         }});
                     }}
                 );
@@ -2742,19 +2941,6 @@ def generate_investigation_page(
                         }});
                     }}
                 );
-                card.querySelectorAll(".unlink-result-entity").forEach(
-                    (button) => {{
-                        button.addEventListener("click", () => {{
-                            const link = button.closest(
-                                "[data-graph-entity-id]"
-                            );
-                            queueAction("unlink_result_from_graph_entity", {{
-                                entityId: link.dataset.graphEntityId,
-                                resultId: card.dataset.resultId
-                            }});
-                        }});
-                    }}
-                );
                 card.querySelector(".remove-saved-page")?.addEventListener(
                     "click",
                     () => {{
@@ -2780,6 +2966,7 @@ def generate_investigation_page(
                             queueAction("delete_evidence_capture", {{
                                 captureId: item.dataset.evidenceId
                             }});
+                            removeEvidenceItem(item);
                         }}
                     }});
                 }});
@@ -2801,24 +2988,6 @@ def generate_investigation_page(
                 }});
             }});
 
-            document.addEventListener("change", (event) => {{
-                const linkSelect = event.target.closest(
-                    ".inspector-panel [data-link-graph-entity]"
-                );
-                if (!linkSelect) {{
-                    return;
-                }}
-                const panel = linkSelect.closest("[data-result-id]");
-                const entityId = linkSelect.value || "";
-                if (panel && entityId) {{
-                    queueAction("link_result_to_graph_entity", {{
-                        entityId,
-                        resultId: panel.dataset.resultId
-                    }});
-                    linkSelect.value = "";
-                }}
-            }});
-
             document.addEventListener("click", (event) => {{
                 const panel = event.target.closest(".inspector-panel");
                 if (!panel) {{
@@ -2834,15 +3003,6 @@ def generate_investigation_page(
                     queueAction("analyze_result_url", {{ resultId }});
                     return;
                 }}
-                const unlinkButton = event.target.closest(".unlink-result-entity");
-                if (unlinkButton) {{
-                    const link = unlinkButton.closest("[data-graph-entity-id]");
-                    queueAction("unlink_result_from_graph_entity", {{
-                        entityId: link.dataset.graphEntityId,
-                        resultId
-                    }});
-                    return;
-                }}
                 const deleteEvidence = event.target.closest(".delete-evidence");
                 if (deleteEvidence) {{
                     const item = deleteEvidence.closest("[data-evidence-id]");
@@ -2853,6 +3013,7 @@ def generate_investigation_page(
                         queueAction("delete_evidence_capture", {{
                             captureId: item.dataset.evidenceId
                         }});
+                        removeEvidenceItem(item);
                     }}
                     return;
                 }}
@@ -3173,6 +3334,134 @@ def generate_investigation_page(
                     () => selectInspectorEntity(row.dataset.entitySelect)
                 );
             }});
+            document.querySelectorAll("[data-page-linked-entity]").forEach(
+                (button) => {{
+                    button.addEventListener("click", () => {{
+                        selectInspectorEntity(button.dataset.pageLinkedEntity);
+                    }});
+                }}
+            );
+            const refreshEntityGroups = (section) => {{
+                if (!section) {{
+                    return;
+                }}
+                section.querySelectorAll("[data-entity-group]").forEach(
+                    (group) => {{
+                        const hasRows = Boolean(
+                            group.querySelector(
+                                ".entity-chip-row:not([data-removed='true'])"
+                            )
+                        );
+                        group.hidden = !hasRows;
+                    }}
+                );
+            }};
+            const refreshExtractedEntityState = (section) => {{
+                if (!section) {{
+                    return;
+                }}
+                const rows = Array.from(
+                    section.querySelectorAll(".entity-chip-row")
+                ).filter((row) => row.dataset.removed !== "true");
+                const count = section.querySelector(
+                    "[data-extracted-entity-count]"
+                );
+                if (count) {{
+                    count.textContent = String(rows.length);
+                }}
+                refreshEntityGroups(section);
+            }};
+            const refreshEvidenceState = (container) => {{
+                if (!container) {{
+                    return;
+                }}
+                const items = Array.from(
+                    container.querySelectorAll("[data-evidence-id]")
+                ).filter((item) => item.dataset.removed !== "true");
+                const count = container.querySelector("[data-evidence-count]");
+                if (count) {{
+                    count.textContent = String(items.length);
+                }}
+                container.hidden = items.length === 0;
+            }};
+            const removeEvidenceItem = (item) => {{
+                if (!item) {{
+                    return;
+                }}
+                const container = item.closest(".result-evidence");
+                item.dataset.removed = "true";
+                item.remove();
+                refreshEvidenceState(container);
+                flashSaved();
+            }};
+            const removeLinkedExtractedRows = (graphEntityId, propertyKey) => {{
+                const wantedKey = String(propertyKey || "").toLowerCase().trim();
+                if (!graphEntityId || !wantedKey) {{
+                    return;
+                }}
+                document.querySelectorAll(".entity-chip-row").forEach((row) => {{
+                    const link = row.querySelector("[data-extracted-attach]");
+                    const name = row.querySelector("[data-entity-custom-label]");
+                    const rowKey = String(name?.value || "").toLowerCase().trim();
+                    if (link?.value === graphEntityId && rowKey === wantedKey) {{
+                        row.dataset.removed = "true";
+                        row.hidden = true;
+                        const box = row.querySelector("[data-entity-checkbox]");
+                        if (box) {{
+                            box.checked = false;
+                        }}
+                        refreshExtractedEntityState(
+                            row.closest(".result-entities")
+                        );
+                    }}
+                }});
+            }};
+            const setExtractedRowScope = (row, scope) => {{
+                const normalizedScope = scope === "page" ? "page" : "entity";
+                const section = row.closest(".result-entities");
+                const targetList = section?.querySelector(
+                    `[data-entity-list="${{normalizedScope}}"]`
+                );
+                if (targetList && row.parentElement !== targetList) {{
+                    targetList.appendChild(row);
+                }}
+                row.dataset.propertyScope = normalizedScope;
+                const input = row.querySelector("[data-entity-custom-label]");
+                if (input) {{
+                    input.setAttribute(
+                        "list",
+                        normalizedScope === "page"
+                            ? row.dataset.pagePropertyList || "property-suggestions"
+                            : row.dataset.entityPropertyList || "property-suggestions"
+                    );
+                }}
+                if (normalizedScope === "page") {{
+                    const promoteForm = row.querySelector(
+                        ".entity-chip-row__promote"
+                    );
+                    if (promoteForm) {{
+                        promoteForm.hidden = true;
+                    }}
+                }}
+                const toggle = row.querySelector("[data-scope-toggle]");
+                if (toggle) {{
+                    const nextScope = (
+                        normalizedScope === "page" ? "entity" : "page"
+                    );
+                    const label = (
+                        normalizedScope === "page"
+                            ? "Ranger avec les propriétés à rattacher"
+                            : "Ranger avec les propriétés de la page"
+                    );
+                    toggle.dataset.nextScope = nextScope;
+                    toggle.title = label;
+                    toggle.setAttribute("aria-label", label);
+                }}
+                refreshExtractedEntityState(section);
+                row.querySelector("[data-entity-checkbox]")?.dispatchEvent(
+                    new Event("change", {{ bubbles: true }})
+                );
+            }};
             extractedRows.forEach((row) => {{
                 const entityId = row.dataset.entityId;
                 const nameInput = row.querySelector("[data-entity-custom-label]");
@@ -3203,6 +3492,23 @@ def generate_investigation_page(
                         queueAction("delete_entity", {{ entityId }});
                         row.dataset.removed = "true";
                         row.hidden = true;
+                        refreshExtractedEntityState(row.closest(".result-entities"));
+                        flashSaved();
+                    }}
+                );
+                row.querySelector("[data-scope-toggle]")?.addEventListener(
+                    "click",
+                    () => {{
+                        const scope = (
+                            row.dataset.propertyScope === "page"
+                                ? "entity"
+                                : "page"
+                        );
+                        setExtractedRowScope(row, scope);
+                        queueAction("set_entity_property_scope", {{
+                            extractedEntityId: entityId,
+                            scope
+                        }});
                         flashSaved();
                     }}
                 );
@@ -3338,10 +3644,19 @@ def generate_investigation_page(
                     .map((box) => box.closest(".entity-chip-row"))
                     .filter((row) => row && !row.hidden);
                 const refreshBatch = () => {{
-                    const count = checkedRows().length;
+                    const rows = checkedRows();
+                    const count = rows.length;
+                    const attachableCount = rows.filter(
+                        (row) => row.dataset.propertyScope !== "page"
+                    ).length;
                     batchBar.hidden = count === 0;
                     if (batchCount) {{
                         batchCount.textContent = count + " sélectionnée(s)";
+                    }}
+                    if (batchAttach) {{
+                        batchAttach.hidden = (
+                            count === 0 || attachableCount !== count
+                        );
                     }}
                 }};
                 checkboxes.forEach((box) => {{
@@ -3356,8 +3671,13 @@ def generate_investigation_page(
                     rows.forEach((row) => {{
                         row.dataset.removed = "true";
                         row.hidden = true;
+                        const box = row.querySelector("[data-entity-checkbox]");
+                        if (box) {{
+                            box.checked = false;
+                        }}
                     }});
                     refreshBatch();
+                    refreshExtractedEntityState(section);
                     queueAction("delete_entities", {{ entityIds }});
                     flashSaved();
                 }});
@@ -3366,6 +3686,11 @@ def generate_investigation_page(
                     const rows = checkedRows();
                     if (!graphEntityId || !rows.length) {{
                         event.target.value = "";
+                        return;
+                    }}
+                    if (rows.some((row) => row.dataset.propertyScope === "page")) {{
+                        event.target.value = "";
+                        refreshBatch();
                         return;
                     }}
                     const items = rows.map((row) => {{

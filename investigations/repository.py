@@ -1728,6 +1728,64 @@ class InvestigationRepository:
             if entity.id == entity_id
         )
 
+    def set_extracted_entity_property_scope(
+        self,
+        investigation_id: str,
+        entity_id: str,
+        scope: str,
+    ) -> ExtractedEntity:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        if scope not in {"page", "entity"}:
+            raise InvestigationValidationError(
+                f"Unsupported property scope: {scope}"
+            )
+        current = next(
+            (
+                entity
+                for entity in self.list_extracted_entities(investigation_id)
+                if entity.id == entity_id
+            ),
+            None,
+        )
+        if current is None:
+            raise InvestigationValidationError(
+                f"Extracted entity not found: {entity_id}"
+            )
+        attributes = dict(current.attributes)
+        attributes["property_scope"] = scope
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE extracted_entities
+                SET attributes_json = ?, last_observed_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    _json_dump(attributes),
+                    now,
+                    entity_id,
+                    investigation_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    f"Extracted entity not found: {entity_id}"
+                )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return next(
+            entity
+            for entity in self.list_extracted_entities(investigation_id)
+            if entity.id == entity_id
+        )
+
     def delete_extracted_entity(
         self,
         investigation_id: str,
