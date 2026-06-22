@@ -24,6 +24,16 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 |---|---|---|---|---|---|---|---|---|
 | _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
+**Reste demandé (prochains lots, retours du 2026-06-22) :**
+
+- Éditeur de propriétés classiques sur l'entité du graphe (option 1 choisie par
+  l'utilisateur) : liste des propriétés du tagset comme champs de valeur éditables,
+  save au blur.
+- Mémoriser les noms de propriété saisis par l'utilisateur pour les resuggérer
+  (ex. « Sandwich ») — bonus.
+- Filtre des entités extraites : par statut (en attente / validée) + recherche
+  mot-clé, comme « Filtrer les entités ».
+
 > Reste basse priorité (hors lot) : durcir la regex téléphone
 > (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
 
@@ -467,6 +477,33 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   (CRLF) ; smoke headless (datalist présente, ✓ masqué sur entité validée).
 - **Vérifications non exécutées :** rendu live du datalist au focus (statique).
 - **Relais :** aucun. Reste basse priorité : durcir la regex téléphone.
+
+### AI-20260622-006 — No-reload suppression/liaison + icône extraction
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend`.
+- **Objectif :** fluidifier le triage (pas de reload sur suppression/liaison) et
+  lever l'ambiguïté de l'icône d'extraction (lue comme une recherche).
+- **Changements :**
+  - `main.py` : `delete_entity` devient no-reload (service + « Saved », plus de
+    régénération) ; dans le dispatch partagé, `attach_extracted_property`,
+    `detach_extracted_property`, `delete_entities` et `attach_extracted_properties`
+    sont exclus du reload (statut « Saved »).
+  - `view.py` JS optimiste : rejet/suppression masque déjà la ligne ; la liaison
+    (simple et batch) passe la ligne en `entity-item--validated` et masque le ✓ ;
+    le détachement repasse en `proposed`.
+  - Icône du bouton « Extraire » : nouvelle icône `scan` (viewfinder) au lieu de
+    la loupe + libellé « Extraire les entités de la page ».
+- **Fichiers modifiés :** `main.py`, `investigations/view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucune nouvelle action CDP ; seul le reload
+  (effet de bord) est retiré pour ces actions.
+- **Tests exécutés :** `unittest discover` (233) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (icône scan rendue).
+- **Vérifications non exécutées :** smoke CDP live du comportement no-reload
+  (suppression/liaison simple et batch) — à confirmer en live.
+- **Relais :** aucun. Reste demandé : éditeur propriétés classiques (option 1),
+  mémoire des noms saisis, filtre des entités extraites.
 
 ## Modèle de compte rendu terminé
 

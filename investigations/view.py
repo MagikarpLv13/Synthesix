@@ -175,6 +175,13 @@ _ACTION_ICON_PATHS = {
         '<circle cx="11" cy="11" r="8"/>'
         '<line x1="21" y1="21" x2="16.65" y2="16.65"/>'
     ),
+    "scan": (
+        '<path d="M3 7V5a2 2 0 0 1 2-2h2"/>'
+        '<path d="M17 3h2a2 2 0 0 1 2 2v2"/>'
+        '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>'
+        '<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'
+        '<line x1="7" y1="12" x2="17" y2="12"/>'
+    ),
     "arrow-left": (
         '<line x1="19" y1="12" x2="5" y2="12"/>'
         '<polyline points="12 19 5 12 12 5"/>'
@@ -652,10 +659,10 @@ def _entity_markup(
                 <button
                     type="button"
                     class="icon-action icon-action--frame extract-result-entities"
-                    title="Extract entities"
-                    aria-label="Extract entities"
+                    title="Extraire les entités de la page"
+                    aria-label="Extraire les entités de la page"
                     {disabled}
-                >{_icon("search")}</button>
+                >{_icon("scan")}</button>
             </div>
             {empty}
             {batch_bar}
@@ -3094,10 +3101,21 @@ def generate_investigation_page(
                                     property_type: row.dataset.propertyType || ""
                                 }}
                             }});
+                            // No reload: reflect validation in place.
+                            row.classList.remove("entity-item--proposed");
+                            row.classList.add("entity-item--validated");
+                            if (validateButton) {{
+                                validateButton.hidden = true;
+                            }}
                         }} else if (!graphEntityId) {{
                             queueAction("detach_extracted_property", {{
                                 extractedEntityId: entityId
                             }});
+                            row.classList.remove("entity-item--validated");
+                            row.classList.add("entity-item--proposed");
+                            if (validateButton) {{
+                                validateButton.hidden = false;
+                            }}
                         }}
                         flashSaved();
                     }}
@@ -3201,6 +3219,20 @@ def generate_investigation_page(
                         graphEntityId,
                         items
                     }});
+                    // No reload: reflect validation on each selected row.
+                    rows.forEach((row) => {{
+                        row.classList.remove("entity-item--proposed");
+                        row.classList.add("entity-item--validated");
+                        const validate = row.querySelector(".entity-validate");
+                        if (validate) {{
+                            validate.hidden = true;
+                        }}
+                        const box = row.querySelector("[data-entity-checkbox]");
+                        if (box) {{
+                            box.checked = false;
+                        }}
+                    }});
+                    refreshBatch();
                     event.target.value = "";
                     flashSaved();
                 }});

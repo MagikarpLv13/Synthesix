@@ -2789,17 +2789,28 @@ async def main():
                                 result.get("extractedEntityId", "") or ""
                             ).strip(),
                         )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # Attaching/detaching an extracted property (incl. batch)
+                    # is reflected in place by the JS, so keep the analyst's
+                    # scroll position instead of reloading the whole page.
+                    if action in {
+                        "attach_extracted_property",
+                        "detach_extracted_property",
+                        "delete_entities",
+                        "attach_extracted_properties",
+                    }:
+                        await _set_page_status(source_tab, "Saved.")
+                    else:
+                        page_path = _generate_investigation_page(
+                            investigation_service,
+                            settings,
+                            investigation_id,
+                        )
+                        await _open_or_refresh_investigation_page(
+                            browser,
+                            page_path,
+                            bring_to_front=False,
+                            open_if_missing=False,
+                        )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -2912,17 +2923,9 @@ async def main():
                         investigation_id,
                         entity_id,
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # In-place: the JS already hid the row, so a reload would
+                    # only disrupt the analyst mid-triage.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
