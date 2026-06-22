@@ -1397,17 +1397,24 @@ a:focus-visible {
 }
 
 .inspector-panel__details .evidence-item {
-    grid-template-columns: 64px minmax(0, 1fr) auto;
-    gap: 8px;
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: start;
+    gap: 6px 8px;
 }
 
 .inspector-panel__details .evidence-thumbnail {
-    width: 64px;
-    height: 46px;
+    width: 56px;
+    height: 42px;
 }
 
 .inspector-panel__details .evidence-links {
-    gap: 6px;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.inspector-panel__details .evidence-verification {
+    grid-column: 1 / -1;
 }
 
 .inspector-panel__details .url-analysis-summary,

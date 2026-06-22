@@ -22,7 +22,19 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
+| AI-20260622-003 | Claude | in_progress | 2026-06-22 | 2026-06-22 | Détail page : retirer URL analysis, fix overflow evidence, rejet entité = suppression, actions batch | `investigations/view.py`, `theme.css`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
+
+**Plan AI-20260622-003 (retours utilisateur) :**
+
+- Retirer la section « Technical URL analysis » du détail (jugée inutile pour
+  l'instant) ; garder le handler `analyze_result_url` et l'action CDP.
+- Corriger l'overflow horizontal du rail (SHA-256 d'URL analysis + liens evidence
+  non wrappés) : liens evidence en `flex-wrap`, item evidence en 2 colonnes dans
+  le rail.
+- **Rejet d'une entité extraite = suppression réelle** (`delete_entity`) et plus
+  `update_entity_status('rejected')`, sinon elle réapparaît au refresh.
+- **Actions batch** : sélection multiple de lignes → rejeter/supprimer en lot et
+  lier plusieurs propriétés à une même entité.
 
 > Reste basse priorité (hors lot) : durcir la regex téléphone
 > (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.

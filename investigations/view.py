@@ -1752,10 +1752,6 @@ def generate_investigation_page(
                     graph_entities,
                     read_only=read_only,
                 )
-                + _url_analysis_markup(
-                    url_analyses_by_result.get(str(result.get("id", "")), []),
-                    read_only=read_only,
-                )
                 + _entity_markup(
                     entities_by_result.get(str(result.get("id", "")), []),
                     graph_entities=graph_entities,
@@ -3033,10 +3029,7 @@ def generate_investigation_page(
                 row.querySelector(".entity-reject")?.addEventListener(
                     "click",
                     () => {{
-                        queueAction("update_entity_status", {{
-                            entityId,
-                            status: "rejected"
-                        }});
+                        queueAction("delete_entity", {{ entityId }});
                         row.hidden = true;
                         flashSaved();
                     }}

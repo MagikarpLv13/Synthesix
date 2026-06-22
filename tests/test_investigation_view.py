@@ -297,6 +297,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("analyze_result_url"', content)
         self.assertIn('queueAction("update_entity_status"', content)
         self.assertIn('queueAction("update_entity_metadata"', content)
+        self.assertIn('queueAction("delete_entity"', content)
         self.assertIn('queueAction("create_graph_entity"', content)
         self.assertIn(
             '"create_graph_entity_from_extracted"',
@@ -356,12 +357,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("from notes", content)
         self.assertIn("Email syntax", content)
         self.assertIn("example.com", content)
-        self.assertIn("Technical URL analysis (1)", content)
-        self.assertIn("HTTP 200", content)
-        self.assertIn("1 redirect(s)", content)
-        self.assertIn("SHA-256 " + ("d" * 64), content)
-        self.assertIn("x-frame-options", content)
-        self.assertIn("without known tracking parameters", content)
+        # Technical URL analysis section is intentionally not rendered.
+        self.assertNotIn("Technical URL analysis", content)
+        self.assertNotIn("SHA-256 " + ("d" * 64), content)
         self.assertIn("ZeroNeurone export", content)
         self.assertIn("Export GraphML and CSV", content)
         self.assertIn(">GraphML</a>", content)
@@ -950,12 +948,6 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertEqual(
             tree.xpath(
                 "//button[contains(@class, 'extract-result-entities')]/@disabled"
-            ),
-            ["disabled"],
-        )
-        self.assertEqual(
-            tree.xpath(
-                "//button[contains(@class, 'analyze-result-url')]/@disabled"
             ),
             ["disabled"],
         )
