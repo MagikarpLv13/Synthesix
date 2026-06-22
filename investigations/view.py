@@ -2694,9 +2694,13 @@ def generate_investigation_page(
             }});
 
             const saveResult = (card) => {{
+                const payload = resultPayload(card);
+                // Mirror favorite state on the card so the favorite filter and
+                // metrics stay correct without a reload.
+                card.dataset.favorite = payload.favorite ? "1" : "0";
                 queueAction("update_investigation_result", {{
                     resultId: card.dataset.resultId,
-                    result: resultPayload(card)
+                    result: payload
                 }});
             }};
 
@@ -3006,6 +3010,11 @@ def generate_investigation_page(
                             queueAction("remove_saved_page", {{
                                 resultId: card.dataset.resultId
                             }});
+                            document.querySelector(
+                                `[data-inspector-panel="${{card.dataset.resultId}}"]`
+                            )?.remove();
+                            card.remove();
+                            flashSaved();
                         }}
                     }}
                 );

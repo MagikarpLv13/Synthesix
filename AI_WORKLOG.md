@@ -24,23 +24,43 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 |---|---|---|---|---|---|---|---|---|
 | _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
-**Plan AI-20260622-008 (design validé avec l'utilisateur) :**
+## Travaux planifiés (design validé, à reprendre)
 
-- **Lot 1 (ce tour)** : classer automatiquement les entités extraites par type
-  (`domain`/`url`/`ipv4`/`ipv6` → « page », le reste → « entité ») et les afficher
-  en **deux groupes** : « À rattacher à une entité » (avec sélecteur d'entité) et
-  « Propriétés de la page » (sans sélecteur — elles décrivent la source). Helper
-  `_is_source_property` qui lit déjà `attributes.property_scope` pour préparer la
-  bascule.
-- **Lot 2 (suite)** : bascule manuelle persistée (action dédiée `property_scope`)
-  pour corriger le classement auto.
-- **Lot 3 (suite)** : datalist du nom de propriété scopé au tagset de l'entité
-  liée (Personne → propriétés Personne).
-- **Lot 4 (suite)** : à l'export ZeroNeurone, rattacher les propriétés « page » au
-  nœud source/page.
+### Plan — Archive auto + provenance à la création depuis l'overlay (#1/#2)
 
-> Reste basse priorité (hors lot) : durcir la regex téléphone
-> (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
+- **#1 Archive HTML auto** : sur `create_graph_entity_from_selection` et
+  `attach_selection_to_graph_entity` (handlers `main.py` ~2420/2470), après la
+  création/rattachement, déclencher `_archive_page(...)` (capture `page_archive`
+  HTML/MHTML/texte, déjà existante) et lier l'archive comme **source** de la
+  propriété/entité. Smoke CDP live obligatoire (overlay).
+- **Archive protégée** : `delete_evidence_capture` doit refuser de supprimer une
+  archive qui est la preuve d'une propriété sourcée — suppression uniquement via
+  le retrait de la page entière (`remove_saved_page`). Garde côté service +
+  message clair.
+- **#2 Indicateur de provenance** : faire pointer le badge source (« 1 » + lien,
+  déjà présents sur les propriétés sourcées) vers le **snapshot archivé** plutôt
+  que la page live, et **surligner/encadrer** l'extrait sélectionné dans le
+  snapshot (stocker l'offset/texte de la sélection à la capture ; au rendu,
+  injecter un `<mark>`/cadre autour de l'extrait). Design validé.
+- Fichiers probables : `frontend/src/overlay/*`, `main.py`,
+  `investigations/service.py`/`repository.py` (lien archive↔propriété + garde de
+  suppression), `evidence/*`, `investigations/view.py` (badge → snapshot + mark).
+
+### Plan — Lot 4 (export ZeroNeurone des propriétés « page »)
+
+- Rattacher les propriétés `property_scope="page"` au nœud source/page à l'export
+  (`exports/zeroneurone.py`).
+
+### No-reload — reste (cf. compte rendu AI-20260622-012)
+
+- Convertibles avec petit JS optimiste : `set_graph_entity_property` (ajout manuel
+  — insérer la ligne client), `delete_zeroneurone_export`, `delete_page_monitor`.
+- DOIVENT reloader (récupèrent de nouvelles données serveur, optimiste impossible
+  sans rendu partiel) : `extract_result_entities` (scan), `analyze_result_url`,
+  `create_graph_entity*`, `link/unlink_result_to_graph_entity`, etc.
+
+> Reste basse priorité : durcir la regex téléphone (`analysis/entities.py`) —
+> remonte des plages de dates en `téléphone`.
 
 ## Verrous de fichiers
 
@@ -730,6 +750,42 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** smoke CDP live de l'ajout manuel.
 - **Risques / reste à faire :** demandes overlay (#1 archive auto à la création
   depuis page + #2 indicateur visuel de provenance) non traitées — à cadrer.
+
+### AI-20260622-012 — Audit no-reload + conversions (favori, suppression page)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Objectif :** recenser les actions qui reloadent la page d'investigation et
+  passer en no-reload celles qui le peuvent (demande utilisateur).
+- **Audit :**
+  - **Déjà no-reload** : `update_entity_status`, `update_entity_metadata`,
+    `delete_entity`, `attach`/`detach_extracted_property`, `delete_entities`,
+    `attach_extracted_properties`, `set_entity_property_scope`,
+    `delete_evidence_capture`, `delete_graph_entity_property`.
+  - **Converties ce lot** : `update_investigation_result` (favori/statut/tags/
+    notes) et `remove_saved_page` (suppression de page).
+  - **Convertibles plus tard** (petit JS optimiste) : `set_graph_entity_property`
+    (ajout manuel), `delete_zeroneurone_export`, `delete_page_monitor`.
+  - **Doivent reloader** (nouvelles données serveur) : `extract_result_entities`
+    (scan), `analyze_result_url`, `create_graph_entity*`, `link/unlink`,
+    `create_page_monitor`, `archive_page_to_investigation`,
+    `capture_evidence_to_investigation`, `verify_evidence_capture`,
+    `export_zeroneurone`. Un vrai no-reload pour le scan/analyse exigerait que
+    l'action renvoie les nouvelles lignes pour insertion côté page (refonte du
+    protocole d'action) = lot séparé.
+- **Changements :**
+  - `main.py` : `update_investigation_result` et `remove_saved_page` ne
+    régénèrent plus la page (service + « Saved. »).
+  - `investigations/view.py` (JS) : le retrait d'une page enlève la carte **et**
+    son panneau de rail ; `saveResult` met à jour `data-favorite` (filtre/métrique
+    favoris cohérents sans reload).
+- **Fichiers modifiés :** `main.py`, `investigations/view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP modifié.
+- **Tests exécutés :** `unittest discover` (240) OK ; `git diff --check` OK
+  (CRLF).
+- **Vérifications non exécutées :** smoke CDP live (favori + suppression de page
+  sans reload).
+- **Relais :** reste no-reload + #1/#2 + lot 4 consignés en « Travaux planifiés ».
 
 ## Modèle de compte rendu terminé
 

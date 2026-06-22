@@ -2614,17 +2614,9 @@ async def main():
                         result_id,
                         result.get("result", {}),
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # In-place: the card already reflects favorite/status/tags,
+                    # so keep the analyst's place instead of reloading.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3077,17 +3069,9 @@ async def main():
                         investigation_id,
                         result_id,
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    # In-place: the JS removes the card and closes its rail
+                    # panel, so keep the analyst's place instead of reloading.
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
