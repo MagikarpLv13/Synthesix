@@ -704,6 +704,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             saved.id,
             value="sandwich au poulet",
             property_key="Sandwich",
+            property_type="text",
         )
         self.assertIsNotNone(recorded)
         self.assertEqual(recorded.status, "validated")
@@ -714,7 +715,11 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.service.attach_extracted_property(
             investigation.id,
             recorded.id,
-            {"graph_entity_id": entity["id"], "property_key": "Sandwich"},
+            {
+                "graph_entity_id": entity["id"],
+                "property_key": "Sandwich",
+                "property_type": "text",
+            },
         )
 
         workspace = self.service.workspace_payload(investigation.id)
@@ -726,6 +731,9 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         ]
         self.assertEqual(len(page_entities), 1)
         self.assertEqual(page_entities[0]["status"], "validated")
+        self.assertEqual(
+            page_entities[0]["attributes"]["property_type"], "text"
+        )
         self.assertEqual(
             page_entities[0]["investigation_entity_id"], entity["id"]
         )

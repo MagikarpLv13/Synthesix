@@ -9,6 +9,16 @@ interface GraphEntity {
   propertyKeys?: string[];
 }
 
+const PROPERTY_TYPE_LABELS: Record<string, string> = {
+  text: "Texte",
+  number: "Nombre",
+  date: "Date",
+  datetime: "Date/heure",
+  geo: "Géo",
+  country: "Pays",
+  link: "Lien",
+};
+
 /**
  * "Add to investigation" entity tool for the injected overlay.
  *
@@ -36,6 +46,10 @@ export class SxOverlayEntityMenu extends LitElement {
   @property({ attribute: false })
   tagsetProperties: Record<string, string[]> = {};
 
+  /** Map of tag -> suggested property key -> zeroneurone property type. */
+  @property({ attribute: false })
+  tagsetPropertyTypes: Record<string, Record<string, string>> = {};
+
   /** Existing graph entities the selection can be attached to. */
   @property({ attribute: false })
   graphEntities: GraphEntity[] = [];
@@ -52,6 +66,7 @@ export class SxOverlayEntityMenu extends LitElement {
 
   @state() private _selectedText = "";
   @state() private _selectedEntityId = "";
+  @state() private _selectedPropertyType = "";
   @state() private _triggerVisible = false;
   @state() private _menuVisible = false;
   @state() private _triggerLeft = 0;
@@ -71,100 +86,108 @@ export class SxOverlayEntityMenu extends LitElement {
       box-sizing: border-box;
       display: none;
       position: fixed;
-      width: 300px;
-      max-height: 390px;
-      padding: 6px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: #ffffff;
-      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.28);
-      color: #0f172a;
-      font: 600 13px Arial, sans-serif;
+      width: 318px;
+      max-height: 430px;
+      padding: 10px;
+      border: 1px solid rgba(34, 211, 238, 0.38);
+      border-left: 3px solid #22d3ee;
+      border-radius: 10px;
+      background: #0f172a;
+      box-shadow: 0 18px 42px rgba(2, 6, 23, 0.38);
+      color: #e5edf8;
+      font: 600 13px system-ui, Arial, sans-serif;
       z-index: 2147483647;
     }
     .menu.is-visible {
       display: block;
     }
     .title {
-      padding: 4px 6px 2px;
-      color: #475569;
-      font: 700 12px Arial, sans-serif;
+      padding: 1px 2px 2px;
+      color: #67e8f9;
+      font: 800 12px system-ui, Arial, sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
     .preview {
       overflow: hidden;
-      padding: 0 6px 5px;
-      color: #0f172a;
-      font: 700 13px Arial, sans-serif;
+      margin: 0 0 8px;
+      padding: 0 2px;
+      color: #f8fafc;
+      font: 800 13px system-ui, Arial, sans-serif;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .create-title,
     .attach-title {
-      padding: 2px 6px 4px;
-      color: #475569;
-      font: 700 12px Arial, sans-serif;
+      padding: 0 2px 5px;
+      color: #9fb0c6;
+      font: 800 11px system-ui, Arial, sans-serif;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
     }
     .row {
       display: flex;
-      gap: 5px;
-      padding: 5px 0 4px;
+      gap: 6px;
+      padding: 5px 0 8px;
     }
-    input {
-      all: initial;
-      box-sizing: border-box;
-      display: block;
-      width: 100%;
-      padding: 6px 7px;
-      border: 1px solid #cbd5e1;
-      border-radius: 5px;
-      color: #0f172a;
-      font: 500 13px Arial, sans-serif;
-    }
-    .type-input {
-      flex: 1;
-      min-width: 0;
-    }
+    input,
     select {
       all: initial;
       box-sizing: border-box;
       display: block;
       width: 100%;
-      margin-bottom: 5px;
-      padding: 6px 7px;
-      border: 1px solid #cbd5e1;
-      border-radius: 5px;
-      background: #ffffff;
-      color: #0f172a;
-      font: 500 13px Arial, sans-serif;
+      padding: 8px 9px;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      background: #111c2f;
+      color: #f8fafc;
+      font: 600 13px system-ui, Arial, sans-serif;
+    }
+    input::placeholder {
+      color: #94a3b8;
+    }
+    input:focus,
+    select:focus {
+      border-color: #22d3ee;
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+    }
+    .type-input {
+      flex: 1;
+      min-width: 0;
     }
     .attach {
-      margin-top: 5px;
-      padding-top: 6px;
-      border-top: 1px solid #e2e8f0;
+      margin-top: 3px;
+      padding-top: 9px;
+      border-top: 1px solid #243349;
     }
-    .attach .prop-input {
-      margin-bottom: 5px;
+    .attach .prop-input,
+    .entity-select,
+    .property-type-select {
+      margin-bottom: 6px;
     }
     button {
       all: initial;
       box-sizing: border-box;
-      border-radius: 5px;
+      border-radius: 7px;
       cursor: pointer;
-      font: 700 13px Arial, sans-serif;
+      font: 800 13px system-ui, Arial, sans-serif;
       color: #ffffff;
     }
     .create-btn {
-      padding: 6px 9px;
+      padding: 8px 10px;
       background: #2563eb;
     }
     .attach-btn {
       display: block;
       width: 100%;
-      padding: 7px 9px;
-      background: #0f172a;
+      padding: 9px 10px;
+      border: 1px solid rgba(34, 211, 238, 0.42);
+      background: #2563eb;
       text-align: center;
+    }
+    .create-btn:hover,
+    .attach-btn:hover {
+      background: #1d4ed8;
     }
     button[disabled] {
       opacity: 0.55;
@@ -220,6 +243,29 @@ export class SxOverlayEntityMenu extends LitElement {
     return this._dedup(out);
   }
 
+  private _suggestedPropertyType(propertyKey: string): string {
+    const key = String(propertyKey ?? "").trim().toLowerCase();
+    if (!key) return "";
+    const entity = this._entities.find(
+      (e) => String(e.id ?? "").trim() === String(this._selectedEntityId).trim(),
+    );
+    for (const tag of entity?.tags ?? []) {
+      const propertyTypes =
+        this.tagsetPropertyTypes[String(tag ?? "").trim()] ?? {};
+      for (const [propertyName, propertyType] of Object.entries(propertyTypes)) {
+        if (propertyName.trim().toLowerCase() === key) {
+          return Object.prototype.hasOwnProperty.call(
+            PROPERTY_TYPE_LABELS,
+            propertyType,
+          )
+            ? propertyType
+            : "";
+        }
+      }
+    }
+    return "";
+  }
+
   private _selectionText(): string {
     return String(window.getSelection()?.toString() ?? "")
       .replace(/\s+/g, " ")
@@ -231,6 +277,7 @@ export class SxOverlayEntityMenu extends LitElement {
     this._menuVisible = false;
     this._triggerVisible = false;
     this._selectedEntityId = "";
+    this._selectedPropertyType = "";
     const type = this.renderRoot.querySelector<HTMLInputElement>(".type-input");
     const prop = this.renderRoot.querySelector<HTMLInputElement>(".prop-input");
     const select = this.renderRoot.querySelector<HTMLSelectElement>("select");
@@ -294,6 +341,18 @@ export class SxOverlayEntityMenu extends LitElement {
 
   private _onEntityChange = (event: Event) => {
     this._selectedEntityId = (event.target as HTMLSelectElement).value;
+    const prop = this.renderRoot.querySelector<HTMLInputElement>(".prop-input");
+    this._selectedPropertyType = this._suggestedPropertyType(prop?.value ?? "");
+  };
+
+  private _onPropertyInput = (event: Event) => {
+    this._selectedPropertyType = this._suggestedPropertyType(
+      (event.target as HTMLInputElement).value,
+    );
+  };
+
+  private _onPropertyTypeChange = (event: Event) => {
+    this._selectedPropertyType = (event.target as HTMLSelectElement).value;
   };
 
   private _onCreate = () => {
@@ -320,10 +379,13 @@ export class SxOverlayEntityMenu extends LitElement {
   };
 
   private _onAttach = () => {
-    const select = this.renderRoot.querySelector<HTMLSelectElement>("select");
+    const select = this.renderRoot.querySelector<HTMLSelectElement>(
+      ".entity-select",
+    );
     const prop = this.renderRoot.querySelector<HTMLInputElement>(".prop-input");
     const entityId = select?.value ?? "";
     const propertyKey = (prop?.value ?? "").trim();
+    const propertyType = this._selectedPropertyType;
     const label = this._selectedText;
     this._close();
     if (!label || !entityId || !propertyKey) return;
@@ -331,7 +393,7 @@ export class SxOverlayEntityMenu extends LitElement {
       new CustomEvent("synthesix-entity-attach", {
         bubbles: true,
         composed: true,
-        detail: { label, entityId, propertyKey },
+        detail: { label, entityId, propertyKey, propertyType },
       }),
     );
   };
@@ -386,7 +448,11 @@ export class SxOverlayEntityMenu extends LitElement {
         </div>
         <div class="attach">
           <div class="attach-title">${this.attachHeading}</div>
-          <select ?disabled=${!hasEntities} @change=${this._onEntityChange}>
+          <select
+            class="entity-select"
+            ?disabled=${!hasEntities}
+            @change=${this._onEntityChange}
+          >
             <option value="">${this.chooseEntityLabel}</option>
             ${this._entities.map(
               (e) => html`<option value=${e.id}>${e.label || e.id}</option>`,
@@ -398,6 +464,7 @@ export class SxOverlayEntityMenu extends LitElement {
             maxlength="100"
             placeholder=${this.propertyPlaceholder}
             list="__sx-entity-props"
+            @input=${this._onPropertyInput}
             @keydown=${this._onPropKeydown}
           >
           <datalist id="__sx-entity-props">
@@ -405,6 +472,18 @@ export class SxOverlayEntityMenu extends LitElement {
               (p) => html`<option value=${p}></option>`,
             )}
           </datalist>
+          <select
+            class="property-type-select"
+            aria-label="Property type"
+            .value=${this._selectedPropertyType}
+            ?disabled=${!hasEntities}
+            @change=${this._onPropertyTypeChange}
+          >
+            <option value="">Type auto</option>
+            ${Object.entries(PROPERTY_TYPE_LABELS).map(
+              ([value, label]) => html`<option value=${value}>${label}</option>`,
+            )}
+          </select>
           <button
             class="attach-btn"
             type="button"

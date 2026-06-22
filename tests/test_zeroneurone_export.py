@@ -550,6 +550,59 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             },
         )
 
+    def test_extracted_property_type_overrides_export_heuristic(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "company-1",
+                "label": "ACME SAS",
+                "tags": ["Entreprise"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-score",
+                "result_id": "result-1",
+                "entity_type": "other",
+                "value_original": "42",
+                "value_normalized": "42",
+                "source_field": "description",
+                "source_text": "Score 42",
+                "confidence": 0.9,
+                "attributes": {"property_type": "number"},
+                "status": "validated",
+                "investigation_entity_id": "company-1",
+                "property_key": "Score maison",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        company = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "ACME SAS"
+        )
+        score = next(
+            item for item in company["properties"] if item["key"] == "Score maison"
+        )
+        self.assertEqual(score["type"], "number")
+        self.assertNotIn(
+            "_synthesix_property_types",
+            {item["key"] for item in company["properties"]},
+        )
+
     def test_node_ids_are_stable_between_exports(self):
         first_nodes, _ = build_export_graph(export_workspace())
         second_nodes, _ = build_export_graph(export_workspace())

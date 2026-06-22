@@ -45,6 +45,17 @@ MAX_ENTITY_PROPERTY_KEY_LENGTH = 100
 MAX_ENTITY_PROPERTY_VALUE_LENGTH = 4000
 MAX_ENTITY_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_ENTITY_SOURCE_TOTAL_CHARS = 2_000_000
+PROPERTY_TYPES = {
+    "text",
+    "number",
+    "date",
+    "datetime",
+    "boolean",
+    "choice",
+    "geo",
+    "country",
+    "link",
+}
 
 
 def _default_property_key(entity_type: str) -> str:
@@ -631,11 +642,24 @@ class InvestigationService:
             )
         if not property_key:
             raise InvestigationValidationError("Property name is required.")
+        property_type = str(payload.get("property_type", "") or "").strip()
+        if property_type and property_type not in PROPERTY_TYPES:
+            raise InvestigationValidationError(
+                f"Unsupported property type: {property_type}"
+            )
         entity = self.repository.attach_extracted_entity_property(
             investigation_id,
             extracted_entity_id,
             graph_entity_id,
             property_key=property_key,
+        )
+        entity = self.repository.update_extracted_entity_metadata(
+            investigation_id,
+            entity.id,
+            entity_type=entity.entity_type,
+            custom_label=entity.custom_label,
+            tags=entity.tags,
+            property_type=property_type,
         )
         self._sync_extracted_property_to_graph_entity(
             investigation_id,
@@ -664,6 +688,7 @@ class InvestigationService:
         *,
         value: str,
         property_key: str,
+        property_type: str = "",
         entity_type: str = "other",
     ):
         """Persist an analyst-selected value as a validated extracted entity.
@@ -675,6 +700,17 @@ class InvestigationService:
         if normalized_type not in ENTITY_TYPES:
             normalized_type = "other"
         text = str(value or "").strip()
+        normalized_property_type = str(property_type or "").strip()
+        if (
+            normalized_property_type
+            and normalized_property_type not in PROPERTY_TYPES
+        ):
+            raise InvestigationValidationError(
+                f"Unsupported property type: {normalized_property_type}"
+            )
+        attributes = {"property_key": property_key} if property_key else {}
+        if normalized_property_type:
+            attributes["property_type"] = normalized_property_type
         candidate = {
             "entity_type": normalized_type,
             "value": text,
@@ -683,9 +719,7 @@ class InvestigationService:
             "source_text": text,
             "confidence": 1.0,
             "confidence_reasons": ("Attached from page selection",),
-            "attributes": (
-                {"property_key": property_key} if property_key else {}
-            ),
+            "attributes": attributes,
         }
         created = self.repository.upsert_extracted_entities(
             investigation_id,
@@ -908,12 +942,18 @@ class InvestigationService:
             max_length=MAX_ENTITY_CUSTOM_LABEL_LENGTH,
         )
         tags = _normalize_tags(payload.get("tags", ()))
+        property_type = str(payload.get("property_type", "") or "").strip()
+        if property_type and property_type not in PROPERTY_TYPES:
+            raise InvestigationValidationError(
+                f"Unsupported property type: {property_type}"
+            )
         return self.repository.update_extracted_entity_metadata(
             investigation_id,
             entity_id,
             entity_type=entity_type,
             custom_label=custom_label,
             tags=tags,
+            property_type=property_type,
         ).to_payload()
 
     def delete_entity(

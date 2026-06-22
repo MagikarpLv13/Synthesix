@@ -55,7 +55,7 @@
     .card {
       padding: 6px 8px;
       border-radius: var(--radius-sm, 6px);
-      font-family: system-ui, Arial, sans-serif;
+      font-family: var(--font-body, system-ui, Arial, sans-serif);
       transition: background-color 120ms ease;
     }
 

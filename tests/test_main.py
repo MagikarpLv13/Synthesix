@@ -570,6 +570,8 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         # (the panel internals/selection logic moved into the overlay bundle).
         self.assertIn("sx-overlay-entity-menu", tab.script)
         self.assertIn("tagsetProperties", tab.script)
+        self.assertIn("tagsetPropertyTypes", tab.script)
+        self.assertIn("property_type", tab.script)
         self.assertIn("create_graph_entity_from_selection", tab.script)
         self.assertIn("attach_selection_to_graph_entity", tab.script)
         self.assertIn("__synthesixSetGraphEntities", tab.script)
@@ -686,13 +688,18 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             "result-1",
             value="JD",
             property_key="Alias",
+            property_type="",
             entity_type="other",
         )
         # ...then attached to the graph entity as a property.
         service.attach_extracted_property.assert_called_once_with(
             "case-1",
             "extracted-1",
-            {"graph_entity_id": "entity-1", "property_key": "Alias"},
+            {
+                "graph_entity_id": "entity-1",
+                "property_key": "Alias",
+                "property_type": "",
+            },
         )
 
     async def test_external_page_overlay_can_focus_home_without_active_case(self):

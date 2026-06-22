@@ -287,9 +287,9 @@ class InvestigationViewTestCase(unittest.TestCase):
             "previous search (3 results)",
         )
         self.assertIn('queueAction("update_investigation_result"', content)
-        self.assertIn("toggle-result-details", content)
-        self.assertIn("collapsedStorageKey", content)
-        self.assertIn("setResultCollapsed", content)
+        self.assertNotIn("toggle-result-details", content)
+        self.assertNotIn("collapsedStorageKey", content)
+        self.assertNotIn("setResultCollapsed", content)
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn('queueAction("delete_page_monitor"', content)
@@ -300,17 +300,14 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("delete_entity"', content)
         self.assertIn('queueAction("create_graph_entity"', content)
         self.assertIn(
-            'queueAction("create_graph_entity_from_result"',
-            content,
-        )
-        self.assertIn(
             '"create_graph_entity_from_extracted"',
             content,
         )
         self.assertIn('queueAction("update_graph_entity"', content)
         self.assertIn('queueAction("link_result_to_graph_entity"', content)
         self.assertIn('queueAction("attach_extracted_property"', content)
-        self.assertIn("Créer une entité depuis ce site", content)
+        self.assertNotIn("Créer une entité depuis ce site", content)
+        self.assertNotIn("create_graph_entity_from_result", content)
         self.assertIn("Promote to entity", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
@@ -328,20 +325,23 @@ class InvestigationViewTestCase(unittest.TestCase):
                 "#search-runs",
             ],
         )
-        self.assertIn("Found through search", content)
+        self.assertNotIn("Found through search", content)
         self.assertIn("example company", content)
-        self.assertIn("Wayback Machine", content)
+        self.assertIn("Open Wayback Machine", content)
         self.assertIn("web.archive.org/web/*/https://example.com/", content)
-        self.assertIn("Exact query term in title", content)
-        self.assertIn("Returned by 2 search engines", content)
-        self.assertIn("not factual accuracy", content)
+        self.assertNotIn("Exact query term in title", content)
+        self.assertNotIn("Returned by 2 search engines", content)
+        self.assertNotIn("not factual accuracy", content)
+        self.assertNotIn("score-breakdown", content)
         self.assertIn("data-local-datetime", content)
         self.assertIn("Intl.DateTimeFormat", content)
         self.assertIn('src="../../i18n.js"', content)
         self.assertNotIn("First seen 2026-06-09 10:00:00 UTC", content)
         self.assertIn("Evidence (1)", content)
         self.assertIn("Entities (1)", content)
-        self.assertIn("Investigation entities", content)
+        self.assertIn(">Entités</h3>", content)
+        self.assertNotIn("Final graph", content)
+        self.assertNotIn("Final graph node", content)
         self.assertIn("Example SAS", content)
         self.assertIn("Forme juridique", content)
         self.assertIn("Linked entities", content)
@@ -364,7 +364,6 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("SHA-256 " + ("d" * 64), content)
         self.assertIn("x-frame-options", content)
         self.assertIn("without known tracking parameters", content)
-        self.assertIn("Delete</button>", content)
         self.assertIn("ZeroNeurone export", content)
         self.assertIn("Export GraphML and CSV", content)
         self.assertIn(">GraphML</a>", content)
@@ -411,6 +410,45 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree.xpath("//button[contains(@class, 'remove-saved-page')]/@title"),
             ["Remove this saved page from the investigation"],
         )
+        saved_page_card = tree.xpath("//article[@data-result-id='result-123']")[0]
+        self.assertFalse(
+            saved_page_card.xpath(".//*[contains(@class, 'result-evidence')]")
+        )
+        self.assertFalse(
+            saved_page_card.xpath(".//*[contains(@class, 'result-entity-links')]")
+        )
+        self.assertTrue(
+            saved_page_card.xpath(".//textarea[@data-result-notes][@hidden]")
+        )
+        self.assertTrue(
+            saved_page_card.xpath(".//input[@data-result-tags][@type='hidden']")
+        )
+        remove_page = saved_page_card.xpath(
+            ".//button[contains(@class, 'remove-saved-page')]"
+        )[0]
+        self.assertEqual(remove_page.text_content().strip(), "")
+        self.assertTrue(remove_page.xpath(".//*[local-name()='svg']"))
+        wayback = saved_page_card.xpath(
+            ".//a[contains(@href, 'web.archive.org') and "
+            "contains(@class, 'icon-action')]"
+        )
+        self.assertEqual(len(wayback), 1)
+        self.assertEqual(wayback[0].get("aria-label"), "Open Wayback Machine")
+        self.assertFalse(
+            saved_page_card.xpath(".//*[contains(@class, 'result-provenance')]")
+        )
+        inspector = tree.xpath("//*[@data-inspector-panel='result-123']")[0]
+        self.assertTrue(inspector.xpath(".//*[contains(@class, 'result-evidence')]"))
+        self.assertTrue(
+            inspector.xpath(".//*[contains(@class, 'result-entity-links')]")
+        )
+        self.assertFalse(
+            inspector.xpath(
+                ".//*[contains(concat(' ', normalize-space(@class), ' '), "
+                "' link-result-entity ')]"
+            )
+        )
+        self.assertTrue(inspector.xpath(".//select[@data-link-graph-entity]"))
         self.assertEqual(
             tree.xpath("//input[@data-result-favorite]/@type"),
             ["checkbox"],
@@ -429,26 +467,25 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("result-filter-tag", content)
         self.assertIn("result-filter-after", content)
         self.assertIn("result-filter-before", content)
+        self.assertEqual(
+            len(tree.xpath("//*[@id='result-filters'][@hidden]")),
+            1,
+        )
+        self.assertEqual(
+            tree.xpath("//*[@id='toggle-result-filters']/@aria-expanded"),
+            ["false"],
+        )
         self.assertIn('id="tag-suggestions"', content)
         self.assertIn('<option value="Personne"></option>', content)
         self.assertIn('<option value="Offshore"></option>', content)
         self.assertIn('<option value="Source confidentielle"></option>', content)
         self.assertIn('list="tag-suggestions"', content)
-        self.assertIn("Choose a suggested tag or enter custom tags", content)
-        self.assertIn("data-result-tag-suggestion", content)
-        self.assertIn("add-result-tag", content)
+        self.assertNotIn("data-result-tag-suggestion", content)
+        self.assertNotIn("add-result-tag", content)
         self.assertNotIn("ZeroNeurone TagSets are suggested", content)
-        self.assertIn("tags.push(selected)", content)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
         self.assertNotIn("<script>alert(1)</script>", content)
         self.assertIn("../../theme.css", content)
-        self.assertEqual(
-            tree.xpath(
-                "//article[@data-result-id='result-123']"
-                "//button[contains(@class, 'toggle-result-details')]/@aria-expanded"
-            ),
-            ["true"],
-        )
         self.assertEqual(
             tree.xpath(
                 "//article[@data-result-id='result-123']"
@@ -474,9 +511,10 @@ class InvestigationViewTestCase(unittest.TestCase):
                 workspace_payload(),
                 output_path,
                 base_dir=base_dir,
-                history_report_path=base_dir / "history.html",
+            history_report_path=base_dir / "history.html",
             )
-            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
 
         worklist = tree.xpath(
             "//aside[contains(@class, 'workspace__rail')]"
@@ -526,8 +564,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         # Hidden until a saved-page card is clicked.
         self.assertIsNotNone(panel.get("hidden"))
         panel_text = panel.text_content()
-        self.assertIn("Score", panel_text)
-        self.assertIn("Observations", panel_text)
+        self.assertNotIn("Score", panel_text)
+        self.assertNotIn("Observations", panel_text)
+        self.assertFalse(panel.xpath(".//*[contains(@class, 'inspector-stats')]"))
         self.assertIn("Relevant", panel_text)
         goto = panel.xpath(".//*[@data-inspector-goto='result-123']")
         self.assertEqual(len(goto), 1)
@@ -542,7 +581,8 @@ class InvestigationViewTestCase(unittest.TestCase):
                 base_dir=base_dir,
                 history_report_path=base_dir / "history.html",
             )
-            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
 
         # Compact, clickable row in the main-column entity list.
         rows = tree.xpath(
@@ -550,6 +590,43 @@ class InvestigationViewTestCase(unittest.TestCase):
             "//button[@data-entity-select='graph-entity-123']"
         )
         self.assertEqual(len(rows), 1)
+        self.assertTrue(
+            rows[0].xpath(".//*[contains(@class, 'entity-row__meta')]/span")
+        )
+        self.assertIn("example sas", rows[0].get("data-entity-search"))
+        create_form = tree.xpath("//*[@id='graph-entity-create-form']")[0]
+        self.assertEqual(
+            tree.xpath("//*[@id='open-entity-create']/text()"),
+            ["+ Entité"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//aside[contains(@class, 'workspace__rail')]"
+                "//*[@id='graph-entity-create-form'][@hidden]/@data-inspector-create-entity"
+            ),
+            [""],
+        )
+        self.assertEqual(
+            create_form.xpath(".//input[@aria-label='Entity name']/@placeholder"),
+            ["Nom de l'entité"],
+        )
+        self.assertEqual(
+            create_form.xpath(".//*[@data-create-tags-editor]//input/@class"),
+            ["tag-editor__input"],
+        )
+        self.assertIn("gatherCreateTags().join", content)
+        self.assertIn(
+            'createTagInput?.addEventListener("change", commitCreateTags)',
+            content,
+        )
+        self.assertEqual(
+            tree.xpath("//*[@id='entity-filter-query']/@placeholder"),
+            ["Filtrer les entités..."],
+        )
+        self.assertEqual(
+            len(tree.xpath("//*[contains(@class, 'entity-search__icon')]")),
+            1,
+        )
         # Full management card lives (hidden) in the rail inspector.
         cards = tree.xpath(
             "//aside[contains(@class, 'workspace__rail')]"
@@ -574,6 +651,27 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertTrue(delete[0].xpath(".//*[local-name()='svg']"))
         self.assertEqual((delete[0].text or "").strip(), "")
         self.assertEqual(delete[0].get("aria-label"), "Delete entity")
+
+    def test_overview_metrics_are_compact_tooltip_chips(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        chips = tree.xpath(
+            "//*[contains(@class, 'investigation-metrics')]"
+            "//*[contains(concat(' ', normalize-space(@class), ' '), ' metric-chip ')]"
+        )
+        self.assertEqual(len(chips), 5)
+        self.assertIn("Searches: 1", chips[0].get("title"))
+        self.assertEqual(chips[0].xpath(".//strong/text()"), ["1"])
 
     def test_inspector_starts_hidden_with_a_back_control(self):
         with TemporaryDirectory() as temp_dir:
@@ -603,11 +701,17 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
 
     def test_entity_properties_show_type_badges_without_add_form(self):
+        workspace = workspace_payload()
+        workspace["graph_entities"][0]["properties"] = {
+            "Forme juridique": "SAS",
+            "Sandwich": "sandwich au poulet",
+        }
+
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
             output_path = base_dir / "investigation.html"
             generate_investigation_page(
-                workspace_payload(),
+                workspace,
                 output_path,
                 base_dir=base_dir,
                 history_report_path=base_dir / "history.html",
@@ -619,7 +723,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         )[0]
         # Known property keys carry a small zeroneurone-style type chip.
         badges = card.xpath(".//*[contains(@class, 'prop-type')]/text()")
-        self.assertIn("Texte", [text.strip() for text in badges])
+        self.assertGreaterEqual(
+            [text.strip() for text in badges].count("Texte"),
+            2,
+        )
         # Property authoring belongs to zeroneurone: no manual add form here.
         self.assertEqual(card.xpath(".//*[@data-new-property-key]"), [])
         self.assertEqual(
@@ -654,6 +761,51 @@ class InvestigationViewTestCase(unittest.TestCase):
             ".//a[contains(@class, 'graph-property-source')]/@href"
         )
         self.assertEqual(links, [workspace["results"][0]["url"]])
+        refs = card.xpath(
+            ".//a[contains(@class, 'graph-property-source')]"
+            "//span[contains(@class, 'source-ref')]/text()"
+        )
+        self.assertEqual([text.strip() for text in refs], ["1"])
+        source_refs = card.xpath(
+            ".//ul[contains(@class, 'entity-source-list')]"
+            "//span[contains(@class, 'source-ref')]/text()"
+        )
+        self.assertEqual([text.strip() for text in source_refs], ["1"])
+
+    def test_extracted_entity_panel_stores_property_type(self):
+        workspace = workspace_payload()
+        extracted = workspace["entities"][0]
+        extracted["property_key"] = "Sandwich"
+        extracted["attributes"]["property_type"] = "text"
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        panel = tree.xpath(
+            "//div[@data-inspector-extracted='entity-123']"
+        )[0]
+        self.assertEqual(
+            panel.xpath(".//select[@data-property-type]/option[@selected]/@value"),
+            ["text"],
+        )
+        option_values = panel.xpath(
+            ".//select[@data-property-type]/option/@value"
+        )
+        self.assertNotIn("boolean", option_values)
+        self.assertNotIn("choice", option_values)
+        self.assertIn(
+            'property_type: panel.querySelector(',
+            content,
+        )
 
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
@@ -807,9 +959,8 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree.xpath("//select[@data-result-status]/@disabled"),
             ["disabled"],
         )
-        self.assertEqual(
-            tree.xpath("//button[contains(@class, 'save-result-metadata')]/@disabled"),
-            ["disabled"],
+        self.assertFalse(
+            tree.xpath("//button[contains(@class, 'save-result-metadata')]")
         )
         self.assertEqual(
             tree.xpath(
@@ -835,16 +986,8 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree.xpath("//input[@data-entity-custom-label]/@disabled"),
             ["disabled"],
         )
-        self.assertEqual(
-            tree.xpath("//select[@data-result-tag-suggestion]/@disabled"),
-            ["disabled"],
-        )
-        self.assertEqual(
-            tree.xpath(
-                "//button[contains(@class, 'add-result-tag')]/@disabled"
-            ),
-            ["disabled"],
-        )
+        self.assertFalse(tree.xpath("//select[@data-result-tag-suggestion]"))
+        self.assertFalse(tree.xpath("//button[contains(@class, 'add-result-tag')]"))
         self.assertTrue(
             tree.xpath(
                 "//button[contains(@class, 'stop-page-monitor')]/@disabled"

@@ -79,4 +79,5 @@ docker-compose.override.yml
 .cache/
 .temp/
 .tmp/
+tmp_ui_render/
 /enquete.zip

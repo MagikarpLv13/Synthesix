@@ -1667,12 +1667,30 @@ class InvestigationRepository:
         entity_type: str,
         custom_label: str,
         tags: Iterable[str],
+        property_type: str = "",
     ) -> ExtractedEntity:
         investigation = self.get_investigation(investigation_id)
         if investigation.status != "active":
             raise InvestigationValidationError(
                 "Archived investigations are read-only."
             )
+        current = next(
+            (
+                entity
+                for entity in self.list_extracted_entities(investigation_id)
+                if entity.id == entity_id
+            ),
+            None,
+        )
+        if current is None:
+            raise InvestigationValidationError(
+                f"Extracted entity not found: {entity_id}"
+            )
+        attributes = dict(current.attributes)
+        if property_type:
+            attributes["property_type"] = property_type
+        else:
+            attributes.pop("property_type", None)
         now = utc_now()
         with self._connection() as connection:
             cursor = connection.execute(
@@ -1682,6 +1700,7 @@ class InvestigationRepository:
                     entity_type = ?,
                     custom_label = ?,
                     tags_json = ?,
+                    attributes_json = ?,
                     last_observed_at = ?
                 WHERE id = ? AND investigation_id = ?
                 """,
@@ -1689,6 +1708,7 @@ class InvestigationRepository:
                     entity_type,
                     custom_label,
                     _json_dump(list(tags)),
+                    _json_dump(attributes),
                     now,
                     entity_id,
                     investigation_id,

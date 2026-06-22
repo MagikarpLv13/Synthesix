@@ -444,6 +444,7 @@ def _build_curated_graph(
             "synthesix_type": "curated_entity",
             "linked_source_count": len(linked_result_ids),
         }
+        property_type_overrides: dict[str, str] = {}
         manual_properties = entity.get("properties", {})
         if isinstance(manual_properties, Mapping):
             for key, value in manual_properties.items():
@@ -461,14 +462,24 @@ def _build_curated_graph(
             if fact is coordinate_fact:
                 continue
             key = str(fact.get("property_key", "") or "")
+            property_key = key or _default_property_key(fact)
             _append_property(
                 properties,
-                key or _default_property_key(fact),
+                property_key,
                 fact.get("value_original")
                 or fact.get("value_normalized"),
             )
+            attributes = fact.get("attributes", {})
+            if isinstance(attributes, Mapping):
+                property_type = str(
+                    attributes.get("property_type", "") or ""
+                ).strip()
+                if property_type in PROPERTY_TYPES:
+                    property_type_overrides[property_key] = property_type
         if source_urls:
             properties["Sources"] = "\n".join(dict.fromkeys(source_urls))
+        if property_type_overrides:
+            properties[PROPERTY_TYPE_OVERRIDES_KEY] = property_type_overrides
 
         node = GraphNode(
             id=f"curated-entity-{entity_id}",
@@ -921,6 +932,14 @@ def _add_graphml_data(
     data.text = str(value)
 
 
+def _serializable_properties(properties: Mapping[str, object]) -> dict[str, object]:
+    return {
+        str(key): value
+        for key, value in properties.items()
+        if key != PROPERTY_TYPE_OVERRIDES_KEY
+    }
+
+
 def _write_graphml(
     path: Path,
     nodes: Iterable[GraphNode],
@@ -947,7 +966,7 @@ def _write_graphml(
             "source": node.source,
             "date": node.date,
             "properties": json.dumps(
-                dict(node.properties),
+                _serializable_properties(node.properties),
                 ensure_ascii=False,
                 sort_keys=True,
             ),
@@ -978,7 +997,7 @@ def _write_graphml(
             "tags": ";".join(edge.tags),
             "date": edge.date,
             "properties": json.dumps(
-                dict(edge.properties),
+                _serializable_properties(edge.properties),
                 ensure_ascii=False,
                 sort_keys=True,
             ),
@@ -1043,7 +1062,7 @@ def _write_csv_files(
                     if node.longitude is not None
                     else "",
                     "properties": json.dumps(
-                        dict(node.properties),
+                        _serializable_properties(node.properties),
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
@@ -1086,7 +1105,7 @@ def _write_csv_files(
                     ),
                     "date": edge.date,
                     "properties": json.dumps(
-                        dict(edge.properties),
+                        _serializable_properties(edge.properties),
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
@@ -1135,7 +1154,7 @@ def _write_csv_files(
                     if node.longitude is not None
                     else "",
                     "synthesix_properties": json.dumps(
-                        dict(node.properties),
+                        _serializable_properties(node.properties),
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
@@ -1162,7 +1181,7 @@ def _write_csv_files(
                     "longitude": "",
                     "synthesix_properties": json.dumps(
                         {
-                            **dict(edge.properties),
+                            **_serializable_properties(edge.properties),
                             "source_id": edge.source_id,
                             "target_id": edge.target_id,
                         },
@@ -1204,9 +1223,27 @@ NATIVE_PROPERTY_NAMES = {
 NATIVE_LINK_PROPERTIES = {
     "relation_status": "Statut de la relation",
 }
+PROPERTY_TYPE_OVERRIDES_KEY = "_synthesix_property_types"
+PROPERTY_TYPES = {
+    "text",
+    "number",
+    "date",
+    "datetime",
+    "boolean",
+    "choice",
+    "geo",
+    "country",
+    "link",
+}
 
 
-def _native_property_type(key: str, value: object) -> str:
+def _native_property_type(
+    key: str,
+    value: object,
+    explicit_type: str = "",
+) -> str:
+    if explicit_type in PROPERTY_TYPES:
+        return explicit_type
     declared = zeroneurone_property_type(key)
     if declared:
         return declared
@@ -1231,8 +1268,11 @@ def _native_properties(
     names: Mapping[str, str] = NATIVE_PROPERTY_NAMES,
 ) -> list[dict[str, object]]:
     result = []
+    property_types = properties.get(PROPERTY_TYPE_OVERRIDES_KEY, {})
+    if not isinstance(property_types, Mapping):
+        property_types = {}
     for key, value in properties.items():
-        if key == "attributes":
+        if key in {"attributes", PROPERTY_TYPE_OVERRIDES_KEY}:
             continue
         if value is None or value == "":
             continue
@@ -1249,7 +1289,11 @@ def _native_properties(
                 )
                 if not value:
                     continue
-        property_type = _native_property_type(key, value)
+        property_type = _native_property_type(
+            key,
+            value,
+            str(property_types.get(key, "") or ""),
+        )
         if isinstance(value, bool):
             value = "Oui" if value else "Non"
         property_name = names.get(key)

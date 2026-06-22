@@ -1,92 +1,186 @@
-# AGENTS.md
+# AGENTS.md — Règles communes pour les agents IA
 
-## Objectif
+## Portée et sources de vérité
 
-Maintenir Synthesix comme une application Python robuste, lisible et testable, sans casser ses recherches exactes, son approche asynchrone Zendriver/CDP ni ses workflows d'enquête.
+Ce fichier s'applique à tout agent IA qui lit, modifie, teste ou documente Synthesix.
 
-## Style de travail
+Priorité : demande utilisateur → contraintes de sécurité/environnement → `AGENTS.md` → documentation spécialisée → conventions locales.
 
-- Comprendre l'objectif et inspecter uniquement les fichiers concernés avant de modifier.
-- Pour une tâche complexe, annoncer un plan bref; sinon agir directement.
-- Faire des changements minimaux, ciblés et cohérents avec l'architecture existante.
-- Ne pas réécrire massivement, inventer d'API ou modifier un comportement sans nécessité.
-- Ne pas ajouter de dépendance sans justification.
+Lire selon le périmètre :
 
-## Gestion du contexte et coût en tokens
+- `AI_WORKLOG.md` : source de vérité pour claims, verrous, blocages, décisions et comptes rendus IA ;
+- `README.md` : architecture, fonctionnement, configuration et commandes ;
+- `COLLAB.md`, `docs/CODEX_CLAUDE_WORKPLAN.md` : contraintes et historique de la migration Lit ;
+- `docs/UX_REDESIGN.md` : design system et UX ;
+- `frontend/README.md` : build et vérification visuelle ;
+- `frontend/TASKS.md` : backlog/historique frontend. Pour les travaux actifs, `AI_WORKLOG.md` fait autorité.
 
-- Répondre avec concision; détailler seulement sur demande ou pour signaler un risque.
-- Préférer un diff ou un résumé à la reproduction complète d'un fichier.
-- Ne pas relire les mêmes fichiers; dans les gros fichiers, cibler les sections utiles.
-- Ignorer `.venv`, `env`, `.git`, `__pycache__`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `dist`, `build`, `node_modules`, `coverage`, `.coverage` et `htmlcov`.
-- Ne mentionner une hypothèse que si elle influence la solution.
+## Coordination obligatoire
 
-## Standards Python
+Toute modification non triviale doit avoir une tâche `AI-YYYYMMDD-NNN` dans `AI_WORKLOG.md` avant l'édition. Sont non triviales les modifications multi-fichiers, comportementales, contractuelles, générant un bundle, ajoutant une dépendance ou touchant un fichier chaud.
 
-- Respecter la compatibilité Python 3.10+ du projet.
-- Ajouter des annotations de types au code nouveau ou modifié.
-- Écrire des fonctions petites, explicites et testables, avec une gestion claire des erreurs.
-- Préférer `pathlib`, `dataclasses`, `typing` et `logging`; éviter l'état global inutile.
-- Respecter PEP 8. Garder le code navigateur asynchrone: `await asyncio.sleep()`, jamais `time.sleep()`.
-- Fermer Zendriver proprement via le gestionnaire du navigateur ou `await browser.stop()`.
+### Avant d'écrire
 
-## Structure de projet
+1. Lire les travaux actifs, verrous, blocages et décisions.
+2. Exécuter `git branch --show-current` et `git status --short`.
+3. Faire `git pull --rebase` si le distant est accessible.
+4. Déclarer agent, objectif, fichiers prévus, tests et dépendances.
+5. Poser les verrous nécessaires. En travail simultané, commit/push du claim seul.
 
-- Respecter les responsabilités décrites dans `README.md`.
-- Garder la logique CDP dans `browser_manager.py`/`search_engine.py`, l'orchestration dans `search_orchestrator.py`, les moteurs dans leurs modules et le domaine d'enquête dans `investigations/` et `evidence/`.
-- Séparer logique métier, rendu HTML et automatisation navigateur.
+### Pendant
 
-## Qualité, lint et formatage
+- Ne pas modifier un fichier verrouillé par un autre agent.
+- Étendre le périmètre dans le journal avant de toucher un nouveau fichier chaud.
+- Garder des commits petits ; rebaser régulièrement.
+- Ne pas effacer l'historique d'une autre IA.
+- En cas d'interruption, consigner état, fichiers, tests, risques et prochaine action exacte.
 
-- Corriger la cause racine et préserver la lisibilité avant toute micro-optimisation.
-- Vérifier les cas limites et la compatibilité des moteurs.
-- Utiliser Ruff s'il est ajouté au projet; ne pas l'imposer sans configuration.
-- Exécuter `git diff --check` avant de terminer.
+### Fin
 
-## Tests
+- Exécuter les vérifications adaptées.
+- Mettre à jour documentation, tâche et verrous.
+- Ajouter un compte rendu factuel : changements, fichiers, tests exécutés, tests omis, commit, risques et reste à faire.
 
-- Le projet utilise `unittest`; ajouter ou adapter les tests lorsqu'un comportement change.
-- Exécuter d'abord les tests ciblés, puis `.venv\Scripts\python.exe -m unittest discover`.
-- Pour Linux/macOS, utiliser l'interpréteur équivalent du virtualenv.
-- Ne jamais déclarer un test réussi s'il n'a pas été exécuté; signaler clairement tout test omis et pourquoi.
-- Préserver notamment la recherche en phrase exacte, l'isolation des moteurs et la fermeture propre du navigateur.
+Une tâche n'est pas terminée tant que `AI_WORKLOG.md` n'est pas à jour.
 
-## Sécurité
+## Fichiers chauds
 
-- Ne jamais afficher, déplacer, modifier ou versionner des secrets, profils, cookies ou données d'enquête.
-- Ne pas coder en dur de clé, token, mot de passe ou chemin utilisateur sensible.
-- Documenter les variables dans `.env.example` si nécessaire.
-- Valider toute entrée utilisée pour les fichiers, le réseau, les commandes ou des données externes.
-- Éviter `eval`, `exec`, la désérialisation dangereuse et les commandes shell construites depuis une entrée.
+Verrou exclusif obligatoire avant modification :
 
-## Gestion des dépendances
+- `main.py`, `ui.py`, `utils.py`, `theme.css`, `index.html`, `i18n.js`
+- `settings.py`, `search_orchestrator.py`
+- `investigations/view.py`, `investigations/search_view.py`
+- `frontend/package.json`, `frontend/tsconfig.json`, `frontend/build.mjs`
+- `frontend/src/index.ts`, `frontend/src/overlay/index.ts`
+- `assets/synthesix-ui.js`, `assets/synthesix-overlay.js`
 
-- Préférer la bibliothèque standard; justifier toute nouvelle dépendance.
-- Mettre à jour `requirements.txt` de façon cohérente et ne jamais installer globalement.
-- Pour Zendriver, suivre la procédure de mise à jour et le smoke test décrits dans `README.md`.
+Un verrou doit être précis et aussi court que possible.
 
-## Documentation
+## Invariants produit
 
-- Mettre à jour `README.md` lorsqu'une commande, une configuration ou un comportement utilisateur change.
-- Documenter les prérequis Chrome/Chromium et les variables d'environnement utiles.
-- Garder les commentaires courts et réservés aux choix non évidents.
+Synthesix est une application OSINT locale, Python 3.10+, async-first, pilotée par Zendriver/CDP. Elle doit rester lançable par `python main.py` sans serveur ni Node requis pour l'utilisateur final.
 
-## Refactoring
+Ne jamais casser sans demande explicite et tests dédiés :
 
-- Procéder par petits lots vérifiables sans casser l'API existante.
-- Conserver les conventions locales et éviter les abstractions sans gain concret.
-- Isoler les erreurs d'un moteur afin qu'elles ne bloquent pas les autres.
-- Préférer une correction de parseur ciblée lorsqu'un moteur change son HTML.
+- recherche en phrase exacte quand les dorks automatiques sont actifs ;
+- isolation des moteurs, retries, timeouts, scoring explicable et rapports ;
+- fermeture propre de Zendriver/Chrome ;
+- pages locales `file://`, enquêtes, preuves, provenance et exports ZeroNeurone ;
+- contrats CDP/JavaScript : `window.name`, `window.synthesixHome`, `window.synthesixPage`, actions, payloads, IDs, événements et attributs `data-*`.
 
-## Commandes utiles
+Avant de modifier un contrat, rechercher tous ses producteurs, consommateurs et tests. Toute évolution CDP/overlay exige un test ciblé et un smoke live, ou une mention explicite de l'absence de smoke.
+
+## Architecture
+
+- `main.py` : cycle navigateur, boucle UI et actions CDP.
+- `browser_manager.py`, `search_engine.py` : navigateur et comportement moteur commun.
+- `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` : logique propre aux moteurs.
+- `search_orchestrator.py` : concurrence, retries, scoring et rapports.
+- `investigations/`, `analysis/`, `evidence/`, `exports/` : domaine, analyse, preuves et exports.
+- `ui.py`, `utils.py`, `theme.css`, `i18n.js` : rendu, thème et traductions.
+- `frontend/src/components/` : composants Lit applicatifs.
+- `frontend/src/overlay/` : composants injectés sur des pages tierces.
+- `assets/synthesix-*.js` : bundles IIFE générés et versionnés.
+- `tests/` : suite `unittest`.
+
+Séparer métier, données, navigateur et rendu. Préférer une correction ciblée à une réécriture large.
+
+## Python
+
+- Compatibilité Python 3.10+, annotations de types sur le code modifié.
+- Fonctions petites, testables ; préférer `pathlib`, `dataclasses`, `typing`, `logging`.
+- Éviter l'état global et les effets de bord implicites.
+- Dans l'async : `await asyncio.sleep()`, jamais `time.sleep()`.
+- Fermer le navigateur via le gestionnaire prévu ou `await browser.stop()`.
+- Isoler les erreurs par moteur.
+- Utiliser les migrations pour le schéma ; préserver les données existantes.
+- Ne pas changer une API ou un payload sans rechercher tous les consommateurs.
+
+## TypeScript, Lit et CSS
+
+- TypeScript strict ; aucun local/paramètre inutilisé.
+- `LitElement`, Shadow DOM, préfixe `sx-`, un composant principal par fichier.
+- Enregistrer dans `frontend/src/index.ts` ou `frontend/src/overlay/index.ts`.
+- Utiliser les tokens CSS existants. L'overlay ne dépend jamais du CSS de la page hôte.
+- Pas de texte utilisateur en dur dans un composant réutilisable : propriétés, attributs, slots ou `i18n.js`.
+- Focus visible, clavier, rôles et `aria-label` pour les icônes.
+- Préserver événements, attributs réfléchis, slots et API publiques.
+- Les pages `file://` chargent le bundle applicatif par script classique, pas `type="module"`.
+- Ne pas éditer les bundles minifiés directement.
+- Après modification TS : `npm run typecheck`, `npm run build`, puis commit source + bundle.
+- Adapter une démo `frontend/demo/` et vérifier clair/sombre, vide, long et dense si l'UI change.
+
+## i18n et UX
+
+- Toute nouvelle chaîne utilisateur doit être traduisible.
+- Synchroniser les dictionnaires de `i18n.js`, dont `multilingual` et `additionalTranslations`.
+- Exécuter les tests i18n après changement de clé.
+- Privilégier densité utile, hiérarchie claire et actions rapides.
+- Masquer les champs vides ; fournir `title`/`aria-label` aux icônes seules.
+- Ne pas introduire React, Tailwind ou serveur obligatoire sans décision explicite.
+
+## Sécurité et fichiers interdits
+
+Ne jamais afficher ou versionner secrets, cookies, profils navigateur, données d'enquête, bases runtime, captures, archives de preuve ou rapports générés.
+
+Ne pas committer notamment : `.venv/`, `env/`, `node_modules/`, `data/`, `history/`, `*-profile/`, `zendriver-profile/`, `tmp_ui_render/`, `.cache/`, caches Python/tests et couverture.
+
+Valider chemins, URL et entrées externes. Éviter `eval`, `exec`, désérialisation dangereuse et shell construit depuis une entrée. Ne pas contourner les protections SSRF ou le nettoyage des preuves.
+
+## Dépendances et Git
+
+- Préférer standard library et dépendances existantes.
+- Justifier toute dépendance et l'ajouter au bon manifeste.
+- Pour Zendriver, suivre la procédure du `README.md`.
+- Ne pas lancer de formatage global hors périmètre.
+- Ne pas écraser des changements utilisateur/agent.
+- Interdits sans autorisation : `git reset --hard`, `git clean -fd`, force-push, rebase destructif.
+- Inspecter `git diff`, `git diff --staged`, `git status --short`.
+- Messages de commit centrés sur le résultat, pas sur l'outil IA.
+
+## Vérifications
+
+Python ciblé :
 
 ```powershell
-.venv\Scripts\python.exe -m unittest discover
+.venv\Scripts\python.exe -m unittest tests.test_<module>
 git diff --check
-python main.py
 ```
 
-Consulter `README.md` pour la compilation complète, le profiling et le smoke test navigateur.
+Frontend :
 
-## Réponse attendue de Codex
+```powershell
+cd frontend
+npm run typecheck
+npm run build
+cd ..
+git diff --check
+```
 
-Terminer par un résumé concis indiquant les changements, les fichiers modifiés, les tests réellement exécutés et les points d'attention restants. Éviter toute explication excessive.
+Changement large :
+
+```powershell
+cd frontend
+npm run typecheck
+npm run build
+cd ..
+.venv\Scripts\python.exe -m unittest discover
+git diff --check
+```
+
+Utiliser l'équivalent du virtualenv sous Linux/macOS. Ajouter selon le périmètre : `py_compile`, capture Chrome headless, smoke CDP live ou smoke ZeroNeurone.
+
+Ne jamais déclarer un test réussi sans l'avoir exécuté.
+
+## Definition of Done
+
+- objectif réalisé sans élargissement caché ;
+- invariants et contrats préservés ;
+- tests adaptés exécutés et résultats rapportés ;
+- bundles régénérés si nécessaire ;
+- vérification visuelle/CDP faite ou explicitement omise ;
+- documentation à jour ;
+- `git diff --check` propre ;
+- aucun fichier sensible/temporaire staged ;
+- `AI_WORKLOG.md` clôturé sans verrou actif ;
+- réponse finale : résumé, fichiers, tests, limites et reste à faire.

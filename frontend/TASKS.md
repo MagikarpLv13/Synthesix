@@ -176,6 +176,24 @@ Détails dans `../COLLAB.md`.
   ⚠️ **Smoke CDP live** : sélectionner du texte → attacher à une entité → vérifier
   qu'il apparaît dans Entities de la page + 🔗 sur la propriété. Reste : **typage
   des champs** (PropertyType zeroneurone) dans overlay + extraction (ask 3).
+- (Utilisateur/Codex) Smoke CDP live du Lot 16 validé le 2026-06-21 :
+  sélectionner du texte → attacher à une entité → apparition dans les Entities
+  de la page + lien 🔗 sur la propriété OK. Décision Ask 3 : faire **Phase 1
+  d'abord** (sélecteur `PropertyType` dans le rail des entités extraites,
+  stockage `attributes.property_type`, export prioritaire sur l'heuristique),
+  puis **Phase 2** (même typage dans l'overlay injecté, avec smoke CDP live).
+- (Codex) Ask 3 livré en deux phases. **Phase 1** : le rail des entités
+  extraites expose un select `Property type`, persiste dans
+  `attributes.property_type` via `update_entity_metadata` /
+  `attach_extracted_property`, et l'export ZeroNeurone utilise ce type avant
+  l'heuristique/tagsets sans l'écrire comme propriété technique. **Phase 2** :
+  l'overlay injecté reçoit les types des propriétés suggérées, préremplit un
+  select de type et envoie `property_type` dans `attach_selection_to_graph_entity`.
+  Finitions : sources numérotées façon annotations (badges 1/2/3 sur la
+  propriété + liste Sources) et box overlay restylée Synthesix. Validé :
+  `npm run typecheck`, `npm run build`, tests ciblés puis `unittest discover`
+  (231), `git diff --check`. ⏳ Smoke CDP live recommandé : sélection texte →
+  attach avec type choisi → vérifier type dans le rail + export.
 
 ## Palier 1.5 — Intégration
 

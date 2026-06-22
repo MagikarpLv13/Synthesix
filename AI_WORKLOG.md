@@ -1,0 +1,408 @@
+# AI_WORKLOG.md — Coordination et suivi des agents IA
+
+> Source de vérité opérationnelle pour Claude, Codex, Copilot et tout autre agent IA travaillant sur Synthesix.
+
+## Règles d'utilisation
+
+- Lire ce fichier avant toute modification non triviale.
+- Utiliser un identifiant unique `AI-YYYYMMDD-NNN`.
+- Inscrire une tâche dans **Travaux actifs** avant d'éditer le code.
+- Déclarer tout fichier chaud dans **Verrous de fichiers**.
+- Un fichier ne peut avoir qu'un seul propriétaire écrivain à la fois.
+- Mettre à jour `Dernière MAJ` après une étape significative ou un blocage.
+- À la fin, retirer la ligne active et les verrous, puis ajouter un compte rendu dans **Travaux terminés**.
+- Les comptes rendus terminés et les décisions sont append-only : ne pas réécrire l'historique d'un autre agent.
+- Faire `git pull --rebase` avant un claim et avant la clôture lorsque le distant est accessible.
+- Si le distant est inaccessible, indiquer `offline` dans la colonne Branche/commit.
+- `frontend/TASKS.md` peut conserver le backlog détaillé de la refonte frontend ; le présent fichier fait autorité pour les claims et verrous actifs.
+
+Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
+
+## Travaux actifs
+
+| ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
+|---|---|---|---|---|---|---|---|---|
+| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
+
+## Verrous de fichiers
+
+| Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
+|---|---|---|---|---|---|
+| _Aucun verrou actif_ |  |  |  |  |  |
+
+Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `frontend/**`. Pour un lot multi-fichiers, lister les fichiers chauds ; les fichiers dédiés à un nouveau composant peuvent rester couverts par la tâche sans verrou séparé.
+
+## Blocages et relais
+
+| Date UTC | Tâche | De | Vers | Blocage / contexte | État vérifié | Prochaine action exacte |
+|---|---|---|---|---|---|---|
+| _Aucun blocage ou relais_ |  |  |  |  |  |  |
+
+## Décisions partagées
+
+Les décisions doivent décrire un choix durable qui affecte plusieurs tâches. Ajouter une nouvelle entrée au lieu de modifier rétroactivement une décision. En cas de remplacement, référencer l'identifiant précédent.
+
+| ID | Date UTC | Auteur | Décision | Motif | Fichiers / contrats concernés | Remplace |
+|---|---|---|---|---|---|---|
+| DEC-001 | 2026-06-21 | Initialisation | `AI_WORKLOG.md` est la source de vérité pour les claims et verrous IA actifs. | Éviter la dispersion entre plusieurs journaux. | `AGENTS.md`, `CLAUDE.md`, `frontend/TASKS.md` | — |
+
+## Travaux terminés
+
+Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer ni réécrire les anciens.
+
+### AI-20260621-001 — Gouvernance et coordination des agents IA
+
+- **Agent :** ChatGPT
+- **Période UTC :** 2026-06-21
+- **Branche / commits :** non appliqué au dépôt ; fichiers préparés hors repository
+- **Objectif :** fournir des règles communes, des instructions Claude Code et un journal central de coordination.
+- **Changements :**
+  - création de `CLAUDE.md` avec import de `AGENTS.md` et règles spécifiques à Claude Code ;
+  - refonte de `AGENTS.md` autour des invariants Synthesix, du workflow de validation et de la coordination multi-IA ;
+  - création du présent journal avec claims, verrous, relais, décisions et comptes rendus.
+- **Fichiers préparés :**
+  - `CLAUDE.md`
+  - `AGENTS.md`
+  - `AI_WORKLOG.md`
+- **Tests exécutés :**
+  - relecture de structure Markdown et cohérence des références ;
+  - aucun test du dépôt exécuté, les fichiers n'ayant pas été appliqués à une copie locale du repository.
+- **Risques / reste à faire :**
+  - copier les trois fichiers à la racine de la branche ;
+  - décider si `COLLAB.md` et `frontend/TASKS.md` restent purement historiques ou sont simplifiés pour pointer vers ce journal.
+- **Relais :** après intégration, créer un claim réel pour toute prochaine modification de code.
+
+### AI-20260621-002 — Fonts locales et plan rattachement des preuves
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 15:14-15:18
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** intégrer les fonts Bevan, Exo 2 et Nunito en local et préparer le lot de rattachement des preuves/images.
+- **Changements :**
+  - ajout des fonts locales sous `assets/fonts/` ;
+  - déclaration `@font-face` et tokens `--font-display`, `--font-ui`, `--font-body` ;
+  - application de Bevan aux titres principaux, Nunito au texte courant et Exo 2 aux contrôles/UI ;
+  - alignement de `sx-result-card` sur le token de font global ;
+  - création du plan `docs/EVIDENCE_ATTACHMENT_PLAN.md`.
+- **Fichiers modifiés :**
+  - `theme.css`
+  - `frontend/src/components/sx-result-card.ts`
+  - `assets/synthesix-ui.js`
+  - `assets/fonts/Bevan-Regular.ttf`
+  - `assets/fonts/Exo2-VariableFont_wght.ttf`
+  - `assets/fonts/Nunito-VariableFont_wght.ttf`
+  - `docs/EVIDENCE_ATTACHMENT_PLAN.md`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - l'overlay injecté ne charge pas les fonts locales pour rester indépendant des pages tierces ;
+  - `Photo de profil` est traité comme nom de propriété, pas comme `PropertyType`.
+- **Tests exécutés :**
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - tests Python non relancés, aucun code Python modifié dans ce lot ;
+  - smoke visuel non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - vérifier visuellement que Bevan ne prend pas trop de place sur certaines pages denses ;
+  - implémenter le lot 1 du plan preuves : bloc `attach` commun capture/archive.
+- **Relais :** prochaine action exacte : implémenter le helper service de rattachement `EvidenceCapture` -> propriété sourcée, puis brancher capture et archive.
+
+### AI-20260621-003 — Densification du panneau gauche investigation
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 15:31-15:35
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** réduire la place prise par les métriques, le formulaire de création et la liste d'entités dans la colonne principale.
+- **Changements :**
+  - remplacement du bloc de gros chiffres par des chips métriques avec symbole, valeur et infobulle ;
+  - transformation du formulaire de création d'entité en bande compacte avec champs accessibles ;
+  - compression des lignes d'entités : tags limités, compteurs propriétés/sources en micro-badges avec infobulles ;
+  - ajustements CSS pour réduire les hauteurs et l'espacement.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP ou payload modifié ;
+  - la liste d'entités reste une navigation, le détail complet reste dans le panneau de droite.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — échec initial sur un XPath de test trop large, corrigé, puis OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - suite Python complète non relancée, changement limité au rendu HTML/CSS et tests ciblés verts ;
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - vérifier visuellement la lisibilité des symboles métriques sur l'écran réel ;
+  - si validé, appliquer la même logique de micro-compteurs aux autres listes denses.
+- **Relais :** aucun
+
+### AI-20260621-004 — Recherche fluide entités et filtres pages rétractables
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 15:50-15:55
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** simplifier les libellés entités et fluidifier la navigation sans vue graphe.
+- **Changements :**
+  - retrait des libellés visibles `Final graph`, `Investigation entities` et `Final graph node` ;
+  - titre de section réduit à `Entités` ;
+  - ajout d'un filtre instantané des entités par nom, tag, propriété ou valeur ;
+  - ajout d'un compteur d'entités filtrées ;
+  - déplacement des filtres de pages enregistrées derrière un bouton loupe, panneau caché par défaut ;
+  - ajout d'un état visuel `aria-expanded` pour le bouton de filtres.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP ou payload modifié ;
+  - navigation entités retenue : liste dense filtrable + panneau de détail, pas de graphe.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - suite Python complète non relancée, changement limité au rendu HTML/CSS/JS inline de la page investigation ;
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - valider visuellement la position du bouton loupe et du filtre entités ;
+  - si la liste dépasse 30-40 entités, envisager groupes repliables par tag principal ou entités épinglées.
+- **Relais :** aucun
+
+### AI-20260621-005 — Correctifs filtres et création d'entité dans le rail
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 16:09-16:13
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger les filtres visibles malgré `hidden`, ajouter un indicateur de filtre et déplacer le formulaire de création d'entité dans le panneau droit.
+- **Changements :**
+  - ajout de règles CSS explicites pour masquer `.investigation-filters[hidden]`, `.entity-row[hidden]` et `.graph-entity-create-panel[hidden]` ;
+  - ajout d'une icône loupe dans le champ de filtre des entités ;
+  - remplacement du formulaire inline par un bouton `+ Entité` près du compteur ;
+  - déplacement du formulaire de création d'entité dans le rail workspace ;
+  - branchement JS du bouton `+ Entité` sur le panneau droit, avec focus sur le champ nom.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP ou payload modifié ;
+  - l'action `create_graph_entity` conserve le même formulaire et le même payload.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - suite Python complète non relancée, changement limité au rendu HTML/CSS/JS inline de la page investigation ;
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - valider visuellement l'ouverture du formulaire dans le rail ;
+  - si souhaité, ajouter une transition courte à l'ouverture du rail/formulaire.
+- **Relais :** aucun
+
+### AI-20260621-006 — Tags multiples sur création d'entité
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 16:19-16:22
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** aligner la création d'entité sur la modification : tags multiples en chips et identité visuelle cohérente dans le rail.
+- **Changements :**
+  - remplacement du champ tags simple par le composant visuel `tag-editor` ;
+  - ajout, suppression et déduplication de tags côté création ;
+  - support de `Entrée`, virgule et blur pour transformer le texte en chip ;
+  - collecte des tags en chaîne comma-separated avant `create_graph_entity` ;
+  - ajustement CSS pour que le champ interne du tag-editor garde le style de l'édition.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP ou payload modifié ;
+  - `create_graph_entity.entity.tags` reste une chaîne.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - suite Python complète non relancée, changement limité au rendu HTML/CSS/JS inline de la page investigation ;
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - valider visuellement que les chips de création correspondent bien aux chips de modification.
+- **Relais :** aucun
+
+### AI-20260621-007 — Clic sur suggestion de tag en création
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 22:49-22:50
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** ajouter le tag au clic/sélection d'une suggestion pendant la création d'entité et finir l'alignement visuel avec l'édition.
+- **Changements :**
+  - ajout du handler `change` sur le champ tag de création ;
+  - conservation des handlers `Entrée`, virgule et blur ;
+  - resserrage CSS pour que le panneau de création prenne toute la largeur du rail ;
+  - retrait des bordures/surfaces spécifiques qui différenciaient visuellement la création de l'édition.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP ou payload modifié.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - suite Python complète non relancée, changement limité au rendu HTML/CSS/JS inline de la page investigation ;
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - vérifier visuellement dans le navigateur que la sélection native de datalist déclenche bien `change` selon Chrome.
+- **Relais :** aucun
+
+### AI-20260621-008 — Cartes pages enregistrées compactes
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 23:10-23:18
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** alléger les cartes de pages enregistrées et déplacer leurs détails secondaires dans le rail workspace.
+- **Changements :**
+  - remplacement des actions de carte par des boutons icônes avec `title`/`aria-label` ;
+  - déplacement des entités liées, analyse URL, entités extraites et preuves dans le panneau droit de chaque page ;
+  - liaison d'une source à une entité directement au `change` du sélecteur, sans bouton `Link source` ;
+  - suppression du bloc `Créer une entité depuis ce site` et des contrôles visibles `Notes/tags analyste` sur la carte ;
+  - compactage CSS des blocs déplacés dans le rail.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun payload CDP existant modifié ;
+  - les notes/tags de résultat restent conservés en champs cachés pour préserver `update_investigation_result`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - valider visuellement que les blocs déplacés dans le rail restent confortables avec plusieurs preuves ;
+  - décider si les liens d'artefacts de preuve doivent aussi passer en icônes.
+- **Relais :** aucun
+
+### AI-20260621-009 — Cartes pages sans collapse ni score
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-21 23:32-23:37
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** simplifier les cartes de pages enregistrées et le rail en supprimant les contrôles/données redondants.
+- **Changements :**
+  - suppression du bouton collapse, de son stockage local et du JS associé ;
+  - remplacement par une action icône vers Wayback Machine ;
+  - retrait du score de la carte et du rail ;
+  - retrait du bloc provenance/page référente sur les cartes ;
+  - suppression des stats doublonnées du rail ;
+  - uniformisation des tailles d'icônes dans la rangée d'actions et amélioration du select `Link source to...`.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun payload CDP existant modifié ;
+  - le score reste disponible côté données, mais n'est plus rendu dans l'espace pages enregistrées.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - smoke visuel navigateur non exécuté dans ce lot.
+- **Risques / reste à faire :**
+  - valider visuellement que l'icône Wayback est assez explicite avec le tooltip ;
+  - décider si `Go to card` doit aussi devenir une icône dans le rail.
+- **Relais :** aucun
+
+## Modèle de compte rendu terminé
+
+```markdown
+### AI-YYYYMMDD-NNN — Titre court
+
+- **Agent :**
+- **Période UTC :**
+- **Branche / commits :**
+- **Objectif :**
+- **Changements :**
+  - ...
+- **Fichiers modifiés :**
+  - `...`
+- **Contrats ou décisions :**
+  - ...
+- **Tests exécutés :**
+  - `commande` — résultat
+- **Vérifications non exécutées :**
+  - raison
+- **Risques / reste à faire :**
+  - ...
+- **Relais :**
+  - prochaine action exacte, ou `aucun`
+```
+
+## Modèle de claim
+
+Copier les informations suivantes dans une nouvelle ligne de **Travaux actifs** :
+
+```text
+ID: AI-YYYYMMDD-NNN
+Agent: Claude | Codex | Copilot | autre
+Statut: claimed
+Début UTC: YYYY-MM-DD HH:MM
+Dernière MAJ UTC: YYYY-MM-DD HH:MM
+Objectif: résultat observable en une phrase
+Périmètre: fichiers prévus et fichiers explicitement exclus
+Tests prévus: commandes ou scénarios
+Branche / commit: branche, SHA ou offline
+```
+
+Puis ajouter les verrous strictement nécessaires.
+
+## Modèle de point d'étape
+
+```markdown
+### Checkpoint — AI-YYYYMMDD-NNN — YYYY-MM-DD HH:MM UTC
+
+- Réalisé :
+- Fichiers touchés :
+- Tests exécutés :
+- Décision ou difficulté :
+- Écart de périmètre :
+- Prochaine action :
+```
+
+Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter ici seulement lorsqu'ils sont utiles à un autre agent ou à un relais.
+
+## Résolution de conflit
+
+1. Ne pas écraser l'entrée d'un autre agent.
+2. Rebaser et conserver les deux historiques.
+3. Le claim le plus ancien conserve le verrou, sauf abandon explicite.
+4. Un claim sans mise à jour depuis 24 heures n'est pas supprimé automatiquement :
+   - vérifier branche ou commits ;
+   - ajouter un relais ou demander arbitrage ;
+   - ne reprendre qu'après libération explicite ou décision humaine.
+5. Si deux agents ont modifié le même contrat, arrêter l'intégration et consigner le conflit.
+6. Les résultats de tests restent factuels ; ne pas fusionner deux exécutions comme si elles n'en formaient qu'une.
+
+## Checklist de clôture
+
+- [ ] Objectif réalisé.
+- [ ] Diff relu.
+- [ ] Tests ciblés exécutés.
+- [ ] Suite large exécutée si nécessaire.
+- [ ] `git diff --check` propre.
+- [ ] Bundle régénéré si source frontend modifiée.
+- [ ] Smoke visuel/CDP réalisé si requis.
+- [ ] Documentation mise à jour.
+- [ ] Aucun secret, profil, donnée d'enquête ou artefact runtime staged.
+- [ ] Verrous retirés.
+- [ ] Tâche retirée de **Travaux actifs**.
+- [ ] Compte rendu ajouté à **Travaux terminés**.

@@ -355,6 +355,19 @@ async def _install_and_consume_save_overlay(
         },
         ensure_ascii=True,
     )
+    tagset_property_types_json = json.dumps(
+        {
+            tag: {
+                str(property_.get("key", "") or ""): str(
+                    property_.get("type", "") or ""
+                )
+                for property_ in zeroneurone_tagset_suggested_properties(tag)
+                if str(property_.get("key", "") or "").strip()
+            }
+            for tag in ZERONEURONE_TAGSETS
+        },
+        ensure_ascii=True,
+    )
     context_json = json.dumps(
         {
             "id": str(investigation.get("id", "")),
@@ -413,6 +426,7 @@ async def _install_and_consume_save_overlay(
                 const context = {context_json};
                 const entityTagsets = {tagsets_json};
                 const tagsetProperties = {tagset_properties_json};
+                const tagsetPropertyTypes = {tagset_property_types_json};
                 const hostId = "__synthesix-save-overlay";
                 const overlayBundle = {overlay_bundle_json};
                 if (!window.SynthesixOverlay && overlayBundle) {{
@@ -682,6 +696,7 @@ async def _install_and_consume_save_overlay(
                     );
                     entityMenu.baseTagsets = entityTagsets;
                     entityMenu.tagsetProperties = tagsetProperties;
+                    entityMenu.tagsetPropertyTypes = tagsetPropertyTypes;
                     host.__synthesixSetEntityTagsets = (tags) => {{
                         entityMenu.existingTags = Array.isArray(tags) ? tags : [];
                     }};
@@ -727,7 +742,8 @@ async def _install_and_consume_save_overlay(
                                 entityId: detail.entityId,
                                 property: {{
                                     key: detail.propertyKey,
-                                    value: detail.label
+                                    value: detail.label,
+                                    property_type: detail.propertyType || ""
                                 }},
                                 page: host.__synthesixPagePayload()
                             }};
@@ -1461,6 +1477,7 @@ def _attach_selection_to_graph_entity(
         raise InvestigationValidationError("Selected text is required.")
 
     entity_type = str(property_payload.get("entity_type", "") or "").strip()
+    property_type = str(property_payload.get("property_type", "") or "").strip()
 
     investigation = service.get(investigation_id)
     workspace = service.workspace_payload(investigation_id)
@@ -1491,13 +1508,18 @@ def _attach_selection_to_graph_entity(
         saved.id,
         value=value,
         property_key=key,
+        property_type=property_type,
         entity_type=entity_type or "other",
     )
     if extracted is not None:
         service.attach_extracted_property(
             investigation_id,
             extracted.id,
-            {"graph_entity_id": entity_id, "property_key": key},
+            {
+                "graph_entity_id": entity_id,
+                "property_key": key,
+                "property_type": property_type,
+            },
         )
     return investigation, saved, graph_entity
 
