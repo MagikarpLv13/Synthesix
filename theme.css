@@ -1354,6 +1354,7 @@ a:focus-visible {
 
 .inspector-panel__details {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     margin-top: 6px;
 }

@@ -424,6 +424,23 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Relais :** aucun. Reste basse priorité : durcir la regex téléphone
   (`analysis/entities.py`).
 
+### AI-20260622-004 — Fix overflow valeur longue (URL) dans le rail
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend`.
+- **Objectif :** une valeur d'entité très longue (URL) ne se tronquait pas et
+  élargissait le rail (scroll horizontal).
+- **Changements :** `.inspector-panel__details` passe en
+  `grid-template-columns: minmax(0, 1fr)` ; la colonne se contraint à la largeur
+  du rail, donc le `min-width: 0` + ellipsis de `.entity-chip-row__value`
+  s'applique enfin.
+- **Fichiers modifiés :** `theme.css`, `AI_WORKLOG.md`
+- **Tests exécutés :** `tests.test_investigation_view` (15) OK ; `git diff --check`
+  OK ; smoke headless (URL longue tronquée, plus d'overflow).
+- **Vérifications non exécutées :** —
+- **Relais :** aucun.
+
 ## Modèle de compte rendu terminé
 
 ```markdown
