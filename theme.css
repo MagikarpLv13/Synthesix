@@ -2645,6 +2645,36 @@ a:focus-visible {
     padding-left: 20px;
 }
 
+.graph-property-add {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.graph-property-add__key,
+.graph-property-add__value {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.graph-property-add__key:focus-visible,
+.graph-property-add__value:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
+.graph-property-add__submit {
+    flex: 0 0 auto;
+}
+
 .graph-property-list li {
     display: grid;
     grid-template-columns: minmax(100px, auto) minmax(0, 1fr) auto;

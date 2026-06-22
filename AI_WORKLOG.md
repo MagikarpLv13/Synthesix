@@ -706,6 +706,31 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   consommé peut se réafficher brièvement le temps que l'action rejouée passe (puis
   disparaît) ; acceptable vs perte définitive. Lot 4 export reste à faire.
 
+### AI-20260622-011 — Masquer propriétés vides + ajout manuel de propriété
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Objectif :** deux retours : ne plus afficher les propriétés d'entité vides,
+  et permettre l'ajout manuel d'une propriété sourcée à une entité.
+- **Changements :**
+  - `investigations/view.py` : la liste `PROPRIÉTÉS` d'une entité ignore les
+    propriétés à valeur vide (`if str(value or "").strip()`).
+  - `investigations/view.py` : formulaire d'ajout manuel `data-add-property`
+    (champ Propriété avec `list="property-suggestions"` + champ Valeur + bouton
+    Ajouter) dans la section Propriétés ; au submit, `set_graph_entity_property`
+    (action existante, avec reload → la nouvelle propriété apparaît).
+  - `theme.css` : style `.graph-property-add*`.
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun nouveau contrat CDP (réutilise
+  `set_graph_entity_property`). Revient sur la décision « pas d'ajout manuel »
+  (cas d'usage : sourcer des personnes connues d'avance).
+- **Tests exécutés :** `unittest discover` (240) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (propriétés vides masquées, formulaire d'ajout rendu).
+- **Vérifications non exécutées :** smoke CDP live de l'ajout manuel.
+- **Risques / reste à faire :** demandes overlay (#1 archive auto à la création
+  depuis page + #2 indicateur visuel de provenance) non traitées — à cadrer.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

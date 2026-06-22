@@ -1038,6 +1038,39 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Sandwich", values)
         self.assertNotIn("Forme juridique", values)
 
+    def test_entity_hides_empty_properties_and_offers_manual_add(self):
+        workspace = workspace_payload()
+        graph_entity = workspace["graph_entities"][0]
+        graph_entity["properties"] = dict(graph_entity.get("properties", {}))
+        graph_entity["properties"]["Capital social"] = ""
+        graph_entity["properties"]["SIREN"] = "732829320"
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        card = tree.xpath(
+            "//article[@data-graph-entity-id='graph-entity-123']"
+        )[0]
+        keys = card.xpath(
+            ".//span[contains(@class, 'graph-property-key')]/strong/text()"
+        )
+        self.assertIn("SIREN", keys)
+        self.assertNotIn("Capital social", keys)
+        # A manual add-property form lets analysts source facts by hand.
+        self.assertTrue(card.xpath(".//form[@data-add-property]"))
+        self.assertTrue(card.xpath(".//input[@data-add-property-key]"))
+        self.assertTrue(card.xpath(".//input[@data-add-property-value]"))
+        self.assertIn('queueAction("set_graph_entity_property"', content)
+
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
         workspace["graph_entities"][0]["tags"] = []

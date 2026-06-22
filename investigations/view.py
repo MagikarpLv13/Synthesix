@@ -1019,6 +1019,7 @@ def _graph_entities_markup(
             </li>
             """
             for key, value in properties.items()
+            if str(value or "").strip()
         )
         source_rows = "".join(_source_row(entry) for entry in source_entries)
         entity_tags = entity.get("tags", []) or []
@@ -1081,6 +1082,32 @@ def _graph_entities_markup(
                     <ul class="graph-property-list">
                         {property_rows or '<li class="entity-empty">Aucune propriété.</li>'}
                     </ul>
+                    <form class="graph-property-add" data-add-property>
+                        <input
+                            type="text"
+                            class="graph-property-add__key"
+                            data-add-property-key
+                            list="property-suggestions"
+                            maxlength="80"
+                            placeholder="Propriété"
+                            aria-label="Nom de la propriété"
+                            {disabled}
+                        >
+                        <input
+                            type="text"
+                            class="graph-property-add__value"
+                            data-add-property-value
+                            maxlength="500"
+                            placeholder="Valeur"
+                            aria-label="Valeur de la propriété"
+                            {disabled}
+                        >
+                        <button
+                            type="submit"
+                            class="secondary-button graph-property-add__submit"
+                            {disabled}
+                        >Ajouter</button>
+                    </form>
                 </div>
                 <div class="entity-section">
                     <span class="entity-section__title">Sources</span>
@@ -2904,6 +2931,32 @@ def generate_investigation_page(
                         }});
                     }}
                 );
+                card.querySelector("[data-add-property]")
+                    ?.addEventListener("submit", (event) => {{
+                        event.preventDefault();
+                        const keyInput = card.querySelector(
+                            "[data-add-property-key]"
+                        );
+                        const valueInput = card.querySelector(
+                            "[data-add-property-value]"
+                        );
+                        const key = keyInput?.value.trim() || "";
+                        const value = valueInput?.value.trim() || "";
+                        if (!key || !value) {{
+                            return;
+                        }}
+                        queueAction("set_graph_entity_property", {{
+                            entityId,
+                            property: {{ key, value }}
+                        }});
+                        if (keyInput) {{
+                            keyInput.value = "";
+                        }}
+                        if (valueInput) {{
+                            valueInput.value = "";
+                        }}
+                        flashSaved();
+                    }});
             }});
 
             resultCards.forEach((card) => {{
