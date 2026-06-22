@@ -22,7 +22,22 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
+| AI-20260622-008 | Claude | in_progress | 2026-06-22 | 2026-06-22 | Découpage propriétés extraites : section « à rattacher à une entité » vs « propriétés de la page » (auto par type) | `investigations/view.py`, `theme.css`, `tests/test_investigation_view.py` | `unittest discover` + smoke headless | `feat/lit-frontend` |
+
+**Plan AI-20260622-008 (design validé avec l'utilisateur) :**
+
+- **Lot 1 (ce tour)** : classer automatiquement les entités extraites par type
+  (`domain`/`url`/`ipv4`/`ipv6` → « page », le reste → « entité ») et les afficher
+  en **deux groupes** : « À rattacher à une entité » (avec sélecteur d'entité) et
+  « Propriétés de la page » (sans sélecteur — elles décrivent la source). Helper
+  `_is_source_property` qui lit déjà `attributes.property_scope` pour préparer la
+  bascule.
+- **Lot 2 (suite)** : bascule manuelle persistée (action dédiée `property_scope`)
+  pour corriger le classement auto.
+- **Lot 3 (suite)** : datalist du nom de propriété scopé au tagset de l'entité
+  liée (Personne → propriétés Personne).
+- **Lot 4 (suite)** : à l'export ZeroNeurone, rattacher les propriétés « page » au
+  nœud source/page.
 
 > Reste basse priorité (hors lot) : durcir la regex téléphone
 > (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.

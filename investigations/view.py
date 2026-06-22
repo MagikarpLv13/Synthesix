@@ -25,6 +25,28 @@ _PROPERTY_SUGGESTION_KEYS = sorted(
 )
 
 
+# Extracted-entity types that describe the source/page itself rather than a
+# fact to attach to a curated entity.
+_SOURCE_PROPERTY_TYPES = {"domain", "url", "ipv4", "ipv6"}
+
+
+def _is_source_property(entity: Mapping) -> bool:
+    """True when a candidate describes the page/source, not an entity.
+
+    Auto-classified by type, with an explicit ``attributes.property_scope``
+    override ("page" / "entity") taking precedence (set by the manual toggle).
+    """
+    attributes = entity.get("attributes", {})
+    if isinstance(attributes, Mapping):
+        scope = str(attributes.get("property_scope", "") or "").strip()
+        if scope == "page":
+            return True
+        if scope == "entity":
+            return False
+    entity_type = str(entity.get("entity_type", "") or "")
+    return entity_type in _SOURCE_PROPERTY_TYPES
+
+
 def _property_suggestion_keys(
     entities: list[Mapping],
     graph_entities: list[Mapping],
@@ -471,8 +493,13 @@ def _extracted_entity_row(
     *,
     graph_entities: list[Mapping] = (),
     read_only: bool = False,
+    is_source: bool = False,
 ) -> str:
-    """Self-contained, inline-actionable extracted-entity row (rail triage)."""
+    """Self-contained, inline-actionable extracted-entity row (rail triage).
+
+    A *source* property describes the page itself, so it carries neither an
+    entity-link select nor the promote-to-entity control.
+    """
     disabled = " disabled" if read_only else ""
     entity_id = str(entity.get("id", "") or "")
     entity_type = str(entity.get("entity_type", "") or "")
@@ -491,7 +518,9 @@ def _extracted_entity_row(
         if entity_type and entity_type != "other"
         else ""
     )
-    if graph_entities:
+    if is_source:
+        attach_control = ""
+    elif graph_entities:
         options = ['<option value="">Lier à une entité…</option>']
         for graph_entity in graph_entities:
             gid = str(graph_entity.get("id", "") or "")
@@ -518,7 +547,19 @@ def _extracted_entity_row(
             f'{_icon("check")}</button>'
         )
     )
-    promote_form = f"""
+    promote_button = (
+        ""
+        if is_source
+        else (
+            '<button type="button" class="icon-action entity-promote-toggle" '
+            f'title="Promouvoir en entité" aria-label="Promouvoir en entité"'
+            f'{disabled}>{_icon("plus")}</button>'
+        )
+    )
+    promote_form = (
+        ""
+        if is_source
+        else f"""
         <div class="entity-chip-row__promote" hidden>
             <input
                 type="text"
@@ -550,6 +591,7 @@ def _extracted_entity_row(
             </div>
         </div>
     """
+    )
     return f"""
         <div
             class="entity-chip-row entity-item--{_html(status)}"
@@ -583,13 +625,7 @@ def _extracted_entity_row(
                         aria-label="Rejeter"
                         {disabled}
                     >{_icon("trash")}</button>
-                    <button
-                        type="button"
-                        class="icon-action entity-promote-toggle"
-                        title="Promouvoir en entité"
-                        aria-label="Promouvoir en entité"
-                        {disabled}
-                    >{_icon("plus")}</button>
+                    {promote_button}
                 </span>
             </div>
             <div class="entity-chip-row__fields">
@@ -643,13 +679,44 @@ def _entity_markup(
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
-    rows = "".join(
+    entity_candidates = [e for e in entities if not _is_source_property(e)]
+    source_candidates = [e for e in entities if _is_source_property(e)]
+    entity_rows = "".join(
         _extracted_entity_row(
             entity,
             graph_entities=graph_entities,
             read_only=read_only,
         )
-        for entity in entities
+        for entity in entity_candidates
+    )
+    source_rows = "".join(
+        _extracted_entity_row(
+            entity,
+            graph_entities=graph_entities,
+            read_only=read_only,
+            is_source=True,
+        )
+        for entity in source_candidates
+    )
+    entity_group = (
+        (
+            '<div class="entity-group">'
+            '<span class="entity-group__label">À rattacher à une entité</span>'
+            f'<div class="entity-chip-list">{entity_rows}</div>'
+            "</div>"
+        )
+        if entity_candidates
+        else ""
+    )
+    source_group = (
+        (
+            '<div class="entity-group entity-group--source">'
+            '<span class="entity-group__label">Propriétés de la page</span>'
+            f'<div class="entity-chip-list">{source_rows}</div>'
+            "</div>"
+        )
+        if source_candidates
+        else ""
     )
     empty = (
         ""
@@ -715,7 +782,8 @@ def _entity_markup(
             {empty}
             {filter_bar}
             {batch_bar}
-            <div class="entity-chip-list">{rows}</div>
+            {entity_group}
+            {source_group}
         </div>
     """
 

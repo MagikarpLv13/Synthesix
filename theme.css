@@ -1839,6 +1839,24 @@ a:focus-visible {
     box-shadow: var(--focus);
 }
 
+.entity-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.entity-group + .entity-group {
+    margin-top: 10px;
+}
+
+.entity-group__label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
 /* Extracted-entity management panel (workspace rail). */
 .extracted-panel:not([hidden]) {
     display: flex;

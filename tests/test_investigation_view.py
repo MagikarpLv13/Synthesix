@@ -838,6 +838,43 @@ class InvestigationViewTestCase(unittest.TestCase):
             )
         )
 
+    def test_extracted_properties_split_source_from_entity(self):
+        workspace = workspace_payload()
+        domain = dict(workspace["entities"][0])
+        domain["id"] = "entity-dom"
+        domain["entity_type"] = "domain"
+        domain["custom_label"] = ""
+        domain["value_original"] = "fr.wikipedia.org"
+        domain["value_normalized"] = "fr.wikipedia.org"
+        domain["attributes"] = {}
+        workspace["entities"] = [workspace["entities"][0], domain]
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        self.assertIn("À rattacher à une entité", content)
+        self.assertIn("Propriétés de la page", content)
+        entity_row = tree.xpath("//*[@data-entity-id='entity-123']")[0]
+        source_row = tree.xpath("//*[@data-entity-id='entity-dom']")[0]
+        # Entity-fact row keeps the link select; the page/source row drops it
+        # along with the promote-to-entity control.
+        self.assertTrue(entity_row.xpath(".//select[@data-extracted-attach]"))
+        self.assertFalse(source_row.xpath(".//select[@data-extracted-attach]"))
+        self.assertFalse(
+            source_row.xpath(
+                ".//button[contains(@class, 'entity-promote-toggle')]"
+            )
+        )
+
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()
         workspace["graph_entities"][0]["tags"] = []
