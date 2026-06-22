@@ -310,8 +310,15 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("attach_extracted_properties"', content)
         self.assertIn("data-entity-checkbox", content)
         self.assertIn("data-entity-batch", content)
+        self.assertIn("data-entity-filter-query", content)
+        self.assertIn("data-entity-filter-status", content)
         self.assertIn('id="property-suggestions"', content)
         self.assertIn('list="property-suggestions"', content)
+        # The property suggestions reuse names already used in this case.
+        self.assertIn(
+            "Primary contact",
+            tree.xpath("//datalist[@id='property-suggestions']/option/@value"),
+        )
         self.assertNotIn("Go to card", content)
         self.assertNotIn("Créer une entité depuis ce site", content)
         self.assertNotIn("create_graph_entity_from_result", content)

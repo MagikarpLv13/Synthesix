@@ -1804,6 +1804,41 @@ a:focus-visible {
     box-shadow: var(--focus);
 }
 
+.entity-filter {
+    display: flex;
+    gap: 6px;
+}
+
+.entity-filter__query {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-filter__status {
+    flex: 0 0 auto;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-filter__query:focus-visible,
+.entity-filter__status:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
 /* Extracted-entity management panel (workspace rail). */
 .extracted-panel:not([hidden]) {
     display: flex;

@@ -24,6 +24,37 @@ _PROPERTY_SUGGESTION_KEYS = sorted(
     key=str.casefold,
 )
 
+
+def _property_suggestion_keys(
+    entities: list[Mapping],
+    graph_entities: list[Mapping],
+) -> list[str]:
+    """Classic keys plus property names already used in this investigation.
+
+    Lets an analyst reuse a custom property name they typed earlier (e.g.
+    "Sandwich") without storing anything extra: it is already persisted as a
+    custom label / property key on the entities and curated graph.
+    """
+    keys = set(_PROPERTY_SUGGESTION_KEYS)
+    for entity in entities:
+        for candidate in (entity.get("custom_label"), entity.get("property_key")):
+            text = str(candidate or "").strip()
+            if text:
+                keys.add(text)
+        attributes = entity.get("attributes", {})
+        if isinstance(attributes, Mapping):
+            text = str(attributes.get("property_key", "") or "").strip()
+            if text:
+                keys.add(text)
+    for graph_entity in graph_entities:
+        properties = graph_entity.get("properties", {})
+        if isinstance(properties, Mapping):
+            for key in properties:
+                text = str(key or "").strip()
+                if text:
+                    keys.add(text)
+    return sorted(keys, key=str.casefold)
+
 _PROPERTY_TYPE_LABELS = {
     "text": "Texte",
     "number": "Nombre",
@@ -652,6 +683,23 @@ def _entity_markup(
         if entities
         else ""
     )
+    filter_bar = (
+        (
+            '<div class="entity-filter" data-entity-filter>'
+            '<input type="search" class="entity-filter__query" '
+            'data-entity-filter-query placeholder="Filtrer les propriétés…" '
+            'aria-label="Filtrer les propriétés">'
+            '<select class="entity-filter__status" data-entity-filter-status '
+            'aria-label="Filtrer par statut">'
+            '<option value="">Toutes</option>'
+            '<option value="proposed">En attente</option>'
+            '<option value="validated">Validées</option>'
+            "</select>"
+            "</div>"
+        )
+        if entities
+        else ""
+    )
     return f"""
         <div class="result-entities">
             <div class="entity-heading">
@@ -665,6 +713,7 @@ def _entity_markup(
                 >{_icon("scan")}</button>
             </div>
             {empty}
+            {filter_bar}
             {batch_bar}
             <div class="entity-chip-list">{rows}</div>
         </div>
@@ -1736,6 +1785,7 @@ def generate_investigation_page(
         for tag in all_tags
     )
     tag_datalist_options = _tag_datalist_options(suggested_tags)
+    property_suggestion_keys = _property_suggestion_keys(entities, graph_entities)
     investigation_tags = "".join(
         f'<span class="result-tag">{_html(tag)}</span>'
         for tag in investigation.get("tags", [])
@@ -1875,7 +1925,7 @@ def generate_investigation_page(
             {"".join(f'<option value="{_html(tag)}"></option>' for tag in ZERONEURONE_TAGSETS)}
         </datalist>
         <datalist id="property-suggestions">
-            {"".join(f'<option value="{_html(key)}"></option>' for key in _PROPERTY_SUGGESTION_KEYS)}
+            {"".join(f'<option value="{_html(key)}"></option>' for key in property_suggestion_keys)}
         </datalist>
         <header class="topbar investigation-topbar">
             <div class="brand">
@@ -3083,6 +3133,7 @@ def generate_investigation_page(
                     "click",
                     () => {{
                         queueAction("delete_entity", {{ entityId }});
+                        row.dataset.removed = "true";
                         row.hidden = true;
                         flashSaved();
                     }}
@@ -3168,6 +3219,49 @@ def generate_investigation_page(
                 const batchAttach = batchBar.querySelector(
                     "[data-batch-attach]"
                 );
+                const filterQuery = section.querySelector(
+                    "[data-entity-filter-query]"
+                );
+                const filterStatus = section.querySelector(
+                    "[data-entity-filter-status]"
+                );
+                const filterRows = Array.from(
+                    section.querySelectorAll(".entity-chip-row")
+                );
+                const applyFilter = () => {{
+                    const query = normalize(filterQuery?.value || "");
+                    const status = filterStatus?.value || "";
+                    filterRows.forEach((row) => {{
+                        if (row.dataset.removed === "true") {{
+                            row.hidden = true;
+                            return;
+                        }}
+                        const name = row.querySelector(
+                            "[data-entity-custom-label]"
+                        );
+                        const value = row.querySelector(
+                            ".entity-chip-row__value"
+                        );
+                        const haystack = normalize(
+                            (value ? value.textContent : "")
+                            + " "
+                            + (name ? name.value : "")
+                        );
+                        const isValidated = row.classList.contains(
+                            "entity-item--validated"
+                        );
+                        const statusOk = (
+                            !status
+                            || (status === "validated" && isValidated)
+                            || (status === "proposed" && !isValidated)
+                        );
+                        row.hidden = !(
+                            statusOk && (!query || haystack.includes(query))
+                        );
+                    }});
+                }};
+                filterQuery?.addEventListener("input", applyFilter);
+                filterStatus?.addEventListener("change", applyFilter);
                 const checkboxes = Array.from(
                     section.querySelectorAll("[data-entity-checkbox]")
                 );
@@ -3191,7 +3285,10 @@ def generate_investigation_page(
                         return;
                     }}
                     const entityIds = rows.map((row) => row.dataset.entityId);
-                    rows.forEach((row) => {{ row.hidden = true; }});
+                    rows.forEach((row) => {{
+                        row.dataset.removed = "true";
+                        row.hidden = true;
+                    }});
                     refreshBatch();
                     queueAction("delete_entities", {{ entityIds }});
                     flashSaved();
