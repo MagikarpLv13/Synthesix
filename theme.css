@@ -1893,6 +1893,11 @@ a:focus-visible {
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface);
+    cursor: pointer;
+}
+
+.investigation-result:hover {
+    border-color: var(--accent);
 }
 
 .investigation-result.is-collapsed {
@@ -1915,7 +1920,7 @@ a:focus-visible {
 }
 
 .result-title {
-    display: block;
+    display: inline;
     overflow-wrap: anywhere;
     color: var(--text);
     font-size: 18px;

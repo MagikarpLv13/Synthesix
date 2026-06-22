@@ -322,6 +322,27 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   - décider si `Go to card` doit aussi devenir une icône dans le rail.
 - **Relais :** aucun
 
+### AI-20260622-001 — Zone cliquable des pages enregistrées
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend`
+- **Objectif :** ouvrir le détail dans le rail en cliquant la carte, et n'ouvrir
+  la page que via le lien titre.
+- **Changements :**
+  - clic sur toute la carte `.investigation-result` → `selectInspectorPage`
+    (sauf `a/button/input/select/textarea/label`) ;
+  - `.result-title` passe en `display: inline` pour que le lien ne couvre que
+    son texte ;
+  - `.investigation-result` : `cursor: pointer` + survol accent.
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP/payload modifié.
+- **Tests exécutés :** `unittest discover` (232) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** smoke visuel du comportement de clic (statique
+  uniquement) ; à confirmer en live.
+- **Relais :** aucun. Reste demandé : refonte affichage des entités proposées
+  (triage inline) et durcissement regex téléphone.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

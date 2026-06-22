@@ -3103,11 +3103,9 @@ def generate_investigation_page(
                 revealInspector(matched);
             }};
             resultCards.forEach((card) => {{
-                const heading = card.querySelector(".result-heading");
-                if (!heading) {{
-                    return;
-                }}
-                heading.addEventListener("click", (event) => {{
+                // The whole card opens the detail rail; only the title link
+                // (and explicit controls) keep their own behaviour.
+                card.addEventListener("click", (event) => {{
                     if (event.target.closest(
                         "a, button, input, select, textarea, label"
                     )) {{
