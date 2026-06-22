@@ -1839,6 +1839,44 @@ a:focus-visible {
     box-shadow: var(--focus);
 }
 
+.classic-property-list {
+    display: grid;
+    gap: 6px;
+}
+
+.classic-property {
+    display: grid;
+    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+.classic-property__key {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.classic-property__value {
+    min-width: 0;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.classic-property__value:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--focus);
+}
+
 /* Extracted-entity management panel (workspace rail). */
 .extracted-panel:not([hidden]) {
     display: flex;

@@ -11,6 +11,7 @@ from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSET_SUGGESTED_PROPERTIES,
     ZERONEURONE_TAGSETS,
     zeroneurone_property_type,
+    zeroneurone_tagset_suggested_properties,
 )
 
 # Classic zeroneurone property keys, deduplicated across tagsets, used as
@@ -918,6 +919,40 @@ def _graph_entities_markup(
             f'aria-label="Remove tag"{disabled}>&times;</button></span>'
             for tag in entity_tags
         )
+        seen_classic_keys: set[str] = set()
+        classic_items: list[str] = []
+        for tag in entity_tags:
+            for suggested in zeroneurone_tagset_suggested_properties(tag):
+                classic_key = str(suggested.get("key", "") or "")
+                if not classic_key or classic_key.casefold() in seen_classic_keys:
+                    continue
+                seen_classic_keys.add(classic_key.casefold())
+                classic_items.append(
+                    f"""
+                    <label class="classic-property">
+                        <span class="classic-property__key">{_html(classic_key)}</span>
+                        <input
+                            type="text"
+                            class="classic-property__value"
+                            data-classic-property
+                            data-classic-key="{_html(classic_key)}"
+                            value="{_html(properties.get(classic_key, ""))}"
+                            placeholder="Ajouter une valeur…"
+                            {disabled}
+                        >
+                    </label>
+                    """
+                )
+        classic_section = (
+            f"""
+                <div class="entity-section">
+                    <span class="entity-section__title">Propriétés classiques</span>
+                    <div class="classic-property-list">{"".join(classic_items)}</div>
+                </div>
+            """
+            if classic_items
+            else ""
+        )
         cards.append(
             f"""
             <article class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
@@ -966,6 +1001,7 @@ def _graph_entities_markup(
                         </div>
                     </div>
                 </div>
+                {classic_section}
                 <div class="entity-section">
                     <span class="entity-section__title">Propriétés</span>
                     <ul class="graph-property-list">
@@ -2564,6 +2600,26 @@ def generate_investigation_page(
                     ?.addEventListener("blur", saveEntity);
                 card.querySelector("[data-graph-entity-notes]")
                     ?.addEventListener("blur", saveEntity);
+                card.querySelectorAll("[data-classic-property]").forEach(
+                    (input) => {{
+                        let lastSaved = input.value.trim();
+                        input.addEventListener("blur", () => {{
+                            const value = input.value.trim();
+                            if (!value || value === lastSaved) {{
+                                return;
+                            }}
+                            lastSaved = value;
+                            queueAction("set_graph_entity_property", {{
+                                entityId,
+                                property: {{
+                                    key: input.dataset.classicKey,
+                                    value
+                                }}
+                            }});
+                            flashSaved();
+                        }});
+                    }}
+                );
                 const addTag = (value) => {{
                     const tag = value.trim();
                     if (!tag || !chipsHost) {{

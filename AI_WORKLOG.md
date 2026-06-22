@@ -24,16 +24,6 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 |---|---|---|---|---|---|---|---|---|
 | _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
-**Reste demandé (prochains lots, retours du 2026-06-22) :**
-
-- Éditeur de propriétés classiques sur l'entité du graphe (option 1 choisie par
-  l'utilisateur) : liste des propriétés du tagset comme champs de valeur éditables,
-  save au blur.
-- Mémoriser les noms de propriété saisis par l'utilisateur pour les resuggérer
-  (ex. « Sandwich ») — bonus.
-- Filtre des entités extraites : par statut (en attente / validée) + recherche
-  mot-clé, comme « Filtrer les entités ».
-
 > Reste basse priorité (hors lot) : durcir la regex téléphone
 > (`analysis/entities.py`) — remonte des plages de dates en `téléphone`.
 
@@ -504,6 +494,36 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   (suppression/liaison simple et batch) — à confirmer en live.
 - **Relais :** aucun. Reste demandé : éditeur propriétés classiques (option 1),
   mémoire des noms saisis, filtre des entités extraites.
+
+### AI-20260622-007 — Filtre entités, mémoire des noms, propriétés classiques
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-22
+- **Branche / commits :** `feat/lit-frontend` — `054aa9b` (lots A+B) + lot C.
+- **Objectif :** trois retours utilisateur sur le triage et l'édition d'entités.
+- **Changements :**
+  - **Lot A — filtre (`054aa9b`)** : sur la liste des entités extraites, champ
+    « Filtrer les propriétés… » + select de statut (toutes / en attente /
+    validées). Filtre les `.entity-chip-row` côté JS (valeur + nom de propriété) ;
+    les lignes rejetées/supprimées portent `data-removed` pour rester masquées.
+  - **Lot B — mémoire des noms (`054aa9b`)** : `#property-suggestions` agrège
+    désormais les clés classiques ET les noms déjà utilisés dans l'enquête
+    (`custom_label` / `property_key` des entités + clés des propriétés du graphe)
+    via `_property_suggestion_keys`. Aucun stockage ajouté.
+  - **Lot C — propriétés classiques** : l'inspecteur d'une entité du graphe
+    affiche une section « Propriétés classiques » listant les propriétés suggérées
+    de son/ses tagset(s) comme champs de valeur éditables (pré-remplis si déjà
+    présents), sauvegarde au blur via `set_graph_entity_property` (passé en
+    no-reload).
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `main.py`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** `set_graph_entity_property` rejoint les actions
+  no-reload ; aucune nouvelle action CDP.
+- **Tests exécutés :** `unittest discover` (234) OK ; `git diff --check` OK
+  (CRLF) ; smoke headless (filtre, datalist, éditeur de propriétés classiques).
+- **Vérifications non exécutées :** smoke CDP live de la saisie au blur des
+  propriétés classiques et du filtre — à confirmer en live.
+- **Relais :** aucun. Reste basse priorité : durcir la regex téléphone.
 
 ## Modèle de compte rendu terminé
 
