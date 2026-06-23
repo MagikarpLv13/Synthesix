@@ -38,6 +38,13 @@ DUCKDUCKGO_FORBIDDEN_PATTERNS = (
     ">forbidden<",
 )
 
+DUCKDUCKGO_NO_RESULTS_PATTERNS = (
+    "no results.",
+    "no results for",
+    "no web results",
+    "aucun résultat",
+)
+
 
 def _html_to_visible_text(raw_html: str) -> str:
     text = re.sub(
@@ -62,6 +69,18 @@ def looks_like_duckduckgo_robot_challenge(raw_html: str) -> bool:
 def looks_like_duckduckgo_forbidden(raw_html: str) -> bool:
     lowered_html = str(raw_html).lower()
     return any(pattern in lowered_html for pattern in DUCKDUCKGO_FORBIDDEN_PATTERNS)
+
+
+def looks_like_duckduckgo_no_results(raw_html: str) -> bool:
+    """True when DuckDuckGo explicitly reports an empty result set.
+
+    Used to stop waiting early instead of polling the full results timeout when
+    a query genuinely has no matches.
+    """
+    visible_text = _html_to_visible_text(raw_html).lower()
+    return any(
+        pattern in visible_text for pattern in DUCKDUCKGO_NO_RESULTS_PATTERNS
+    )
 
 
 class DuckDuckGoSearchEngine(SearchEngine):
@@ -307,6 +326,10 @@ class DuckDuckGoSearchEngine(SearchEngine):
                         "Unable to parse DuckDuckGo while waiting for results",
                         exc_info=True,
                     )
+                # No parsed results yet: stop early if the page says it is empty
+                # rather than polling the full timeout.
+                if looks_like_duckduckgo_no_results(raw_content):
+                    return False
 
             await asyncio.sleep(max(0.01, interval))
         return False

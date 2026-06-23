@@ -342,10 +342,35 @@ def _is_external_web_tab(tab) -> bool:
         return False
 
 
+_OVERLAY_BLOCKED_HOST_FRAGMENTS = ("lens.google.", "maps.google.")
+
+
+def _overlay_injection_blocked(url: str) -> bool:
+    """Skip overlay injection on surfaces where it breaks or crashes Chrome.
+
+    Google Lens and Maps are heavy first-party apps (and Lens powers Chrome's
+    built-in image search); injecting the Synthesix overlay there has crashed
+    the browser, so we leave those pages untouched.
+    """
+    try:
+        parts = urlsplit(str(url or ""))
+    except ValueError:
+        return False
+    host = parts.netloc.casefold()
+    path = parts.path.casefold()
+    if any(fragment in host for fragment in _OVERLAY_BLOCKED_HOST_FRAGMENTS):
+        return True
+    if ".google." in host and (path == "/maps" or path.startswith("/maps/")):
+        return True
+    return False
+
+
 async def _install_and_consume_save_overlay(
     tab,
     investigation: dict | None = None,
 ):
+    if _overlay_injection_blocked(getattr(tab, "url", "")):
+        return None
     investigation = investigation or {}
     tagsets_json = json.dumps(list(ZERONEURONE_TAGSETS), ensure_ascii=True)
     tagset_properties_json = json.dumps(

@@ -930,6 +930,38 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   Correctif possible : ne protéger/émettre une date numérique que si mois/jour
   sont plausibles (1-12 / 1-31). À traiter séparément (touche la logique date).
 
+### AI-20260623-002 — Moteurs/overlay : Bing redirects, overlay Maps/Lens, attente DDG
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** trois correctifs moteurs/overlay signalés par l'utilisateur.
+- **Changements :**
+  - **Bing (`bing.py`)** : `resolve_bing_redirect()` décode les liens
+    `bing.com/ck/a?...&u=a1<base64url>` vers l'URL réelle, appliqué dans
+    `parse_results`. Les résultats Bing fusionnent désormais avec les autres
+    moteurs (le merge se fait sur `link`).
+  - **Overlay (`main.py`)** : `_overlay_injection_blocked()` empêche l'injection
+    de l'overlay sur Lens (`lens.google.*`) et Maps (`maps.google.*`,
+    `*.google.*/maps`) ; `_install_and_consume_save_overlay` retourne `None` sur
+    ces hôtes. Évite le crash navigateur (notamment la reconnaissance d'image
+    intégrée de Chrome = Lens).
+  - **DuckDuckGo (`duckduckgo.py`)** : `looks_like_duckduckgo_no_results()` +
+    court-circuit dans `_wait_for_result_content` → on arrête d'attendre dès que
+    la page indique « no results » au lieu de poller les 10 s complètes.
+- **Fichiers modifiés :** `bing.py`, `main.py`, `duckduckgo.py`,
+  `tests/test_engines.py`, `tests/test_main.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucune action CDP modifiée ; comportement moteurs
+  inchangé hormis le décodage Bing et le court-circuit DDG ; pas de bundle
+  overlay touché (la garde est côté serveur).
+- **Tests exécutés :** `unittest tests.test_engines tests.test_main` (57) OK ;
+  `unittest discover` (255) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** smoke live (utilisateur) — fusion réelle des
+  résultats Bing, absence de crash overlay sur Lens/Maps, et attente DDG réduite
+  sur une requête sans résultats.
+- **Risques / reste à faire :** la détection « no results » DDG s'appuie sur le
+  texte visible (post-rendu) ; à confirmer sur le rendu réel (JS + endpoint
+  HTML). Le gap téléphone pointé FR (date vs téléphone) reste ouvert.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

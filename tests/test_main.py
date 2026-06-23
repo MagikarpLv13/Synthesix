@@ -24,6 +24,7 @@ from main import (
     _install_and_consume_save_overlay,
     _investigation_payload,
     _is_external_web_tab,
+    _overlay_injection_blocked,
     _log_level_from_args,
     _open_or_refresh_investigation_page,
     _prepare_base_query,
@@ -35,6 +36,33 @@ from main import (
     wait_for_home_action,
 )
 from settings import get_settings
+
+
+class OverlayInjectionGuardTestCase(unittest.TestCase):
+    def test_blocks_lens_and_maps(self):
+        self.assertTrue(
+            _overlay_injection_blocked("https://lens.google.com/search")
+        )
+        self.assertTrue(
+            _overlay_injection_blocked("https://maps.google.com/?q=x")
+        )
+        self.assertTrue(
+            _overlay_injection_blocked("https://www.google.fr/maps/place/Paris")
+        )
+
+    def test_allows_regular_pages(self):
+        self.assertFalse(
+            _overlay_injection_blocked("https://example.com/article")
+        )
+        self.assertFalse(
+            _overlay_injection_blocked("https://www.google.com/search?q=x")
+        )
+
+    def test_installer_skips_blocked_tab(self):
+        tab = SimpleNamespace(url="https://lens.google.com/")
+        self.assertIsNone(
+            asyncio.run(_install_and_consume_save_overlay(tab))
+        )
 
 
 class MainCliTestCase(unittest.TestCase):

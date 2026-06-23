@@ -1,8 +1,9 @@
 import asyncio
+import base64
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from bing import BingSearchEngine
+from bing import BingSearchEngine, resolve_bing_redirect
 from brave import (
     BraveSearchEngine,
     looks_like_brave_challenge_url,
@@ -11,6 +12,7 @@ from brave import (
 from duckduckgo import (
     DuckDuckGoSearchEngine,
     looks_like_duckduckgo_forbidden,
+    looks_like_duckduckgo_no_results,
     looks_like_duckduckgo_robot_challenge,
 )
 from google import GoogleSearchEngine
@@ -132,6 +134,63 @@ class BingPaginationTestCase(unittest.TestCase):
         engine.num_results = 10
 
         asyncio.run(engine.post_execute_search())
+
+
+class BingRedirectTestCase(unittest.TestCase):
+    def test_resolves_ck_redirect_to_target(self):
+        target = "https://example.com/article?id=42&ref=x"
+        encoded = "a1" + base64.urlsafe_b64encode(
+            target.encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        ck_url = (
+            "https://www.bing.com/ck/a?!&&p=deadbeef&u="
+            + encoded
+            + "&ntb=1"
+        )
+        self.assertEqual(resolve_bing_redirect(ck_url), target)
+
+    def test_leaves_direct_urls_untouched(self):
+        direct = "https://example.org/profile"
+        self.assertEqual(resolve_bing_redirect(direct), direct)
+        # A bing.com URL that is not a /ck/ redirect is left as-is.
+        self.assertEqual(
+            resolve_bing_redirect("https://www.bing.com/search?q=x"),
+            "https://www.bing.com/search?q=x",
+        )
+
+    def test_parse_results_decodes_links(self):
+        target = "https://target.example/page"
+        encoded = "a1" + base64.urlsafe_b64encode(
+            target.encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        html = (
+            '<div id="b_results"><li class="b_algo"><h2>'
+            f'<a href="https://www.bing.com/ck/a?u={encoded}">Title</a>'
+            '</h2><div class="b_caption"><p>desc</p></div></li></div>'
+        )
+        engine = BingSearchEngine()
+        results = engine.parse_results(html)
+        self.assertTrue(results)
+        self.assertEqual(results[0]["link"], target)
+
+
+class DuckDuckGoNoResultsTestCase(unittest.TestCase):
+    def test_detects_empty_result_state(self):
+        self.assertTrue(
+            looks_like_duckduckgo_no_results("<div>No results.</div>")
+        )
+        self.assertTrue(
+            looks_like_duckduckgo_no_results(
+                "<p>No results for &quot;foobar&quot;</p>"
+            )
+        )
+
+    def test_does_not_flag_pages_with_results(self):
+        self.assertFalse(
+            looks_like_duckduckgo_no_results(
+                '<a class="result__a">A real result link</a>'
+            )
+        )
 
 
 class BraveRobotChallengeTestCase(unittest.TestCase):
