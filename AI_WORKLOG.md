@@ -901,6 +901,35 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   - vérifier visuellement le wording du prompt natif ; si besoin, remplacer plus tard par une modale Synthesix custom.
 - **Relais :** aucun.
 
+### AI-20260623-001 — Durcir l'extraction (faux positifs téléphone/domaine)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** réduire les faux positifs d'extraction (l'utilisateur voyait
+  trop de bruit, surtout des plages de dates remontées en téléphone).
+- **Changements (`analysis/entities.py`) :**
+  - `YEAR_RANGE_PATTERN` (« 2008-2010 », « 2012 à 2015 », « 1998/2004 ») ajouté
+    aux `protected_number_spans` → plus jamais pris pour un téléphone.
+  - `_looks_like_phone(value)` : un candidat n'est retenu comme téléphone que s'il
+    a un préfixe `+`, un `0` initial (national), ou ≥2 séparateurs de groupage.
+    Les runs bruts (« 20082010 ») sont rejetés.
+  - `FILE_EXTENSIONS` : les « domaines » dont le TLD est une extension de fichier
+    (`rapport.pdf`, `logo.png`, …) sont ignorés.
+- **Fichiers modifiés :** `analysis/entities.py`, `tests/test_entities.py`,
+  `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP ; comportement d'extraction plus
+  strict (peut produire quelques faux négatifs assumés sur des runs ambigus).
+- **Tests exécutés :** `unittest tests.test_entities` (11) OK ; `unittest discover`
+  (247) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** validation sur corpus réel (pages variées) —
+  à confirmer à l'usage.
+- **Risques / reste à faire :** **gap pré-existant** (non causé par ce lot) — un
+  téléphone FR pointé « 01.40.24.18.39 » contient « 01.40.24 » que
+  `NUMERIC_DATE_PATTERN` capture comme une date (mois invalide non vérifié) et
+  dont le span protège la zone → le téléphone pointé n'est pas auto-extrait.
+  Correctif possible : ne protéger/émettre une date numérique que si mois/jour
+  sont plausibles (1-12 / 1-31). À traiter séparément (touche la logique date).
+
 ## Modèle de compte rendu terminé
 
 ```markdown

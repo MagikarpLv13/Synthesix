@@ -74,6 +74,42 @@ class EntityExtractionTestCase(unittest.TestCase):
             )
         )
 
+    def test_does_not_treat_year_ranges_or_bare_runs_as_phones(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Actif de 2008-2010 puis 2012 à 2015. "
+                    "Référence 20082010 dans le dossier. "
+                    "Joignable au 01 23 45 67 89."
+                )
+            }
+        )
+        phones = [
+            candidate.normalized_value
+            for candidate in candidates
+            if candidate.entity_type == "phone"
+        ]
+        # Only the real (leading-zero) number survives.
+        self.assertEqual(phones, ["0123456789"])
+
+    def test_ignores_file_extensions_as_domains(self):
+        candidates = extract_entity_candidates(
+            {
+                "description": (
+                    "Voir rapport.pdf et logo.png. "
+                    "Site officiel : example.com."
+                )
+            }
+        )
+        domains = {
+            candidate.normalized_value
+            for candidate in candidates
+            if candidate.entity_type == "domain"
+        }
+        self.assertIn("example.com", domains)
+        self.assertNotIn("rapport.pdf", domains)
+        self.assertNotIn("logo.png", domains)
+
     def test_extracts_valid_french_business_identifiers(self):
         candidates = extract_entity_candidates(
             {

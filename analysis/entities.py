@@ -79,6 +79,22 @@ NUMERIC_DATE_PATTERN = re.compile(
     r"(?<!\d)(?:(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})|"
     r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4}))(?!\d)"
 )
+# Year ranges ("2008-2010", "2008 à 2012", "1998/2004") are common on profile
+# pages and otherwise get mistaken for phone numbers.
+YEAR_RANGE_PATTERN = re.compile(
+    r"(?<!\d)(?:19|20)\d{2}\s*(?:[-–—/]|à|au|to)\s*(?:19|20)\d{2}(?!\d)",
+    re.IGNORECASE,
+)
+# File extensions that look like domain TLDs (e.g. "rapport.pdf").
+FILE_EXTENSIONS = frozenset(
+    {
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods",
+        "txt", "rtf", "csv", "json", "xml", "html", "htm", "css", "js",
+        "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico", "tif",
+        "tiff", "mp3", "mp4", "avi", "mov", "mkv", "wav", "webm", "zip",
+        "rar", "gz", "tar", "exe", "dmg", "apk", "iso",
+    }
+)
 MONTH_NAMES = {
     "janvier": 1,
     "january": 1,
@@ -233,6 +249,25 @@ def _normalized_phone(value: str) -> str:
     return f"+{digits}" if value.strip().startswith("+") else digits
 
 
+def _looks_like_phone(value: str) -> bool:
+    """Filter out digit runs that are not plausibly phone numbers.
+
+    Real phone numbers in text carry a marker: an international ``+`` prefix, a
+    national trunk ``0``, or explicit grouping separators. Bare digit runs and
+    year ranges (e.g. "20082010", "2008-2010") are rejected to cut false
+    positives.
+    """
+    stripped = value.strip()
+    digits = re.sub(r"\D", "", stripped)
+    if not 8 <= len(digits) <= 15:
+        return False
+    if stripped.startswith("+") or digits.startswith("0"):
+        return True
+    # Otherwise require phone-like grouping rather than a bare/range run.
+    separators = sum(stripped.count(char) for char in " .()-/")
+    return separators >= 2
+
+
 def _append_match(
     candidates: list[EntityCandidate],
     *,
@@ -378,6 +413,7 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
     protected_number_spans: list[tuple[int, int]] = [
         *siret_like_spans,
         *vat_like_spans,
+        *(match.span() for match in YEAR_RANGE_PATTERN.finditer(text)),
     ]
 
     for match in SIRET_PATTERN.finditer(text):
@@ -613,6 +649,9 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
 
     for match in DOMAIN_PATTERN.finditer(text):
         value = match.group(0)
+        # Skip filenames whose extension looks like a TLD (rapport.pdf, logo.png).
+        if value.rsplit(".", 1)[-1].casefold() in FILE_EXTENSIONS:
+            continue
         _append_match(
             candidates,
             entity_type="domain",
@@ -631,6 +670,8 @@ def _extract_from_text(source_field: str, text: str) -> list[EntityCandidate]:
             match.start() < end and match.end() > start
             for start, end in phone_exclusions
         ):
+            continue
+        if not _looks_like_phone(match.group(0)):
             continue
         normalized = _normalized_phone(match.group(0))
         _append_match(
