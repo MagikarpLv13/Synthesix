@@ -962,6 +962,34 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   texte visible (post-rendu) ; à confirmer sur le rendu réel (JS + endpoint
   HTML). Le gap téléphone pointé FR (date vs téléphone) reste ouvert.
 
+### AI-20260623-003 — Overlay : ne plus renvoyer le bundle à chaque poll
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** corriger le gel du rendu de la page hôte quand Lens est actif et
+  Synthesix tourne (confirmé par l'utilisateur : gel uniquement avec Synthesix).
+- **Diagnostic :** `_install_and_consume_save_overlay` ré-évaluait à **chaque
+  cycle de poll** un `tab.evaluate` contenant le bundle overlay complet (~100 KB)
+  intégré dans la chaîne JS. Même si l'exécution est gardée (`if (!host)` /
+  `!window.SynthesixOverlay`), le moteur JS de la page **re-parse** cette grosse
+  chaîne sur le thread principal à chaque cycle. Sur un rendu déjà chargé (Lens
+  en panneau latéral, URL = page hôte), ce parse répété fige la page.
+- **Changements (`main.py`) :** pré-check léger `await tab.evaluate("!!window.
+  SynthesixOverlay")` ; si le bundle est déjà chargé, on envoie
+  `overlayBundle = ""` dans l'eval principal au lieu de re-transférer/re-parser
+  le bundle. Bénéfice général sur toutes les pages, pas seulement Lens.
+- **Fichiers modifiés :** `main.py`, `tests/test_main.py`, `AI_WORKLOG.md`
+- **Contrats ou décisions :** aucun contrat CDP modifié ; bundle overlay
+  inchangé (toujours injecté à la première fois, plus re-transféré ensuite).
+- **Tests exécutés :** `unittest tests.test_main` (31) OK ; `unittest discover`
+  (257) OK ; `git diff --check` OK (CRLF). Mock `test_external_page_overlay_
+  returns_save_action` adapté au pré-check.
+- **Vérifications non exécutées :** smoke live (utilisateur) — confirmer que Lens
+  sur une page (ex. `pappers.fr`) ne gèle plus avec Synthesix lancé.
+- **Risques / reste à faire :** si le gel persiste, c'est que la cause n'est pas
+  (que) le parse du bundle → activer le mode verbose pour capturer une éventuelle
+  erreur CDP, et envisager un timeout sur les `evaluate` d'onglets externes.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

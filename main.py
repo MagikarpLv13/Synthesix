@@ -444,8 +444,20 @@ async def _install_and_consume_save_overlay(
         },
         ensure_ascii=True,
     )
+    # The overlay bundle is large; embedding it in the eval on every poll means
+    # the host page re-parses ~100 KB on its main thread each cycle. On an
+    # already-busy renderer (e.g. Google Lens active in the side panel) this
+    # repeated parse freezes the page. Only ship the bundle when the page does
+    # not already have it loaded.
+    overlay_already_loaded = False
+    try:
+        overlay_already_loaded = bool(
+            await tab.evaluate("!!window.SynthesixOverlay")
+        )
+    except Exception:
+        overlay_already_loaded = False
     overlay_bundle_json = json.dumps(
-        _overlay_bundle_script(),
+        "" if overlay_already_loaded else _overlay_bundle_script(),
         ensure_ascii=True,
     )
     try:

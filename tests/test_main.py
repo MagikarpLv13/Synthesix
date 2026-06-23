@@ -65,6 +65,34 @@ class OverlayInjectionGuardTestCase(unittest.TestCase):
         )
 
 
+class OverlayBundleReuseTestCase(unittest.TestCase):
+    def _last_eval_script(self, already_loaded):
+        scripts = []
+
+        class Tab:
+            url = "https://example.com/article"
+
+            async def evaluate(self, script):
+                scripts.append(script)
+                if "!!window.SynthesixOverlay" in script:
+                    return already_loaded
+                return None
+
+        asyncio.run(_install_and_consume_save_overlay(Tab()))
+        # The first eval is the cheap pre-check, the last is the install/poll.
+        self.assertGreaterEqual(len(scripts), 2)
+        self.assertIn("!!window.SynthesixOverlay", scripts[0])
+        return scripts[-1]
+
+    def test_skips_bundle_when_already_loaded(self):
+        self.assertIn('const overlayBundle = ""', self._last_eval_script(True))
+
+    def test_ships_bundle_when_not_loaded(self):
+        self.assertNotIn(
+            'const overlayBundle = ""', self._last_eval_script(False)
+        )
+
+
 class MainCliTestCase(unittest.TestCase):
     def test_automatic_dorks_can_be_disabled(self):
         self.assertEqual(
@@ -541,6 +569,8 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
             async def evaluate(self, script):
                 self.script = script
+                if "!!window.SynthesixOverlay" in script:
+                    return False
                 return {
                     "action": "save_page_to_investigation",
                     "investigationId": "case-1",
