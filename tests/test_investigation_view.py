@@ -1,4 +1,6 @@
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -263,6 +265,42 @@ def workspace_payload(*, status="active"):
 
 
 class InvestigationViewTestCase(unittest.TestCase):
+    def test_inline_script_is_valid_javascript_when_node_is_available(self):
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not available")
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            inline_scripts = re.findall(
+                r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",
+                content,
+            )
+            script_path = base_dir / "inline-investigation.js"
+            script_path.write_text(
+                next(script for script in inline_scripts if script.strip()),
+                encoding="utf-8",
+            )
+            checked = subprocess.run(
+                ["node", "--check", str(script_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(
+            checked.returncode,
+            0,
+            checked.stderr or checked.stdout,
+        )
+
     def test_generates_filterable_analyst_workspace(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -293,8 +331,13 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn('queueAction("delete_page_monitor"', content)
+        self.assertIn("data-monitor-count", content)
         self.assertIn('queueAction("extract_result_entities"', content)
         self.assertIn('queueAction("analyze_result_url"', content)
+        self.assertIn("synthesix:view-state:", content)
+        self.assertIn("storeViewState", content)
+        self.assertIn("loadViewState", content)
+        self.assertIn("selectInspectorPage(restoredViewState.inspectorId", content)
         self.assertIn('queueAction("update_entity_status"', content)
         self.assertIn('queueAction("update_entity_metadata"', content)
         self.assertIn('queueAction("delete_entity"', content)
@@ -320,6 +363,9 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("refreshExtractedEntityState", content)
         self.assertIn("removeEvidenceItem", content)
         self.assertIn('queueAction("set_entity_property_scope"', content)
+        self.assertIn("duplicateStrategyForAttach", content)
+        self.assertIn("duplicate_strategy: strategy.strategy", content)
+        self.assertIn("Une propriété", content)
         # The property suggestions reuse names already used in this case.
         self.assertIn(
             "Primary contact",
@@ -355,6 +401,8 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Promouvoir en entité", content)
         self.assertIn('queueAction("export_zeroneurone"', content)
         self.assertIn('queueAction("delete_zeroneurone_export"', content)
+        self.assertIn("data-export-count", content)
+        self.assertIn("card.remove();", content)
         self.assertIn("Significant change", content)
         self.assertIn("75.00% text similarity", content)
         self.assertEqual(
@@ -801,6 +849,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         extracted["property_key"] = "Email"
         extracted["status"] = "validated"
         extracted["result_id"] = workspace["results"][0]["id"]
+        extracted["attributes"] = {
+            **extracted.get("attributes", {}),
+            "source_capture_id": "capture-123",
+        }
 
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -819,7 +871,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         links = card.xpath(
             ".//a[contains(@class, 'graph-property-source')]/@href"
         )
-        self.assertEqual(links, [workspace["results"][0]["url"]])
+        self.assertEqual(len(links), 1)
+        self.assertIn("data/evidence/capture-123/page.html", links[0])
+        self.assertIn("#:~:text=Contact%20analyst%40example.com", links[0])
+        self.assertNotEqual(links[0], workspace["results"][0]["url"])
         refs = card.xpath(
             ".//a[contains(@class, 'graph-property-source')]"
             "//span[contains(@class, 'source-ref')]/text()"
@@ -830,10 +885,25 @@ class InvestigationViewTestCase(unittest.TestCase):
             "//span[contains(@class, 'source-ref')]/text()"
         )
         self.assertEqual([text.strip() for text in source_refs], ["1"])
+        protected_delete = tree.xpath(
+            "//*[@data-evidence-id='capture-123']"
+            "//button[contains(@class, 'delete-evidence')]"
+        )
+        self.assertEqual(len(protected_delete), 1)
+        self.assertEqual(protected_delete[0].get("disabled"), "disabled")
+        self.assertEqual(
+            protected_delete[0].get("title"),
+            "Archive utilisée comme preuve de provenance",
+        )
 
     def test_extracted_row_carries_property_type_without_a_type_select(self):
         workspace = workspace_payload()
-        workspace["entities"][0]["attributes"]["property_type"] = "text"
+        workspace["entities"][0]["entity_type"] = "other"
+        workspace["entities"][0]["custom_label"] = "Âge"
+        workspace["entities"][0]["property_key"] = "Âge"
+        workspace["entities"][0]["value_original"] = "43"
+        workspace["entities"][0]["value_normalized"] = "43"
+        workspace["entities"][0]["attributes"] = {}
 
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -852,8 +922,29 @@ class InvestigationViewTestCase(unittest.TestCase):
             "[@data-entity-id='entity-123']"
         )[0]
         # Type is carried on the row for export, not editable here (no select).
-        self.assertEqual(row.get("data-property-type"), "text")
+        self.assertEqual(row.get("data-property-type"), "number")
         self.assertEqual(tree.xpath("//select[@data-property-type]"), [])
+        self.assertEqual(
+            row.xpath(
+                ".//*[contains(@class, 'entity-chip-row__summary')]"
+                "/strong/text()"
+            ),
+            ["Âge"],
+        )
+        self.assertEqual(
+            row.xpath(
+                ".//*[contains(@class, 'entity-chip-row__summary')]"
+                "//*[contains(@class, 'prop-type')]/text()"
+            ),
+            ["Nombre"],
+        )
+        self.assertEqual(
+            row.xpath(
+                ".//*[contains(@class, 'entity-chip-row__summary')]"
+                "//*[contains(@class, 'entity-chip-row__value')]/text()"
+            ),
+            ["43"],
+        )
         self.assertIn("property_type: row.dataset.propertyType", content)
 
     def test_validated_extracted_entity_hides_the_validate_button(self):
@@ -1070,6 +1161,12 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertTrue(card.xpath(".//input[@data-add-property-key]"))
         self.assertTrue(card.xpath(".//input[@data-add-property-value]"))
         self.assertIn('queueAction("set_graph_entity_property"', content)
+        self.assertIn(
+            "appendGraphPropertyRow(card, entityId, key, value)",
+            content,
+        )
+        self.assertIn("bindGraphPropertyDelete(card, remove, entityId)", content)
+        self.assertIn("existingButton", content)
 
     def test_entity_tag_editor_renders_chips_and_an_add_input(self):
         workspace = workspace_payload()

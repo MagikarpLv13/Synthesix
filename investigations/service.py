@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -22,6 +23,7 @@ from investigations.models import (
     LocalSearchFilters,
     PageComparison,
     PageMonitor,
+    EvidenceCapture,
 )
 from investigations.repository import InvestigationRepository
 
@@ -57,6 +59,8 @@ PROPERTY_TYPES = {
     "link",
 }
 
+ARCHIVE_ARTIFACT_TYPES = {"html", "mhtml", "text", "txt"}
+
 
 def _default_property_key(entity_type: str) -> str:
     return {
@@ -80,6 +84,29 @@ def _default_property_key(entity_type: str) -> str:
         "event": "Événement",
         "product": "Produit ou service",
     }.get(entity_type, "Information")
+
+
+def _has_archive_artifact(capture: EvidenceCapture) -> bool:
+    for artifact in capture.artifacts:
+        artifact_type = str(artifact.artifact_type or "").casefold()
+        mime_type = str(artifact.mime_type or "").casefold()
+        if artifact_type in ARCHIVE_ARTIFACT_TYPES:
+            return True
+        if "html" in mime_type or mime_type.startswith("text/"):
+            return True
+    return False
+
+
+def _capture_datetime(capture: EvidenceCapture) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(
+            str(capture.captured_at or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _clean_text(value, *, max_length: int) -> str:
@@ -634,6 +661,13 @@ class InvestigationService:
             raise InvestigationValidationError(
                 f"Unsupported property type: {property_type}"
             )
+        duplicate_strategy = str(
+            payload.get("duplicate_strategy", "append") or "append"
+        ).strip()
+        if duplicate_strategy not in {"append", "replace"}:
+            raise InvestigationValidationError(
+                f"Unsupported duplicate strategy: {duplicate_strategy}"
+            )
         entity = self.repository.attach_extracted_entity_property(
             investigation_id,
             extracted_entity_id,
@@ -653,6 +687,7 @@ class InvestigationService:
             graph_entity_id,
             entity,
             property_key,
+            duplicate_strategy=duplicate_strategy,
         )
         return entity.to_payload()
 
@@ -729,6 +764,38 @@ class InvestigationService:
             entity.id,
             "validated",
         )
+
+    def set_extracted_entity_source_capture(
+        self,
+        investigation_id: str,
+        extracted_entity_id: str,
+        capture_id: str,
+    ) -> dict:
+        capture_id = str(capture_id or "").strip()
+        if not capture_id:
+            raise InvestigationValidationError("Evidence capture is required.")
+        self.repository.get_evidence_capture(investigation_id, capture_id)
+        current = next(
+            (
+                entity
+                for entity in self.repository.list_extracted_entities(
+                    investigation_id
+                )
+                if entity.id == extracted_entity_id
+            ),
+            None,
+        )
+        if current is None:
+            raise InvestigationValidationError(
+                f"Extracted entity not found: {extracted_entity_id}"
+            )
+        attributes = dict(current.attributes)
+        attributes["source_capture_id"] = capture_id
+        return self.repository.update_extracted_entity_attributes(
+            investigation_id,
+            extracted_entity_id,
+            attributes,
+        ).to_payload()
 
     def update_result(
         self,
@@ -815,6 +882,8 @@ class InvestigationService:
         graph_entity_id: str,
         extracted_entity,
         property_key: str,
+        *,
+        duplicate_strategy: str = "append",
     ) -> None:
         value = _extracted_property_value(extracted_entity)
         key = _clean_text(
@@ -839,9 +908,13 @@ class InvestigationService:
             investigation_id,
             graph_entity_id,
             key=key,
-            value=_append_property_value(
-                graph_entity.properties.get(key),
-                value,
+            value=(
+                value
+                if duplicate_strategy == "replace"
+                else _append_property_value(
+                    graph_entity.properties.get(key),
+                    value,
+                )
             ),
         )
 
@@ -1059,17 +1132,81 @@ class InvestigationService:
         )
         return self.repository.record_evidence_capture(**kwargs)
 
+    def list_evidence_captures(
+        self,
+        investigation_id: str,
+    ) -> list[EvidenceCapture]:
+        return self.repository.list_evidence_captures(investigation_id)
+
     def get_evidence_capture(self, investigation_id: str, capture_id: str):
         return self.repository.get_evidence_capture(
             investigation_id,
             capture_id,
         )
 
+    def latest_page_archive_for_result(
+        self,
+        investigation_id: str,
+        result_id: str,
+    ) -> EvidenceCapture | None:
+        candidates = [
+            capture
+            for capture in self.repository.list_evidence_captures(
+                investigation_id
+            )
+            if capture.result_id == result_id
+            and capture.capture_kind == "page_archive"
+            and _has_archive_artifact(capture)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=_capture_datetime)
+
+    def evidence_capture_reference_count(
+        self,
+        investigation_id: str,
+        capture_id: str,
+    ) -> int:
+        capture = self.repository.get_evidence_capture(
+            investigation_id,
+            capture_id,
+        )
+        references = 0
+        for entity in self.repository.list_extracted_entities(
+            investigation_id
+        ):
+            if entity.attributes.get("source_capture_id") == capture_id:
+                references += 1
+        latest = self.latest_page_archive_for_result(
+            investigation_id,
+            capture.result_id,
+        )
+        if latest is not None and latest.id == capture_id:
+            for entity in self.repository.list_investigation_entities(
+                investigation_id
+            ):
+                if capture.result_id in entity.linked_result_ids:
+                    references += 1
+                    break
+        return references
+
+    def ensure_evidence_capture_deletable(
+        self,
+        investigation_id: str,
+        capture_id: str,
+    ) -> None:
+        if self.evidence_capture_reference_count(investigation_id, capture_id):
+            raise InvestigationValidationError(
+                "Cette archive est utilisée comme preuve de provenance. "
+                "Supprimez la page enregistrée pour retirer cette preuve."
+            )
+
     def delete_evidence_capture(
         self,
         investigation_id: str,
         capture_id: str,
     ) -> None:
+        self.ensure_evidence_capture_deletable(investigation_id, capture_id)
         self.repository.delete_evidence_capture(
             investigation_id,
             capture_id,

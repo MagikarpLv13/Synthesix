@@ -1627,13 +1627,21 @@ a:focus-visible {
     gap: 8px;
 }
 
-.entity-chip-row__type {
-    flex: 0 0 auto;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: var(--muted);
+.entity-chip-row__summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.entity-chip-row__summary strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-size: 13px;
 }
 
 .entity-chip-row__fields {
@@ -1660,13 +1668,12 @@ a:focus-visible {
 }
 
 .entity-chip-row__value {
-    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text);
-    font-weight: 500;
+    color: var(--muted);
+    font-weight: 600;
     font-size: 13px;
     font-variant-numeric: tabular-nums;
 }

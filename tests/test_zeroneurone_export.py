@@ -119,6 +119,69 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             )
         )
 
+    def test_default_graph_attaches_page_scoped_properties_to_source_node(self):
+        workspace = export_workspace()
+        workspace["entities"].append(
+            {
+                "id": "entity-domain",
+                "result_id": "result-1",
+                "entity_type": "domain",
+                "value_original": "example.org",
+                "value_normalized": "example.org",
+                "source_field": "url",
+                "source_text": "https://example.org/profile",
+                "confidence": 0.95,
+                "status": "validated",
+                "attributes": {"property_scope": "page"},
+                "property_key": "Domaine",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        source = next(node for node in nodes if node.id == "result-result-1")
+        self.assertEqual(source.properties["Domaine"], "example.org")
+        self.assertNotIn("example.org", {node.label for node in nodes})
+
+    def test_curated_graph_keeps_page_scoped_properties_on_source_node(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-domain",
+                "result_id": "result-1",
+                "entity_type": "domain",
+                "value_original": "example.org",
+                "value_normalized": "example.org",
+                "source_field": "url",
+                "source_text": "https://example.org/profile",
+                "confidence": 0.95,
+                "status": "validated",
+                "attributes": {"property_scope": "page"},
+                "property_key": "Domaine",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, edges = build_export_graph(workspace)
+
+        source = next(node for node in nodes if node.id == "result-result-1")
+        person = next(node for node in nodes if node.id == "curated-entity-person-1")
+        self.assertEqual(source.properties["Domaine"], "example.org")
+        self.assertNotIn("Domaine", person.properties)
+        self.assertIn("Site web", source.tags)
+        self.assertIn("SOURCED_FROM", {edge.label for edge in edges})
+
     def test_explicit_full_export_includes_evidence_and_unreviewed_entities(self):
         nodes, edges = build_export_graph(
             export_workspace(),

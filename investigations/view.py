@@ -29,6 +29,7 @@ _PROPERTY_SUGGESTION_KEYS = sorted(
 # Extracted-entity types that describe the source/page itself rather than a
 # fact to attach to a curated entity.
 _SOURCE_PROPERTY_TYPES = {"domain", "url", "ipv4", "ipv6"}
+_ARCHIVE_ARTIFACT_TYPES = {"html", "mhtml", "text", "txt"}
 
 
 def _is_source_property(entity: Mapping) -> bool:
@@ -46,6 +47,50 @@ def _is_source_property(entity: Mapping) -> bool:
             return False
     entity_type = str(entity.get("entity_type", "") or "")
     return entity_type in _SOURCE_PROPERTY_TYPES
+
+
+def _has_archive_artifact(capture: Mapping) -> bool:
+    for artifact in capture.get("artifacts", []) or []:
+        if not isinstance(artifact, Mapping):
+            continue
+        artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
+        mime_type = str(artifact.get("mime_type", "") or "").casefold()
+        if artifact_type in _ARCHIVE_ARTIFACT_TYPES:
+            return True
+        if "html" in mime_type or mime_type.startswith("text/"):
+            return True
+    return False
+
+
+def _archive_artifact(capture: Mapping) -> Mapping | None:
+    artifacts = [
+        artifact
+        for artifact in capture.get("artifacts", []) or []
+        if isinstance(artifact, Mapping)
+    ]
+    priority = {"html": 0, "text": 1, "txt": 1, "mhtml": 2}
+    candidates = []
+    for artifact in artifacts:
+        artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
+        mime_type = str(artifact.get("mime_type", "") or "").casefold()
+        if artifact_type in _ARCHIVE_ARTIFACT_TYPES:
+            candidates.append((priority.get(artifact_type, 9), artifact))
+        elif "html" in mime_type:
+            candidates.append((0, artifact))
+        elif mime_type.startswith("text/"):
+            candidates.append((1, artifact))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[0][1]
+
+
+def _text_fragment(value: object) -> str:
+    text = " ".join(str(value or "").split())
+    if not text:
+        return ""
+    if len(text) > 180:
+        text = text[:180].rsplit(" ", 1)[0] or text[:180]
+    return "#:~:text=" + quote(text, safe="")
 
 
 def _property_suggestion_keys(
@@ -561,7 +606,12 @@ def _entity_property_type(entity: Mapping) -> str:
             return property_type
     property_key = _entity_property_key(entity)
     declared = zeroneurone_property_type(property_key)
-    return declared if declared in PROPERTY_TYPE_VALUES else ""
+    if declared in PROPERTY_TYPE_VALUES:
+        return declared
+    return _infer_property_type(
+        property_key,
+        entity.get("value_original") or entity.get("value_normalized") or "",
+    )
 
 
 def _extracted_entity_row(
@@ -599,18 +649,23 @@ def _extracted_entity_row(
         if is_source
         else "Ranger avec les propriétés de la page"
     )
-    type_badge = (
-        f'<span class="entity-chip-row__type">{_html(type_label)}</span>'
-        if entity_type and entity_type != "other"
-        else ""
+    property_label = property_name or _entity_property_key(entity)
+    property_type_badge = _property_type_badge(
+        property_label,
+        property_type,
+        value,
     )
     if graph_entities:
         options = ['<option value="">Lier à une entité…</option>']
         for graph_entity in graph_entities:
             gid = str(graph_entity.get("id", "") or "")
             selected = " selected" if gid and gid == parent_id else ""
+            properties = graph_entity.get("properties", {})
+            if not isinstance(properties, Mapping):
+                properties = {}
             options.append(
-                f'<option value="{_html(gid)}"{selected}>'
+                f'<option value="{_html(gid)}"{selected} '
+                f"data-properties='{_html(json.dumps(properties, ensure_ascii=False))}'>"
                 f'{_html(graph_entity.get("label", ""))}</option>'
             )
         attach_control = (
@@ -675,6 +730,7 @@ def _extracted_entity_row(
             data-entity-type="{_html(entity_type)}"
             data-property-type="{_html(property_type)}"
             data-property-scope="{_html(property_scope)}"
+            data-attached-entity-id="{_html(parent_id)}"
             data-entity-property-list="{_html(entity_property_suggestions_id)}"
             data-page-property-list="{_html(page_property_suggestions_id)}"
         >
@@ -686,8 +742,11 @@ def _extracted_entity_row(
                     aria-label="Sélectionner pour une action groupée"
                     {disabled}
                 >
-                {type_badge}
-                <span class="entity-chip-row__value" title="{_html(value)}">{_html(value)}</span>
+                <span class="entity-chip-row__summary">
+                    <strong>{_html(property_label)}</strong>
+                    {property_type_badge}
+                    <span class="entity-chip-row__value" title="{_html(value)}">{_html(value)}</span>
+                </span>
                 <span class="entity-chip-row__actions">
                     <span
                         class="info-tip"
@@ -723,7 +782,7 @@ def _extracted_entity_row(
                     data-entity-custom-label
                     list="{_html(property_suggestions_id)}"
                     maxlength="120"
-                    value="{_html(property_name or _entity_property_key(entity))}"
+                    value="{_html(property_label)}"
                     placeholder="Nom de propriété"
                     {disabled}
                 >
@@ -829,8 +888,12 @@ def _entity_markup(
         options = ['<option value="">Lier la sélection à…</option>']
         for graph_entity in graph_entities:
             gid = str(graph_entity.get("id", "") or "")
+            properties = graph_entity.get("properties", {})
+            if not isinstance(properties, Mapping):
+                properties = {}
             options.append(
-                f'<option value="{_html(gid)}">'
+                f'<option value="{_html(gid)}" '
+                f"data-properties='{_html(json.dumps(properties, ensure_ascii=False))}'>"
                 f'{_html(graph_entity.get("label", ""))}</option>'
             )
         batch_attach = (
@@ -890,12 +953,37 @@ def _graph_entities_markup(
     results_by_id: Mapping[str, Mapping],
     *,
     entities: list[Mapping] = (),
+    evidence_by_result: Mapping[str, list[Mapping]] | None = None,
+    output_dir: Path | None = None,
+    base_dir: Path | None = None,
     read_only: bool,
 ) -> str:
     disabled = " disabled" if read_only else ""
+    evidence_by_result = evidence_by_result or {}
+    output_dir = output_dir or Path(".")
+    base_dir = base_dir or Path(".")
+    captures_by_id = {
+        str(capture.get("id", "") or ""): capture
+        for captures in evidence_by_result.values()
+        for capture in captures
+    }
+    latest_archive_by_result: dict[str, Mapping] = {}
+    for result_id, captures in evidence_by_result.items():
+        archives = [
+            capture
+            for capture in captures
+            if capture.get("capture_kind") == "page_archive"
+            and _has_archive_artifact(capture)
+        ]
+        if archives:
+            latest_archive_by_result[str(result_id)] = sorted(
+                archives,
+                key=lambda item: str(item.get("captured_at", "") or ""),
+                reverse=True,
+            )[0]
     # Map each curated entity's property keys to the saved page they were
     # extracted from, so a property can link back to its source/proof.
-    sources_by_parent: dict[str, dict[str, list[str]]] = {}
+    sources_by_parent: dict[str, dict[str, list[dict[str, str]]]] = {}
     for extracted in entities or ():
         parent_id = str(extracted.get("investigation_entity_id", "") or "")
         if not parent_id or extracted.get("status") == "rejected":
@@ -904,6 +992,35 @@ def _graph_entities_markup(
         url = str(result.get("url", "") or "") if result else ""
         if not url.startswith(("http://", "https://")):
             continue
+        attributes = extracted.get("attributes", {})
+        if not isinstance(attributes, Mapping):
+            attributes = {}
+        capture = captures_by_id.get(
+            str(attributes.get("source_capture_id", "") or "")
+        )
+        if capture is None:
+            capture = latest_archive_by_result.get(
+                str(extracted.get("result_id", "") or "")
+            )
+        archive_href = _archive_href(
+            capture,
+            output_dir=output_dir,
+            base_dir=base_dir,
+            fragment_text=extracted.get("source_text", ""),
+        )
+        source = {
+            "url": url,
+            "href": archive_href or url,
+            "source_href": (
+                _archive_href(
+                    capture,
+                    output_dir=output_dir,
+                    base_dir=base_dir,
+                )
+                or url
+            ),
+            "title": str(result.get("title") or url) if result else url,
+        }
         keys = set()
         resolved = _entity_property_key(extracted)
         if resolved:
@@ -916,8 +1033,8 @@ def _graph_entities_markup(
                 key,
                 [],
             )
-            if url not in key_sources:
-                key_sources.append(url)
+            if all(item.get("url") != url for item in key_sources):
+                key_sources.append(source)
     cards = []
     for entity in graph_entities:
         entity_id = str(entity.get("id", "") or "")
@@ -925,7 +1042,7 @@ def _graph_entities_markup(
         if not isinstance(properties, Mapping):
             properties = {}
         property_sources = sources_by_parent.get(entity_id, {})
-        source_entries: list[tuple[int, str, str]] = []
+        source_entries: list[tuple[int, str, str, str]] = []
         seen_source_urls: set[str] = set()
         for result_id in entity.get("linked_result_ids", []):
             result = results_by_id.get(str(result_id))
@@ -935,32 +1052,47 @@ def _graph_entities_markup(
             if not url or url in seen_source_urls:
                 continue
             seen_source_urls.add(url)
+            capture = latest_archive_by_result.get(str(result_id))
+            source_href = (
+                _archive_href(capture, output_dir=output_dir, base_dir=base_dir)
+                or url
+            )
             source_entries.append(
                 (
                     len(source_entries) + 1,
                     url,
+                    source_href,
                     str(result.get("title") or url),
                 )
             )
-        for urls in property_sources.values():
-            for url in urls:
+        for sources in property_sources.values():
+            for source in sources:
+                url = source.get("url", "")
                 if not url or url in seen_source_urls:
                     continue
                 seen_source_urls.add(url)
-                source_entries.append((len(source_entries) + 1, url, url))
+                source_entries.append(
+                    (
+                        len(source_entries) + 1,
+                        url,
+                        source.get("source_href", "") or url,
+                        source.get("title", "") or url,
+                    )
+                )
         source_index_by_url = {
-            url: index for index, url, _title in source_entries
+            url: index for index, url, _href, _title in source_entries
         }
 
         def _property_source_link(key: str) -> str:
-            urls = property_sources.get(str(key).casefold(), [])
-            if not urls:
+            sources = property_sources.get(str(key).casefold(), [])
+            if not sources:
                 return ""
             links = []
-            for url in urls:
+            for source in sources:
+                url = source.get("url", "")
                 index = source_index_by_url.get(url, len(links) + 1)
                 links.append(
-                    f'<a class="graph-property-source" href="{_html(url)}" '
+                    f'<a class="graph-property-source" href="{_html(source.get("href", "") or url)}" '
                     'target="_blank" rel="noopener noreferrer" '
                     f'title="Open source {index}" '
                     f'aria-label="Open source {index}">'
@@ -985,12 +1117,12 @@ def _graph_entities_markup(
                     return _entity_property_type(extracted)
             return ""
 
-        def _source_row(entry: tuple[int, str, str]) -> str:
-            index, url, title = entry
+        def _source_row(entry: tuple[int, str, str, str]) -> str:
+            index, _url, href, title = entry
             return (
                 '<li>'
                 f'<span class="source-ref source-ref--list">{index}</span>'
-                f'<a href="{_html(url)}" target="_blank" '
+                f'<a href="{_html(href)}" target="_blank" '
                 f'rel="noopener noreferrer">{_html(title)}</a>'
                 '</li>'
             )
@@ -1402,17 +1534,67 @@ def _page_linked_entities_markup(
     """
 
 
+def _archive_href(
+    capture: Mapping | None,
+    *,
+    output_dir: Path,
+    base_dir: Path,
+    fragment_text: object = "",
+) -> str:
+    if not capture:
+        return ""
+    artifact = _archive_artifact(capture)
+    if not artifact:
+        return ""
+    artifact_path = _resolve_runtime_path(artifact.get("file_path"), base_dir)
+    if artifact_path is None:
+        return ""
+    href = _relative_href(artifact_path, output_dir)
+    fragment = _text_fragment(fragment_text)
+    return href + fragment
+
+
+def _protected_capture_ids(
+    graph_entities: Sequence[Mapping],
+    entities: Sequence[Mapping],
+    evidence_by_result: Mapping[str, list[Mapping]],
+) -> set[str]:
+    protected = {
+        str(entity.get("attributes", {}).get("source_capture_id", "") or "")
+        for entity in entities
+        if isinstance(entity.get("attributes", {}), Mapping)
+    }
+    for graph_entity in graph_entities:
+        for result_id in graph_entity.get("linked_result_ids", []) or []:
+            archives = [
+                capture
+                for capture in evidence_by_result.get(str(result_id), [])
+                if capture.get("capture_kind") == "page_archive"
+                and _has_archive_artifact(capture)
+            ]
+            if archives:
+                latest = sorted(
+                    archives,
+                    key=lambda item: str(item.get("captured_at", "") or ""),
+                    reverse=True,
+                )[0]
+                protected.add(str(latest.get("id", "") or ""))
+    return {capture_id for capture_id in protected if capture_id}
+
+
 def _evidence_markup(
     captures: list[Mapping],
     *,
     output_dir: Path,
     base_dir: Path,
+    protected_capture_ids: set[str] | None = None,
     read_only: bool,
 ) -> str:
     if not captures:
         return ""
 
     items = []
+    protected_capture_ids = protected_capture_ids or set()
     for capture in captures:
         artifact_hrefs = {}
         for artifact in capture.get("artifacts", []):
@@ -1477,6 +1659,24 @@ def _evidence_markup(
             else ""
         )
         disabled = " disabled" if read_only else ""
+        capture_id = str(capture.get("id", "") or "")
+        is_protected = capture_id in protected_capture_ids
+        delete_control = (
+            '<button type="button" '
+            'class="icon-action icon-action--danger delete-evidence" '
+            'title="Archive utilisée comme preuve de provenance" '
+            'aria-label="Archive utilisée comme preuve de provenance" '
+            'disabled>'
+            f'{_icon("trash")}</button>'
+            if is_protected
+            else (
+                '<button type="button" '
+                'class="icon-action icon-action--danger delete-evidence" '
+                'title="Delete this capture and its local evidence files" '
+                'aria-label="Delete this capture and its local evidence files" '
+                f'{disabled}>{_icon("trash")}</button>'
+            )
+        )
         thumbnail = (
             f'<a class="evidence-thumbnail" href="{_html(png_href)}" '
             'target="_blank" rel="noopener noreferrer" '
@@ -1506,7 +1706,7 @@ def _evidence_markup(
             f"""
             <li
                 class="evidence-item"
-                data-evidence-id="{_html(capture.get("id", ""))}"
+                data-evidence-id="{_html(capture_id)}"
             >
                 {thumbnail}
                 <div class="evidence-copy">
@@ -1535,13 +1735,7 @@ def _evidence_markup(
                         title="{verify_title}"
                         aria-label="{verify_title}"
                     >{_icon("check")}</button>
-                    <button
-                    type="button"
-                    class="icon-action icon-action--danger delete-evidence"
-                    title="Delete this capture and its local evidence files"
-                    aria-label="Delete this capture and its local evidence files"
-                    {disabled}
-                    >{_icon("trash")}</button>
+                    {delete_control}
                 </div>
                 <span
                     class="evidence-verification"
@@ -2050,6 +2244,11 @@ def generate_investigation_page(
             str(analysis.get("result_id", "")),
             [],
         ).append(analysis)
+    protected_capture_ids = _protected_capture_ids(
+        graph_entities,
+        entities,
+        evidence_by_result,
+    )
     monitors_by_result = {
         str(monitor.get("result_id", "")): monitor
         for monitor in page_monitors
@@ -2121,6 +2320,7 @@ def generate_investigation_page(
                         result_evidence,
                         output_dir=output_dir,
                         base_dir=base_dir,
+                        protected_capture_ids=protected_capture_ids,
                         read_only=read_only,
                     )
                 ),
@@ -2132,6 +2332,9 @@ def generate_investigation_page(
         graph_entities,
         results_by_id,
         entities=entities,
+        evidence_by_result=evidence_by_result,
+        output_dir=output_dir,
+        base_dir=base_dir,
         read_only=read_only,
     )
 
@@ -2358,7 +2561,7 @@ def generate_investigation_page(
                     <p class="section-eyebrow">Temporal comparison</p>
                     <h3>Page monitoring</h3>
                 </div>
-                <span class="meta-pill">{len(page_monitors)} monitored</span>
+                <span class="meta-pill" data-monitor-count>{len(page_monitors)} monitored</span>
             </div>
             <p class="session-note">
                 Monitoring compares normalized text from explicit HTML archives.
@@ -2386,7 +2589,7 @@ def generate_investigation_page(
                     <p class="section-eyebrow">Interoperability</p>
                     <h3>ZeroNeurone export</h3>
                 </div>
-                <span class="meta-pill">{len(exports)} export(s)</span>
+                <span class="meta-pill" data-export-count>{len(exports)} export(s)</span>
             </div>
             <form id="zeroneurone-export-form" class="export-form">
                 <label>
@@ -2634,6 +2837,33 @@ def generate_investigation_page(
                 actionQueue.push({{ action, investigationId, ...payload }});
                 persistActionQueue();
             }};
+            const viewStateKey = `synthesix:view-state:${{investigationId}}`;
+            const storeViewState = (state = {{}}) => {{
+                try {{
+                    localStorage.setItem(viewStateKey, JSON.stringify({{
+                        scrollX: window.scrollX,
+                        scrollY: window.scrollY,
+                        ...state
+                    }}));
+                }} catch (_error) {{
+                    // Refresh still works without restoring context.
+                }}
+            }};
+            const clearViewState = () => {{
+                try {{
+                    localStorage.removeItem(viewStateKey);
+                }} catch (_error) {{
+                    // Nothing to clear when storage is unavailable.
+                }}
+            }};
+            const loadViewState = () => {{
+                try {{
+                    const raw = localStorage.getItem(viewStateKey);
+                    return raw ? JSON.parse(raw) : null;
+                }} catch (_error) {{
+                    return null;
+                }}
+            }};
 
             const formatLocalDatetimes = () => {{
                 const formatter = new Intl.DateTimeFormat(undefined, {{
@@ -2772,6 +3002,7 @@ def generate_investigation_page(
                     if (!label) {{
                         return;
                     }}
+                    storeViewState({{ inspectorType: "create" }});
                     queueAction("create_graph_entity", {{
                         entity: {{
                             label,
@@ -2799,6 +3030,76 @@ def generate_investigation_page(
                 saveIndicatorTimer = setTimeout(() => {{
                     saveIndicator.classList.remove("is-visible");
                 }}, 1500);
+            }};
+            const bindGraphPropertyDelete = (card, button, entityId) => {{
+                button.addEventListener("click", () => {{
+                    if (
+                        confirm(
+                            "Supprimer cette propriété ? Les propriétés "
+                            + "extraites liées aux pages enregistrées "
+                            + "seront aussi supprimées."
+                        )
+                    ) {{
+                        queueAction("delete_graph_entity_property", {{
+                            entityId,
+                            key: button.dataset.propertyKey
+                        }});
+                        removeLinkedExtractedRows(
+                            entityId,
+                            button.dataset.propertyKey
+                        );
+                        button.closest("li")?.remove();
+                        flashSaved();
+                    }}
+                }});
+            }};
+            const appendGraphPropertyRow = (card, entityId, key, value) => {{
+                const list = card.querySelector(".graph-property-list");
+                if (!list) {{
+                    return;
+                }}
+                const existingButton = Array.from(
+                    list.querySelectorAll(".delete-graph-property")
+                ).find((button) => button.dataset.propertyKey === key);
+                if (existingButton) {{
+                    const existingValue = existingButton
+                        .closest("li")
+                        ?.querySelector(".graph-property-value");
+                    if (existingValue) {{
+                        existingValue.textContent = value;
+                    }}
+                    return;
+                }}
+                list.querySelector(".entity-empty")?.remove();
+                const item = document.createElement("li");
+                const head = document.createElement("div");
+                head.className = "graph-property-head";
+                const keyWrap = document.createElement("span");
+                keyWrap.className = "graph-property-key";
+                const strong = document.createElement("strong");
+                strong.textContent = key;
+                keyWrap.appendChild(strong);
+                const actions = document.createElement("span");
+                actions.className = "graph-property-actions";
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = (
+                    "icon-action icon-action--danger delete-graph-property"
+                );
+                remove.dataset.propertyKey = key;
+                remove.title = "Remove property";
+                remove.setAttribute("aria-label", "Remove property");
+                remove.innerHTML = {json.dumps(_icon("trash"))};
+                actions.appendChild(remove);
+                head.appendChild(keyWrap);
+                head.appendChild(actions);
+                const valueNode = document.createElement("span");
+                valueNode.className = "graph-property-value";
+                valueNode.textContent = value;
+                item.appendChild(head);
+                item.appendChild(valueNode);
+                list.appendChild(item);
+                bindGraphPropertyDelete(card, remove, entityId);
             }};
 
             document.querySelectorAll(".graph-entity-card").forEach((card) => {{
@@ -2912,28 +3213,7 @@ def generate_investigation_page(
                     }}
                 );
                 card.querySelectorAll(".delete-graph-property").forEach(
-                    (button) => {{
-                        button.addEventListener("click", () => {{
-                            if (
-                                confirm(
-                                    "Supprimer cette propriété ? Les propriétés "
-                                    + "extraites liées aux pages enregistrées "
-                                    + "seront aussi supprimées."
-                                )
-                            ) {{
-                                queueAction("delete_graph_entity_property", {{
-                                    entityId,
-                                    key: button.dataset.propertyKey
-                                }});
-                                removeLinkedExtractedRows(
-                                    entityId,
-                                    button.dataset.propertyKey
-                                );
-                                button.closest("li")?.remove();
-                                flashSaved();
-                            }}
-                        }});
-                    }}
+                    (button) => bindGraphPropertyDelete(card, button, entityId)
                 );
                 card.querySelector("[data-add-property]")
                     ?.addEventListener("submit", (event) => {{
@@ -2953,6 +3233,7 @@ def generate_investigation_page(
                             entityId,
                             property: {{ key, value }}
                         }});
+                        appendGraphPropertyRow(card, entityId, key, value);
                         if (keyInput) {{
                             keyInput.value = "";
                         }}
@@ -2979,19 +3260,35 @@ def generate_investigation_page(
                 );
                 card.querySelector(".start-page-monitor")?.addEventListener(
                     "click",
-                    () => queueAction("create_page_monitor", {{
-                        resultId: card.dataset.resultId
-                    }})
+                    () => {{
+                        storeViewState({{
+                            inspectorType: "page",
+                            inspectorId: card.dataset.resultId
+                        }});
+                        queueAction("create_page_monitor", {{
+                            resultId: card.dataset.resultId
+                        }});
+                    }}
                 );
                 card.querySelector(".extract-result-entities")?.addEventListener(
                     "click",
-                    () => queueAction("extract_result_entities", {{
-                        resultId: card.dataset.resultId
-                    }})
+                    () => {{
+                        storeViewState({{
+                            inspectorType: "page",
+                            inspectorId: card.dataset.resultId
+                        }});
+                        queueAction("extract_result_entities", {{
+                            resultId: card.dataset.resultId
+                        }});
+                    }}
                 );
                 card.querySelector(".analyze-result-url")?.addEventListener(
                     "click",
                     () => {{
+                        storeViewState({{
+                            inspectorType: "page",
+                            inspectorId: card.dataset.resultId
+                        }});
                         window.synthesixPage.setStatus("Analyzing URL...");
                         queueAction("analyze_result_url", {{
                             resultId: card.dataset.resultId
@@ -3057,10 +3354,18 @@ def generate_investigation_page(
                 }}
                 const resultId = panel.dataset.resultId;
                 if (event.target.closest(".extract-result-entities")) {{
+                    storeViewState({{
+                        inspectorType: "page",
+                        inspectorId: resultId
+                    }});
                     queueAction("extract_result_entities", {{ resultId }});
                     return;
                 }}
                 if (event.target.closest(".analyze-result-url")) {{
+                    storeViewState({{
+                        inspectorType: "page",
+                        inspectorId: resultId
+                    }});
                     window.synthesixPage.setStatus("Analyzing URL...");
                     queueAction("analyze_result_url", {{ resultId }});
                     return;
@@ -3096,12 +3401,72 @@ def generate_investigation_page(
                 }}
             }});
 
+            const updateMonitorCount = () => {{
+                const count = document.querySelectorAll(
+                    "[data-page-monitor-id]"
+                ).length;
+                document.querySelectorAll("[data-monitor-count]").forEach(
+                    (node) => {{ node.textContent = `${{count}} monitored`; }}
+                );
+            }};
             document.querySelectorAll(".stop-page-monitor").forEach((button) => {{
                 button.addEventListener("click", () => {{
                     if (confirm("Stop monitoring this page?")) {{
                         queueAction("delete_page_monitor", {{
                             monitorId: button.dataset.monitorId
                         }});
+                        document.querySelectorAll(
+                            `[data-monitor-id="${{button.dataset.monitorId}}"]`
+                        ).forEach((control) => {{
+                            const card = control.closest("[data-page-monitor-id]");
+                            if (card) {{
+                                card.remove();
+                                return;
+                            }}
+                            if (
+                                control.previousElementSibling
+                                && control.previousElementSibling.textContent
+                                    .trim() === "Monitoring"
+                            ) {{
+                                control.previousElementSibling.remove();
+                            }}
+                            const hostCard = control.closest(
+                                ".investigation-result"
+                            );
+                            control.remove();
+                            if (hostCard) {{
+                                const actions = hostCard.querySelector(
+                                    ".result-review-controls"
+                                );
+                                const start = document.createElement("button");
+                                start.type = "button";
+                                start.className = (
+                                    "icon-action icon-action--frame "
+                                    + "start-page-monitor"
+                                );
+                                start.title = "Monitor changes";
+                                start.setAttribute(
+                                    "aria-label",
+                                    "Monitor changes"
+                                );
+                                start.innerHTML = {json.dumps(_icon("activity"))};
+                                start.addEventListener("click", () => {{
+                                    storeViewState({{
+                                        inspectorType: "page",
+                                        inspectorId: hostCard.dataset.resultId
+                                    }});
+                                    queueAction("create_page_monitor", {{
+                                        resultId: hostCard.dataset.resultId
+                                    }});
+                                }});
+                                actions?.insertBefore(
+                                    start,
+                                    actions.querySelector(".favorite-toggle")
+                                );
+                            }}
+                        }});
+                        updateMonitorCount();
+                        flashSaved();
                     }}
                 }});
             }});
@@ -3196,6 +3561,16 @@ def generate_investigation_page(
                         queueAction("delete_zeroneurone_export", {{
                             exportId: card.dataset.exportId
                         }});
+                        card.remove();
+                        const count = document.querySelectorAll(
+                            "[data-export-id]"
+                        ).length;
+                        document.querySelectorAll("[data-export-count]").forEach(
+                            (node) => {{
+                                node.textContent = `${{count}} export(s)`;
+                            }}
+                        );
+                        flashSaved();
                     }}
                 }});
             }});
@@ -3253,6 +3628,7 @@ def generate_investigation_page(
             const inspectorCreateEntity = inspectorDetail
                 ? inspectorDetail.querySelector("[data-inspector-create-entity]")
                 : null;
+            const restoredViewState = loadViewState();
             const openEntityCreate = document.getElementById("open-entity-create");
             const entityRows = Array.from(
                 document.querySelectorAll("[data-entity-select]")
@@ -3327,6 +3703,7 @@ def generate_investigation_page(
                 if (inspectorDetail) {{
                     inspectorDetail.hidden = true;
                 }}
+                clearViewState();
             }};
             if (inspectorClose) {{
                 inspectorClose.addEventListener("click", closeInspector);
@@ -3338,9 +3715,10 @@ def generate_investigation_page(
                     inspectorCreateEntity.hidden = false;
                 }}
                 revealInspector(Boolean(inspectorCreateEntity));
+                storeViewState({{ inspectorType: "create" }});
                 document.getElementById("new-graph-entity-label")?.focus();
             }});
-            const selectInspectorPage = (resultId) => {{
+            const selectInspectorPage = (resultId, persist = true) => {{
                 hideInspectorPanels();
                 clearInspectorSelection();
                 let matched = false;
@@ -3358,8 +3736,14 @@ def generate_investigation_page(
                     }});
                 }}
                 revealInspector(matched);
+                if (matched && persist) {{
+                    storeViewState({{
+                        inspectorType: "page",
+                        inspectorId: resultId
+                    }});
+                }}
             }};
-            const selectInspectorEntity = (entityId) => {{
+            const selectInspectorEntity = (entityId, persist = true) => {{
                 hideInspectorPanels();
                 clearInspectorSelection();
                 let matched = false;
@@ -3377,6 +3761,12 @@ def generate_investigation_page(
                     }});
                 }}
                 revealInspector(matched);
+                if (matched && persist) {{
+                    storeViewState({{
+                        inspectorType: "entity",
+                        inspectorId: entityId
+                    }});
+                }}
             }};
             resultCards.forEach((card) => {{
                 // The whole card opens the detail rail; only the title link
@@ -3403,6 +3793,32 @@ def generate_investigation_page(
                     }});
                 }}
             );
+            if (restoredViewState) {{
+                if (restoredViewState.inspectorType === "page") {{
+                    selectInspectorPage(restoredViewState.inspectorId || "", false);
+                }} else if (restoredViewState.inspectorType === "entity") {{
+                    selectInspectorEntity(restoredViewState.inspectorId || "", false);
+                }} else if (
+                    restoredViewState.inspectorType === "create"
+                    && inspectorCreateEntity
+                ) {{
+                    hideInspectorPanels();
+                    clearInspectorSelection();
+                    inspectorCreateEntity.hidden = false;
+                    revealInspector(true);
+                }}
+                if (
+                    Number.isFinite(Number(restoredViewState.scrollX))
+                    && Number.isFinite(Number(restoredViewState.scrollY))
+                ) {{
+                    window.requestAnimationFrame(() => {{
+                        window.scrollTo(
+                            Number(restoredViewState.scrollX),
+                            Number(restoredViewState.scrollY)
+                        );
+                    }});
+                }}
+            }}
             const refreshEntityGroups = (section) => {{
                 if (!section) {{
                     return;
@@ -3476,6 +3892,84 @@ def generate_investigation_page(
                             row.closest(".result-entities")
                         );
                     }}
+                }});
+            }};
+            const optionProperties = (option) => {{
+                try {{
+                    const parsed = JSON.parse(option?.dataset.properties || "{{}}");
+                    return parsed && typeof parsed === "object" ? parsed : {{}};
+                }} catch (_error) {{
+                    return {{}};
+                }}
+            }};
+            const findExistingPropertyKey = (properties, propertyKey) => {{
+                const wanted = String(propertyKey || "").toLowerCase().trim();
+                return Object.keys(properties).find(
+                    (key) => key.toLowerCase().trim() === wanted
+                ) || "";
+            }};
+            const duplicateStrategyForAttach = (
+                select,
+                propertyKey,
+                propertyType
+            ) => {{
+                const option = select?.selectedOptions?.[0] || null;
+                const properties = optionProperties(option);
+                const existingKey = findExistingPropertyKey(
+                    properties,
+                    propertyKey
+                );
+                if (!existingKey) {{
+                    return {{ ok: true, strategy: "append" }};
+                }}
+                const label = option?.textContent?.trim() || "cette entité";
+                const typeLabel = propertyType ? ` (${{propertyType}})` : "";
+                const choice = window.prompt(
+                    `Une propriété "${{propertyKey}}"${{typeLabel}} existe `
+                    + `déjà pour ${{label}}.\\n`
+                    + "Tapez A pour ajouter la valeur avec ';', "
+                    + "R pour remplacer, ou Annuler pour ne rien faire.",
+                    "A"
+                );
+                if (choice === null) {{
+                    return {{ ok: false, strategy: "" }};
+                }}
+                const normalized = choice.trim().toLowerCase();
+                if (normalized.startsWith("r")) {{
+                    return {{ ok: true, strategy: "replace" }};
+                }}
+                if (normalized.startsWith("a")) {{
+                    return {{ ok: true, strategy: "append" }};
+                }}
+                return {{ ok: false, strategy: "" }};
+            }};
+            const updateEntityOptionProperty = (
+                graphEntityId,
+                propertyKey,
+                value,
+                strategy
+            ) => {{
+                document.querySelectorAll(
+                    `option[value="${{CSS.escape(graphEntityId)}}"]`
+                ).forEach((option) => {{
+                    const properties = optionProperties(option);
+                    const existingKey = (
+                        findExistingPropertyKey(properties, propertyKey)
+                        || propertyKey
+                    );
+                    if (strategy === "replace") {{
+                        properties[existingKey] = value;
+                    }} else {{
+                        const values = String(properties[existingKey] || "")
+                            .split(";")
+                            .map((item) => item.trim())
+                            .filter(Boolean);
+                        if (!values.includes(value)) {{
+                            values.push(value);
+                        }}
+                        properties[existingKey] = values.join("; ");
+                    }}
+                    option.dataset.properties = JSON.stringify(properties);
                 }});
             }};
             const setExtractedRowScope = (row, scope) => {{
@@ -3580,14 +4074,34 @@ def generate_investigation_page(
                         const graphEntityId = event.target.value;
                         const propertyKey = nameInput?.value.trim() || "";
                         if (graphEntityId && propertyKey) {{
+                            const strategy = duplicateStrategyForAttach(
+                                event.target,
+                                propertyKey,
+                                row.dataset.propertyType || ""
+                            );
+                            if (!strategy.ok) {{
+                                event.target.value = row.dataset.attachedEntityId || "";
+                                return;
+                            }}
+                            const value = row.querySelector(
+                                ".entity-chip-row__value"
+                            )?.textContent.trim() || "";
                             queueAction("attach_extracted_property", {{
                                 extractedEntityId: entityId,
                                 property: {{
                                     graph_entity_id: graphEntityId,
                                     property_key: propertyKey,
-                                    property_type: row.dataset.propertyType || ""
+                                    property_type: row.dataset.propertyType || "",
+                                    duplicate_strategy: strategy.strategy
                                 }}
                             }});
+                            updateEntityOptionProperty(
+                                graphEntityId,
+                                propertyKey,
+                                value,
+                                strategy.strategy
+                            );
+                            row.dataset.attachedEntityId = graphEntityId;
                             // No reload: reflect validation in place.
                             row.classList.remove("entity-item--proposed");
                             row.classList.add("entity-item--validated");
@@ -3598,6 +4112,7 @@ def generate_investigation_page(
                             queueAction("detach_extracted_property", {{
                                 extractedEntityId: entityId
                             }});
+                            row.dataset.attachedEntityId = "";
                             row.classList.remove("entity-item--validated");
                             row.classList.add("entity-item--proposed");
                             if (validateButton) {{
@@ -3632,6 +4147,14 @@ def generate_investigation_page(
                         )?.value.trim() || "";
                         const propertyKey = nameInput?.value.trim() || label;
                         if (label && category) {{
+                            const panel = row.closest("[data-inspector-panel]");
+                            const resultId = panel?.dataset.resultId || "";
+                            if (resultId) {{
+                                storeViewState({{
+                                    inspectorType: "page",
+                                    inspectorId: resultId
+                                }});
+                            }}
                             queueAction("create_graph_entity_from_extracted", {{
                                 extractedEntityId: entityId,
                                 entity: {{
@@ -3755,26 +4278,58 @@ def generate_investigation_page(
                         refreshBatch();
                         return;
                     }}
-                    const items = rows.map((row) => {{
+                    const items = [];
+                    rows.forEach((row) => {{
                         const nameInput = row.querySelector(
                             "[data-entity-custom-label]"
                         );
-                        return {{
+                        const propertyKey = nameInput
+                            ? nameInput.value.trim()
+                            : "";
+                        const strategy = duplicateStrategyForAttach(
+                            event.target,
+                            propertyKey,
+                            row.dataset.propertyType || ""
+                        );
+                        if (!strategy.ok) {{
+                            return;
+                        }}
+                        const value = row.querySelector(
+                            ".entity-chip-row__value"
+                        )?.textContent.trim() || "";
+                        updateEntityOptionProperty(
+                            graphEntityId,
+                            propertyKey,
+                            value,
+                            strategy.strategy
+                        );
+                        items.push({{
                             extractedEntityId: row.dataset.entityId,
-                            propertyKey: nameInput
-                                ? nameInput.value.trim()
-                                : "",
-                            propertyType: row.dataset.propertyType || ""
-                        }};
+                            propertyKey,
+                            propertyType: row.dataset.propertyType || "",
+                            duplicateStrategy: strategy.strategy
+                        }});
                     }});
+                    if (!items.length) {{
+                        event.target.value = "";
+                        refreshBatch();
+                        return;
+                    }}
                     queueAction("attach_extracted_properties", {{
                         graphEntityId,
                         items
                     }});
+                    const attachedIds = new Set(
+                        items.map((item) => item.extractedEntityId)
+                    );
                     // No reload: reflect validation on each selected row.
                     rows.forEach((row) => {{
+                        if (!attachedIds.has(row.dataset.entityId)) {{
+                            return;
+                        }}
                         row.classList.remove("entity-item--proposed");
                         row.classList.add("entity-item--validated");
+                        row.dataset.attachedEntityId = graphEntityId;
                         const validate = row.querySelector(".entity-validate");
                         if (validate) {{
                             validate.hidden = true;

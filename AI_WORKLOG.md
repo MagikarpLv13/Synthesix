@@ -24,48 +24,27 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 |---|---|---|---|---|---|---|---|---|
 | _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
-## Travaux planifiés (design validé, à reprendre)
+## Travaux planifiés (à reprendre)
 
-### Plan — Archive auto + provenance à la création depuis l'overlay (#1/#2)
+Les lots #1 (archive auto + archive protégée), #2 (provenance vers le snapshot
+archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
+`page`) et le no-reload restant ont été réalisés (comptes rendus AI-20260622-013
+à 016) et **le smoke CDP live a été validé par l'utilisateur le 2026-06-23**
+(aucune anomalie). Reste :
 
-- **#1 Archive HTML auto** : sur `create_graph_entity_from_selection` et
-  `attach_selection_to_graph_entity` (handlers `main.py` ~2420/2470), après la
-  création/rattachement, déclencher `_archive_page(...)` (capture `page_archive`
-  HTML/MHTML/texte, déjà existante) et lier l'archive comme **source** de la
-  propriété/entité. Smoke CDP live obligatoire (overlay).
-- **Archive protégée** : `delete_evidence_capture` doit refuser de supprimer une
-  archive qui est la preuve d'une propriété sourcée — suppression uniquement via
-  le retrait de la page entière (`remove_saved_page`). Garde côté service +
-  message clair.
-- **#2 Indicateur de provenance** : faire pointer le badge source (« 1 » + lien,
-  déjà présents sur les propriétés sourcées) vers le **snapshot archivé** plutôt
-  que la page live, et **surligner/encadrer** l'extrait sélectionné dans le
-  snapshot (stocker l'offset/texte de la sélection à la capture ; au rendu,
-  injecter un `<mark>`/cadre autour de l'extrait). Design validé.
-- Fichiers probables : `frontend/src/overlay/*`, `main.py`,
-  `investigations/service.py`/`repository.py` (lien archive↔propriété + garde de
-  suppression), `evidence/*`, `investigations/view.py` (badge → snapshot + mark).
-
-### Plan — Lot 4 (export ZeroNeurone des propriétés « page »)
-
-- Rattacher les propriétés `property_scope="page"` au nœud source/page à l'export
-  (`exports/zeroneurone.py`).
-
-### No-reload — reste (cf. compte rendu AI-20260622-012)
-
-- Convertibles avec petit JS optimiste : `set_graph_entity_property` (ajout manuel
-  — insérer la ligne client), `delete_zeroneurone_export`, `delete_page_monitor`.
-- DOIVENT reloader (récupèrent de nouvelles données serveur, optimiste impossible
-  sans rendu partiel) : `extract_result_entities` (scan), `analyze_result_url`,
-  `create_graph_entity*`, `link/unlink_result_to_graph_entity`, etc.
-
-> Reste basse priorité : durcir la regex téléphone (`analysis/entities.py`) —
-> remonte des plages de dates en `téléphone`.
+- **Basse priorité** : durcir la regex téléphone (`analysis/entities.py`) — elle
+  remonte des plages de dates en `téléphone`.
+- **Cosmétique** : recalculer côté client les compteurs focus/next-actions après
+  les suppressions optimistes (seuls les compteurs de section le sont).
+- **Par conception** : `extract_result_entities` (scan), `analyze_result_url`,
+  `create_graph_entity*`, `link/unlink` rechargent la page (nouvelles données
+  serveur) ; un no-reload exigerait un rendu partiel renvoyé par l'action.
 
 ## Verrous de fichiers
 
 | Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
 |---|---|---|---|---|---|
+| _Aucun verrou actif_ |  |  |  |  |  |
 
 Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `frontend/**`. Pour un lot multi-fichiers, lister les fichiers chauds ; les fichiers dédiés à un nouveau composant peuvent rester couverts par la tâche sans verrou séparé.
 
@@ -786,6 +765,141 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** smoke CDP live (favori + suppression de page
   sans reload).
 - **Relais :** reste no-reload + #1/#2 + lot 4 consignés en « Travaux planifiés ».
+
+### AI-20260622-013 — Archive de provenance et export page-scope
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 22:02-22:22
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** archiver automatiquement la page lors des créations/rattachements depuis l'overlay, protéger les archives de provenance, pointer les badges source vers le snapshot archivé et exporter les propriétés `page` sur le nœud source ZeroNeurone.
+- **Changements :**
+  - ajout d'une réutilisation d'archive `page_archive` récente lors de `create_graph_entity_from_selection` et `attach_selection_to_graph_entity` ;
+  - persistance de `attributes.source_capture_id` sur l'entité extraite attachée ;
+  - garde service + helper main pour refuser la suppression d'une archive référencée comme provenance ;
+  - `remove_saved_page` supprime désormais les captures liées à la page en base, et le handler retire aussi leurs dossiers locaux ;
+  - rendu des badges de provenance vers l'artefact HTML/texte archivé avec fragment `#:~:text=...` et bouton suppression désactivé pour les captures protégées ;
+  - export ZeroNeurone : les propriétés `attributes.property_scope == "page"` enrichissent le nœud source/page au lieu de devenir des nœuds de fait ou des propriétés d'entité.
+- **Fichiers modifiés :**
+  - `main.py`
+  - `investigations/service.py`
+  - `investigations/repository.py`
+  - `investigations/view.py`
+  - `exports/zeroneurone.py`
+  - `tests/test_main.py`
+  - `tests/test_investigations.py`
+  - `tests/test_investigation_view.py`
+  - `tests/test_zeroneurone_export.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - pas de modification du bundle overlay Lit ; le CDP existant déclenche toujours les mêmes actions, le comportement serveur archive ensuite la page ;
+  - le surlignage utilise le text fragment navigateur plutôt qu'une mutation du HTML archivé.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_investigations tests.test_investigation_view tests.test_zeroneurone_export` — OK, 100 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 243 tests
+  - `.venv\Scripts\python.exe -m py_compile main.py investigations\service.py investigations\repository.py investigations\view.py exports\zeroneurone.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - `npm run typecheck` / `npm run build` non exécutés car aucun fichier `frontend/src/overlay/*` ni bundle `assets/synthesix-overlay.js` n'a été modifié ;
+  - smoke CDP live non exécuté dans cette session : à faire sur une vraie page externe pour confirmer archive créée, badge vers snapshot surligné et suppression archive bloquée.
+- **Risques / reste à faire :**
+  - vérifier en live le rendu du text-fragment selon le navigateur/artefact (HTML préféré, texte en fallback).
+- **Relais :** smoke CDP live overlay, puis décider si les actions no-reload restantes méritent un lot séparé.
+
+### AI-20260622-014 — No-reload restant et restauration du workspace
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 22:28-22:45
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** convertir les actions simples restantes en no-reload et restaurer le contexte du rail après les actions serveur qui doivent rafraîchir.
+- **Changements :**
+  - `set_graph_entity_property` passe en no-reload côté `main.py` ;
+  - ajout manuel de propriété : insertion/mise à jour optimiste de la ligne dans le panneau entité, avec suppression réutilisable sur la nouvelle ligne ;
+  - `delete_zeroneurone_export` passe en no-reload avec suppression optimiste de la carte export et mise à jour du compteur ;
+  - `delete_page_monitor` passe en no-reload avec retrait optimiste des cartes/boutons monitoring et mise à jour du compteur ;
+  - ajout d'un `localStorage` de contexte par enquête (`synthesix:view-state:*`) pour restaurer rail page/entité/création et position de scroll après `extract_result_entities`, `analyze_result_url`, `create_page_monitor` et créations d'entité.
+- **Fichiers modifiés :**
+  - `main.py`
+  - `investigations/view.py`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucune modification du bundle Lit/overlay ;
+  - scan/analyse/create continuent à recharger la page, mais restaurent le workspace pertinent.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_investigation_view` — OK, 47 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 243 tests
+  - `.venv\Scripts\python.exe -m py_compile main.py investigations\view.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - smoke navigateur live non exécuté dans cette session ;
+  - `npm run typecheck` / `npm run build` non exécutés car aucun fichier frontend Lit ni bundle `assets/synthesix-overlay.js` n'a été modifié.
+- **Risques / reste à faire :**
+  - vérifier en UI réelle que le scroll restauré place bien le rail au bon endroit après un scan long ;
+  - les compteurs de focus/next-actions ne sont pas recalculés côté client pour ces suppressions optimistes, uniquement les compteurs de section.
+- **Relais :** aucun.
+
+### AI-20260622-015 — Correctif parsing JS inline no-reload
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 22:50-22:55
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** réparer les boutons/workspace inertes causés par un script inline invalide.
+- **Changements :**
+  - correction de l'injection dynamique des icônes SVG dans le JS inline via `json.dumps(...)`, afin d'échapper correctement les guillemets du SVG ;
+  - ajout d'un test qui génère une page d'investigation et lance `node --check` sur le script inline quand Node est disponible.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `tests/test_investigation_view.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucun contrat CDP modifié.
+- **Tests exécutés :**
+  - génération temporaire d'une page + `node --check` sur le script inline — OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 22 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 244 tests
+  - `.venv\Scripts\python.exe -m py_compile investigations\view.py tests\test_investigation_view.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - smoke navigateur manuel non exécuté dans cette session.
+- **Risques / reste à faire :**
+  - recharger la page d'enquête ouverte dans Chrome pour récupérer le HTML régénéré.
+- **Relais :** aucun.
+
+### AI-20260622-016 — Lisibilité propriétés extraites et doublons de rattachement
+
+- **Agent :** Codex
+- **Période UTC :** 2026-06-22 23:00-23:09
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** rendre les lignes de propriétés extraites plus logiques et demander une décision avant de rattacher un doublon.
+- **Changements :**
+  - en-tête des lignes extraites réordonné : nom de propriété, badge de type de donnée, valeur détectée ;
+  - inférence de type affichée même sans type explicite (`Nombre`, `Texte`, etc.) ;
+  - options de rattachement enrichies avec les propriétés existantes de l'entité cible ;
+  - warning JS au rattachement si une propriété du même nom existe déjà : `A` ajoute/concatène avec `;`, `R` remplace, annuler ne fait rien ;
+  - `attach_extracted_property` accepte `duplicate_strategy=append|replace` et applique la stratégie côté service ;
+  - le rattachement multiple propage aussi la stratégie choisie par ligne.
+- **Fichiers modifiés :**
+  - `investigations/view.py`
+  - `investigations/service.py`
+  - `main.py`
+  - `theme.css`
+  - `tests/test_investigation_view.py`
+  - `tests/test_investigations.py`
+  - `AI_WORKLOG.md`
+- **Contrats ou décisions :**
+  - aucune modification du bundle Lit/overlay ;
+  - `append` reste le comportement par défaut côté service pour compatibilité.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_investigations` — OK, 60 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 245 tests
+  - `.venv\Scripts\python.exe -m py_compile investigations\view.py investigations\service.py main.py tests\test_investigation_view.py tests\test_investigations.py` — OK
+  - génération temporaire d'une page + `node --check` sur le script inline — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Vérifications non exécutées :**
+  - smoke navigateur manuel non exécuté dans cette session.
+- **Risques / reste à faire :**
+  - vérifier visuellement le wording du prompt natif ; si besoin, remplacer plus tard par une modale Synthesix custom.
+- **Relais :** aucun.
 
 ## Modèle de compte rendu terminé
 

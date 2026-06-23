@@ -397,6 +397,38 @@ def _append_property(
     properties[property_key] = "; ".join(values)
 
 
+def _is_page_scoped_property(entity: Mapping) -> bool:
+    attributes = entity.get("attributes", {})
+    if not isinstance(attributes, Mapping):
+        return False
+    return str(attributes.get("property_scope", "") or "") == "page"
+
+
+def _page_scoped_properties_by_result(
+    workspace: Mapping,
+    *,
+    include_unreviewed: bool = False,
+) -> dict[str, dict[str, object]]:
+    grouped: dict[str, dict[str, object]] = {}
+    for entity in workspace.get("entities", []):
+        if not _is_page_scoped_property(entity):
+            continue
+        if not include_unreviewed and entity.get("status") != "validated":
+            continue
+        result_id = str(entity.get("result_id", "") or "")
+        if not result_id:
+            continue
+        key = (
+            str(entity.get("custom_label", "") or "").strip()
+            or str(entity.get("property_key", "") or "").strip()
+            or _default_property_key(entity)
+        )
+        value = entity.get("value_original") or entity.get("value_normalized")
+        if key and str(value or "").strip():
+            _append_property(grouped.setdefault(result_id, {}), key, value)
+    return grouped
+
+
 def _build_curated_graph(
     workspace: Mapping,
     investigation_node: GraphNode,
@@ -412,6 +444,8 @@ def _build_curated_graph(
     }
     facts_by_entity: dict[str, list[Mapping]] = {}
     for entity in workspace.get("entities", []):
+        if _is_page_scoped_property(entity):
+            continue
         parent_id = str(
             entity.get("investigation_entity_id", "") or ""
         )
@@ -424,6 +458,10 @@ def _build_curated_graph(
     edges: dict[str, GraphEdge] = {}
     entity_nodes: dict[str, GraphNode] = {}
     linked_entities_by_result: dict[str, list[GraphNode]] = {}
+    page_properties_by_result = _page_scoped_properties_by_result(
+        workspace,
+        include_unreviewed=True,
+    )
 
     for entity in workspace.get("graph_entities", []):
         entity_id = str(entity.get("id", "") or "")
@@ -563,6 +601,54 @@ def _build_curated_graph(
                 )
                 edges[supported_by.id] = supported_by
 
+    for result_id, page_properties in page_properties_by_result.items():
+        result = results.get(result_id)
+        if result is None:
+            continue
+        source_node = GraphNode(
+            id=f"result-{result_id}",
+            label=str(result.get("url") or result.get("title") or result_id),
+            notes=str(result.get("notes", "") or ""),
+            tags=_tags(
+                result.get("tags", []),
+                "Site web",
+                result.get("analyst_status", ""),
+            ),
+            source=", ".join(
+                str(source)
+                for source in result.get("sources", [])
+                if str(source).strip()
+            ),
+            date=_date_only(result.get("latest_observed_at")),
+            properties={
+                "synthesix_id": result_id,
+                "synthesix_type": "result",
+                "url": str(result.get("url", "") or ""),
+                "canonical_url": str(result.get("canonical_url", "") or ""),
+                "domain": _domain_from_url(
+                    result.get("canonical_url") or result.get("url")
+                ),
+                "title": str(result.get("title", "") or ""),
+                **page_properties,
+            },
+        )
+        nodes[source_node.id] = source_node
+        contains = _edge(
+            investigation_node,
+            source_node,
+            "CONTAINS",
+            date=source_node.date,
+        )
+        edges[contains.id] = contains
+        for entity_node in linked_entities_by_result.get(result_id, []):
+            sourced_from = _edge(
+                entity_node,
+                source_node,
+                "SOURCED_FROM",
+                date=source_node.date,
+            )
+            edges[sourced_from.id] = sourced_from
+
     return tuple(nodes.values()), tuple(edges.values())
 
 
@@ -623,12 +709,43 @@ def build_export_graph(
         for search in workspace.get("searches", [])
         if str(search.get("id", "") or "")
     }
+    page_properties_by_result = _page_scoped_properties_by_result(
+        workspace,
+        include_unreviewed=include_unreviewed,
+    )
 
     result_nodes: dict[str, GraphNode] = {}
     for result in workspace.get("results", []):
         result_id = str(result.get("id", "") or "")
         if not result_id:
             continue
+        properties = {
+            "synthesix_id": result_id,
+            "synthesix_type": "result",
+            "url": str(result.get("url", "") or ""),
+            "canonical_url": str(result.get("canonical_url", "") or ""),
+            "domain": _domain_from_url(
+                result.get("canonical_url") or result.get("url")
+            ),
+            "title": str(result.get("title", "") or ""),
+            "analyst_status": str(
+                result.get("analyst_status", "") or ""
+            ),
+            "favorite": bool(result.get("favorite", False)),
+            "first_observed_at": str(
+                result.get("first_observed_at", "") or ""
+            ),
+            "last_observed_at": str(
+                result.get("last_observed_at", "") or ""
+            ),
+            "accessed_at": str(
+                result.get("latest_observed_at")
+                or result.get("last_observed_at")
+                or ""
+            ),
+        }
+        for key, value in page_properties_by_result.get(result_id, {}).items():
+            _append_property(properties, key, value)
         result_node = GraphNode(
             id=f"result-{result_id}",
             label=str(
@@ -648,31 +765,7 @@ def build_export_graph(
                 if str(source).strip()
             ),
             date=_date_only(result.get("latest_observed_at")),
-            properties={
-                "synthesix_id": result_id,
-                "synthesix_type": "result",
-                "url": str(result.get("url", "") or ""),
-                "canonical_url": str(result.get("canonical_url", "") or ""),
-                "domain": _domain_from_url(
-                    result.get("canonical_url") or result.get("url")
-                ),
-                "title": str(result.get("title", "") or ""),
-                "analyst_status": str(
-                    result.get("analyst_status", "") or ""
-                ),
-                "favorite": bool(result.get("favorite", False)),
-                "first_observed_at": str(
-                    result.get("first_observed_at", "") or ""
-                ),
-                "last_observed_at": str(
-                    result.get("last_observed_at", "") or ""
-                ),
-                "accessed_at": str(
-                    result.get("latest_observed_at")
-                    or result.get("last_observed_at")
-                    or ""
-                ),
-            },
+            properties=properties,
         )
         nodes[result_node.id] = result_node
         result_nodes[result_id] = result_node
@@ -737,6 +830,8 @@ def build_export_graph(
     ]
     entity_nodes: dict[str, GraphNode] = {}
     for entity in included_entities:
+        if _is_page_scoped_property(entity):
+            continue
         result_id = str(entity.get("result_id", "") or "")
         result_node = result_nodes.get(result_id)
         if result_node is None:

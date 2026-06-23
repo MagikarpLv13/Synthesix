@@ -407,6 +407,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                 get_evidence_capture=lambda *_args: SimpleNamespace(
                     manifest_path="data/evidence/case-1/capture-1/manifest.json"
                 ),
+                ensure_evidence_capture_deletable=Mock(),
                 delete_evidence_capture=Mock(),
             )
             settings = SimpleNamespace(
@@ -422,6 +423,10 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertFalse(capture_dir.exists())
+            service.ensure_evidence_capture_deletable.assert_called_once_with(
+                "case-1",
+                "capture-1",
+            )
             service.delete_evidence_capture.assert_called_once_with(
                 "case-1",
                 "capture-1",
@@ -660,8 +665,12 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         }
         service.save_page.return_value = saved
         service.record_selection_entity.return_value = extracted
+        service.attach_extracted_property.return_value = {
+            "id": "extracted-1",
+            "property_key": "Alias",
+        }
 
-        returned_investigation, returned_saved, entity = (
+        returned_investigation, returned_saved, entity, attached = (
             _attach_selection_to_graph_entity(
                 service,
                 "case-1",
@@ -677,6 +686,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIs(returned_saved, saved)
         # The graph entity (with its label) is returned for the status message.
         self.assertEqual(entity["label"], "Jane Doe")
+        self.assertEqual(attached["id"], "extracted-1")
         service.link_result_to_graph_entity.assert_called_once_with(
             "case-1",
             "entity-1",

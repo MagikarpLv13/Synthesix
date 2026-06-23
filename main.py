@@ -2,6 +2,7 @@ import asyncio
 import argparse
 import hashlib
 import importlib.metadata
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
 import json
@@ -55,6 +56,9 @@ from utils import (
     load_search_history,
     smart_parse,
 )
+
+
+RECENT_PAGE_ARCHIVE_REUSE_WINDOW = timedelta(minutes=15)
 
 logger = logging.getLogger(__name__)
 _MISSING_HISTORY_SIGNATURE = object()
@@ -1391,6 +1395,72 @@ async def _archive_page(
     return investigation, saved, capture, comparison
 
 
+def _parse_capture_time(value: object) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _has_page_archive_artifact(capture) -> bool:
+    for artifact in getattr(capture, "artifacts", ()) or ():
+        artifact_type = str(getattr(artifact, "artifact_type", "") or "").casefold()
+        mime_type = str(getattr(artifact, "mime_type", "") or "").casefold()
+        if artifact_type in {"html", "mhtml", "text", "txt"}:
+            return True
+        if "html" in mime_type or mime_type.startswith("text/"):
+            return True
+    return False
+
+
+def _recent_page_archive(
+    service: InvestigationService,
+    investigation_id: str,
+    result_id: str,
+):
+    now = datetime.now(timezone.utc)
+    candidates = [
+        capture
+        for capture in service.list_evidence_captures(investigation_id)
+        if capture.result_id == result_id
+        and capture.capture_kind == "page_archive"
+        and _has_page_archive_artifact(capture)
+    ]
+    for capture in sorted(
+        candidates,
+        key=lambda item: _parse_capture_time(item.captured_at),
+        reverse=True,
+    ):
+        captured_at = _parse_capture_time(capture.captured_at)
+        if now - captured_at <= RECENT_PAGE_ARCHIVE_REUSE_WINDOW:
+            return capture
+    return None
+
+
+async def _archive_page_for_selection_source(
+    service: InvestigationService,
+    settings: AppSettings,
+    tab,
+    investigation_id: str,
+    payload: Mapping,
+    saved,
+):
+    reusable = _recent_page_archive(service, investigation_id, saved.id)
+    if reusable is not None:
+        return saved, reusable
+    _, archived_saved, capture, _comparison = await _archive_page(
+        service,
+        settings,
+        tab,
+        investigation_id,
+        payload,
+    )
+    return archived_saved, capture
+
+
 def _create_graph_entity_from_selection(
     service: InvestigationService,
     investigation_id: str,
@@ -1455,7 +1525,7 @@ def _attach_selection_to_graph_entity(
     investigation_id: str,
     entity_id: str,
     payload: Mapping,
-) -> tuple[object, object, dict]:
+) -> tuple[object, object, dict, dict | None]:
     property_payload = payload.get("property", {})
     if not isinstance(property_payload, Mapping):
         property_payload = {}
@@ -1511,8 +1581,9 @@ def _attach_selection_to_graph_entity(
         property_type=property_type,
         entity_type=entity_type or "other",
     )
+    attached = None
     if extracted is not None:
-        service.attach_extracted_property(
+        attached = service.attach_extracted_property(
             investigation_id,
             extracted.id,
             {
@@ -1521,16 +1592,13 @@ def _attach_selection_to_graph_entity(
                 "property_type": property_type,
             },
         )
-    return investigation, saved, graph_entity
+    return investigation, saved, graph_entity, attached
 
 
-async def _delete_evidence_capture(
-    service: InvestigationService,
+async def _delete_evidence_files(
     settings: AppSettings,
-    investigation_id: str,
-    capture_id: str,
+    capture,
 ) -> None:
-    capture = service.get_evidence_capture(investigation_id, capture_id)
     manifest_path = Path(capture.manifest_path)
     if not manifest_path.is_absolute():
         manifest_path = settings.base_dir / manifest_path
@@ -1550,6 +1618,17 @@ async def _delete_evidence_capture(
             raise EvidenceCaptureError(
                 f"Unable to delete evidence files: {exc}"
             ) from exc
+
+
+async def _delete_evidence_capture(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    capture_id: str,
+) -> None:
+    capture = service.get_evidence_capture(investigation_id, capture_id)
+    service.ensure_evidence_capture_deletable(investigation_id, capture_id)
+    await _delete_evidence_files(settings, capture)
     service.delete_evidence_capture(investigation_id, capture_id)
 
 
@@ -2430,6 +2509,14 @@ async def main():
                             result,
                         )
                     )
+                    saved, archive = await _archive_page_for_selection_source(
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                        result,
+                        saved,
+                    )
                     active_investigation = investigation
                     page_path = _generate_investigation_page(
                         investigation_service,
@@ -2473,7 +2560,7 @@ async def main():
                 ).strip()
                 source_tab = result.get("_source_tab")
                 try:
-                    investigation, saved, entity = (
+                    investigation, saved, entity, extracted = (
                         _attach_selection_to_graph_entity(
                             investigation_service,
                             investigation_id,
@@ -2481,6 +2568,20 @@ async def main():
                             result,
                         )
                     )
+                    saved, archive = await _archive_page_for_selection_source(
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                        result,
+                        saved,
+                    )
+                    if extracted:
+                        investigation_service.set_extracted_entity_source_capture(
+                            investigation_id,
+                            str(extracted.get("id", "") or ""),
+                            archive.id,
+                        )
                     active_investigation = investigation
                     page_path = _generate_investigation_page(
                         investigation_service,
@@ -2776,6 +2877,10 @@ async def main():
                                         "property_type": str(
                                             item.get("propertyType", "") or ""
                                         ).strip(),
+                                        "duplicate_strategy": str(
+                                            item.get("duplicateStrategy", "")
+                                            or "append"
+                                        ).strip(),
                                     },
                                 )
                             except InvestigationError:
@@ -2794,6 +2899,7 @@ async def main():
                     # is reflected in place by the JS, so keep the analyst's
                     # scroll position instead of reloading the whole page.
                     if action in {
+                        "set_graph_entity_property",
                         "attach_extracted_property",
                         "detach_extracted_property",
                         "set_entity_property_scope",
@@ -3046,17 +3152,7 @@ async def main():
                         investigation_id,
                         export_id,
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3065,6 +3161,15 @@ async def main():
                 result_id = str(result.get("resultId", "") or "").strip()
                 source_tab = result.get("_source_tab")
                 try:
+                    captures = [
+                        capture
+                        for capture in investigation_service.list_evidence_captures(
+                            investigation_id
+                        )
+                        if capture.result_id == result_id
+                    ]
+                    for capture in captures:
+                        await _delete_evidence_files(settings, capture)
                     investigation_service.remove_saved_page(
                         investigation_id,
                         result_id,
@@ -3159,17 +3264,7 @@ async def main():
                         investigation_id,
                         monitor_id,
                     )
-                    page_path = _generate_investigation_page(
-                        investigation_service,
-                        settings,
-                        investigation_id,
-                    )
-                    await _open_or_refresh_investigation_page(
-                        browser,
-                        page_path,
-                        bring_to_front=False,
-                        open_if_missing=False,
-                    )
+                    await _set_page_status(source_tab, "Saved.")
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue

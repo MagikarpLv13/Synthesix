@@ -786,6 +786,73 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         curated = workspace["graph_entities"][0]
         self.assertEqual(curated["properties"]["Sandwich"], "sandwich au poulet")
 
+    def test_attach_extracted_property_duplicate_strategy_controls_graph_value(self):
+        investigation = self.service.create({"title": "Duplicate property"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "Actrice.",
+            },
+        )
+        entity = self.service.create_graph_entity(
+            investigation.id,
+            {"label": "Justine Le Pottier"},
+        )
+        self.service.set_graph_entity_property(
+            investigation.id,
+            entity["id"],
+            {"key": "Profession", "value": "Actrice"},
+        )
+        first = self.service.record_selection_entity(
+            investigation.id,
+            saved.id,
+            value="Scénariste",
+            property_key="Profession",
+            property_type="text",
+        )
+        second = self.service.record_selection_entity(
+            investigation.id,
+            saved.id,
+            value="Réalisatrice",
+            property_key="Profession",
+            property_type="text",
+        )
+
+        self.service.attach_extracted_property(
+            investigation.id,
+            first.id,
+            {
+                "graph_entity_id": entity["id"],
+                "property_key": "Profession",
+                "property_type": "text",
+                "duplicate_strategy": "append",
+            },
+        )
+        appended = self.service.workspace_payload(investigation.id)[
+            "graph_entities"
+        ][0]
+        self.assertEqual(
+            appended["properties"]["Profession"],
+            "Actrice; Scénariste",
+        )
+
+        self.service.attach_extracted_property(
+            investigation.id,
+            second.id,
+            {
+                "graph_entity_id": entity["id"],
+                "property_key": "Profession",
+                "property_type": "text",
+                "duplicate_strategy": "replace",
+            },
+        )
+        replaced = self.service.workspace_payload(investigation.id)[
+            "graph_entities"
+        ][0]
+        self.assertEqual(replaced["properties"]["Profession"], "Réalisatrice")
+
     def test_builtin_tags_seed_default_entity_properties(self):
         investigation = self.service.create({"title": "Legal case"})
 
@@ -1503,18 +1570,75 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(self.repository.table_count("evidence_artifacts"), 1)
         indexed = self.service.search_local_archive({"query": "profile"})
         self.assertEqual(indexed[0]["evidence_count"], 1)
-        with self.assertRaises(InvestigationValidationError):
-            self.service.remove_saved_page(investigation.id, saved.id)
-
-        self.service.delete_evidence_capture(
-            investigation.id,
-            capture.id,
-        )
+        self.service.remove_saved_page(investigation.id, saved.id)
         self.assertEqual(self.repository.table_count("evidence_captures"), 0)
         self.assertEqual(self.repository.table_count("evidence_artifacts"), 0)
         indexed = self.service.search_local_archive({"query": "profile"})
-        self.assertEqual(indexed[0]["evidence_count"], 0)
+        self.assertEqual(indexed, [])
+
+    def test_source_archive_cannot_be_deleted_while_referenced(self):
+        investigation = self.service.create({"title": "Source archive"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        capture = self.service.record_evidence_capture(
+            capture_id="archive-1",
+            investigation_id=investigation.id,
+            result_id=saved.id,
+            name="Profile archive",
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope="viewport",
+            selection={},
+            manifest_path="data/evidence/archive-1/manifest.json",
+            captured_at="2026-06-10T10:00:00.000000+00:00",
+            tool_version="test",
+            capture_kind="page_archive",
+            artifacts=[
+                {
+                    "id": "artifact-archive-1",
+                    "artifact_type": "html",
+                    "file_path": "data/evidence/archive-1/page.html",
+                    "mime_type": "text/html; charset=utf-8",
+                    "sha256": "a" * 64,
+                    "byte_size": 123,
+                    "created_at": "2026-06-10T10:00:00.000000+00:00",
+                }
+            ],
+        )
+        extracted = self.service.record_selection_entity(
+            investigation.id,
+            saved.id,
+            value="Jane Doe",
+            property_key="Alias",
+        )
+        self.assertIsNotNone(extracted)
+
+        updated = self.service.set_extracted_entity_source_capture(
+            investigation.id,
+            extracted.id,
+            capture.id,
+        )
+
+        self.assertEqual(updated["attributes"]["source_capture_id"], capture.id)
+        self.assertEqual(
+            self.service.evidence_capture_reference_count(
+                investigation.id,
+                capture.id,
+            ),
+            1,
+        )
+        with self.assertRaises(InvestigationValidationError):
+            self.service.delete_evidence_capture(investigation.id, capture.id)
         self.service.remove_saved_page(investigation.id, saved.id)
+        self.assertEqual(self.repository.table_count("evidence_captures"), 0)
+        self.assertEqual(self.repository.table_count("evidence_artifacts"), 0)
 
     def test_page_monitor_tracks_archive_comparisons(self):
         investigation = self.service.create({"title": "Watch page"})
