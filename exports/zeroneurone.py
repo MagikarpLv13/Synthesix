@@ -452,9 +452,9 @@ def _build_curated_graph(
         if parent_id and entity.get("status") != "rejected":
             facts_by_entity.setdefault(parent_id, []).append(entity)
 
-    nodes: dict[str, GraphNode] = {
-        investigation_node.id: investigation_node
-    }
+    # The investigation/project node is intentionally omitted: entities stand on
+    # their own and are linked to their source URLs, not hung off a root.
+    nodes: dict[str, GraphNode] = {}
     edges: dict[str, GraphEdge] = {}
     entity_nodes: dict[str, GraphNode] = {}
     linked_entities_by_result: dict[str, list[GraphNode]] = {}
@@ -514,8 +514,8 @@ def _build_curated_graph(
                 ).strip()
                 if property_type in PROPERTY_TYPES:
                     property_type_overrides[property_key] = property_type
-        if source_urls:
-            properties["Sources"] = "\n".join(dict.fromkeys(source_urls))
+        # Source URLs are exported as their own "Trouvé sur" entities below,
+        # not folded into a Sources property.
         if property_type_overrides:
             properties[PROPERTY_TYPE_OVERRIDES_KEY] = property_type_overrides
 
@@ -550,58 +550,16 @@ def _build_curated_graph(
         entity_nodes[entity_id] = node
         for result_id in linked_result_ids:
             linked_entities_by_result.setdefault(result_id, []).append(node)
-        contains = _edge(
-            investigation_node,
-            node,
-            "CONTAINS",
-            date=node.date,
-        )
-        edges[contains.id] = contains
 
-    if include_evidence:
-        for capture in workspace.get("evidence", []):
-            capture_id = str(capture.get("id", "") or "")
-            result_id = str(capture.get("result_id", "") or "")
-            linked_nodes = linked_entities_by_result.get(result_id, [])
-            if not capture_id or not linked_nodes:
-                continue
-            evidence_node = GraphNode(
-                id=f"evidence-{capture_id}",
-                label=str(
-                    capture.get("name")
-                    or capture.get("capture_kind")
-                    or capture_id
-                ),
-                notes=str(capture.get("error", "") or ""),
-                tags=_tags(
-                    "Preuve",
-                    capture.get("capture_kind", ""),
-                    capture.get("status", ""),
-                ),
-                source=str(capture.get("source_url", "") or ""),
-                date=_date_only(capture.get("captured_at")),
-                properties={
-                    "synthesix_id": capture_id,
-                    "synthesix_type": "evidence",
-                    "manifest_path": str(
-                        capture.get("manifest_path", "") or ""
-                    ),
-                    "capture_scope": str(
-                        capture.get("capture_scope", "") or ""
-                    ),
-                },
-            )
-            nodes[evidence_node.id] = evidence_node
-            for entity_node in linked_nodes:
-                supported_by = _edge(
-                    entity_node,
-                    evidence_node,
-                    "SUPPORTED_BY",
-                    date=evidence_node.date,
-                )
-                edges[supported_by.id] = supported_by
+    # Evidence is no longer exported as separate nodes: the capture artifacts are
+    # attached as files on the entities they support (see _copy_native_assets).
 
-    for result_id, page_properties in page_properties_by_result.items():
+    # Each source URL becomes its own "Site web" entity, linked from the entities
+    # it sources via a "Trouvé sur" relationship.
+    source_result_ids = set(linked_entities_by_result) | set(
+        page_properties_by_result
+    )
+    for result_id in sorted(source_result_ids):
         result = results.get(result_id)
         if result is None:
             continue
@@ -629,25 +587,18 @@ def _build_curated_graph(
                     result.get("canonical_url") or result.get("url")
                 ),
                 "title": str(result.get("title", "") or ""),
-                **page_properties,
+                **page_properties_by_result.get(result_id, {}),
             },
         )
         nodes[source_node.id] = source_node
-        contains = _edge(
-            investigation_node,
-            source_node,
-            "CONTAINS",
-            date=source_node.date,
-        )
-        edges[contains.id] = contains
         for entity_node in linked_entities_by_result.get(result_id, []):
-            sourced_from = _edge(
+            found_on = _edge(
                 entity_node,
                 source_node,
-                "SOURCED_FROM",
+                "Trouvé sur",
                 date=source_node.date,
             )
-            edges[sourced_from.id] = sourced_from
+            edges[found_on.id] = found_on
 
     return tuple(nodes.values()), tuple(edges.values())
 
@@ -1032,6 +983,7 @@ def _serializable_properties(properties: Mapping[str, object]) -> dict[str, obje
         str(key): value
         for key, value in properties.items()
         if key != PROPERTY_TYPE_OVERRIDES_KEY
+        and key not in HIDDEN_NATIVE_PROPERTIES
     }
 
 
@@ -1318,6 +1270,9 @@ NATIVE_PROPERTY_NAMES = {
 NATIVE_LINK_PROPERTIES = {
     "relation_status": "Statut de la relation",
 }
+# Kept on the graph nodes for internal wiring (asset attachment) but never
+# surfaced as displayed properties in the export.
+HIDDEN_NATIVE_PROPERTIES = {"synthesix_id", "manifest_path"}
 PROPERTY_TYPE_OVERRIDES_KEY = "_synthesix_property_types"
 PROPERTY_TYPES = {
     "text",
@@ -1367,7 +1322,11 @@ def _native_properties(
     if not isinstance(property_types, Mapping):
         property_types = {}
     for key, value in properties.items():
-        if key in {"attributes", PROPERTY_TYPE_OVERRIDES_KEY}:
+        if key in {
+            "attributes",
+            PROPERTY_TYPE_OVERRIDES_KEY,
+            *HIDDEN_NATIVE_PROPERTIES,
+        }:
             continue
         if value is None or value == "":
             continue
@@ -1548,10 +1507,31 @@ def _copy_native_assets(
     assets = []
     element_asset_ids: dict[str, list[str]] = {}
     copied_paths: dict[Path, str] = {}
+    # Evidence files are attached to the curated entities they support, so map
+    # each saved page to the entities that source from it.
+    entities_by_result: dict[str, list[str]] = {}
+    for entity in workspace.get("graph_entities", []):
+        entity_id = str(entity.get("id", "") or "")
+        if not entity_id:
+            continue
+        for result_id in entity.get("linked_result_ids", []):
+            entities_by_result.setdefault(str(result_id), []).append(entity_id)
+
+    def _attach(asset_id: str, entity_ids: list[str]) -> None:
+        for entity_id in entity_ids:
+            ids = element_asset_ids.setdefault(entity_id, [])
+            if asset_id not in ids:
+                ids.append(asset_id)
+
     for capture in workspace.get("evidence", []):
         capture_id = str(capture.get("id", "") or "")
         if not capture_id:
             continue
+        # Curated graph: attach to the entities sourcing this page. Otherwise
+        # (results-only export) fall back to the evidence node (capture id).
+        target_entity_ids = entities_by_result.get(
+            str(capture.get("result_id", "") or ""), []
+        ) or [capture_id]
         for artifact in capture.get("artifacts", []):
             source_path = _resolve_asset_path(
                 artifact.get("file_path"),
@@ -1561,9 +1541,7 @@ def _copy_native_assets(
             if source_path is None:
                 continue
             if source_path in copied_paths:
-                element_asset_ids.setdefault(capture_id, []).append(
-                    copied_paths[source_path]
-                )
+                _attach(copied_paths[source_path], target_entity_ids)
                 continue
             artifact_id = str(
                 artifact.get("id")
@@ -1591,7 +1569,7 @@ def _copy_native_assets(
                     "archivePath": f"assets/{archive_name}",
                 }
             )
-            element_asset_ids.setdefault(capture_id, []).append(asset_id)
+            _attach(asset_id, target_entity_ids)
     return assets, element_asset_ids
 
 
@@ -1628,15 +1606,9 @@ def _write_native_dossier(
     all_tags: set[str] = set()
     for node in nodes:
         all_tags.update(node.tags)
-        synthesix_type = str(
-            node.properties.get("synthesix_type", "") or ""
-        )
         synthesix_id = str(node.properties.get("synthesix_id", "") or "")
-        asset_ids = (
-            element_asset_ids.get(synthesix_id, [])
-            if synthesix_type == "evidence"
-            else []
-        )
+        # Evidence artifacts are now attached to the curated entity they support.
+        asset_ids = element_asset_ids.get(synthesix_id, [])
         geo = None
         if node.latitude is not None and node.longitude is not None:
             geo = {

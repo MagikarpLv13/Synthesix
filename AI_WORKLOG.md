@@ -990,6 +990,38 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   (que) le parse du bundle → activer le mode verbose pour capturer une éventuelle
   erreur CDP, et envisager un timeout sur les `evaluate` d'onglets externes.
 
+### AI-20260623-004 — Refonte export ZeroNeurone (graphe curé)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** 4 retours utilisateur sur l'export du graphe curé.
+- **Décisions utilisateur :** libellé lien source = « Trouvé sur » ; nœud projet
+  « RV » retiré du graphe.
+- **Changements (`exports/zeroneurone.py`, fonction `_build_curated_graph` + natif) :**
+  1. **ID/Manifeste masqués** : `HIDDEN_NATIVE_PROPERTIES = {synthesix_id,
+     manifest_path}` exclus du rendu dans `_native_properties` et
+     `_serializable_properties` (gardés en interne pour le rattachement fichiers).
+  2. **Evidences → fichiers d'entités** : plus de nœuds `evidence-*` dans le
+     graphe curé ; `_copy_native_assets` re-mappe les artefacts vers les entités
+     liées (via `linked_result_ids`) ; `_write_native_dossier` pose les `assetIds`
+     sur ces entités. Fallback conservé sur le nœud preuve pour le chemin
+     « résultats seuls » (sans entités curées).
+  3. **Nœud « RV » retiré** : plus de nœud projet ni d'arêtes `CONTAINS` dans le
+     graphe curé (l'enquête reste dans les métadonnées du dossier).
+  4. **URLs source = entités** : chaque page source devient un nœud « Site web »
+     relié à l'entité par une arête **« Trouvé sur »** ; la propriété « Sources »
+     est supprimée.
+- **Périmètre :** changements sur le **graphe curé** (cas réel de l'utilisateur).
+  Le chemin « résultats seuls » (sans `graph_entities`) garde son comportement
+  (nœud investigation + nœuds preuve).
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest tests.test_zeroneurone_export` (17) OK ;
+  `unittest discover` (258) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** smoke live dans ZeroNeurone (import du bundle,
+  fichiers visibles sur les entités, liens « Trouvé sur ») — à confirmer par
+  l'utilisateur.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

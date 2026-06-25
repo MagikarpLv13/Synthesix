@@ -180,7 +180,7 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertEqual(source.properties["Domaine"], "example.org")
         self.assertNotIn("Domaine", person.properties)
         self.assertIn("Site web", source.tags)
-        self.assertIn("SOURCED_FROM", {edge.label for edge in edges})
+        self.assertIn("Trouvé sur", {edge.label for edge in edges})
 
     def test_explicit_full_export_includes_evidence_and_unreviewed_entities(self):
         nodes, edges = build_export_graph(
@@ -440,22 +440,81 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             include_evidence=True,
         )
 
+        # No project root node and no separate evidence node: entities stand on
+        # their own, the source URL is its own node.
         self.assertEqual(
             {node.label for node in nodes},
-            {"Case One", "ACME SAS", "Profile header"},
+            {"ACME SAS", "https://example.org/profile"},
         )
-        self.assertEqual(
-            {edge.label for edge in edges},
-            {"CONTAINS", "SUPPORTED_BY"},
-        )
+        self.assertEqual({edge.label for edge in edges}, {"Trouvé sur"})
         company = next(node for node in nodes if node.label == "ACME SAS")
         self.assertEqual(company.tags[0], "Entreprise")
         self.assertEqual(company.properties["SIRET"], "732 829 320 00074")
         self.assertEqual(company.properties["Forme juridique"], "SAS")
-        self.assertEqual(
-            company.properties["Sources"],
-            "https://example.org/profile",
+        self.assertNotIn("Sources", company.properties)
+        source = next(
+            node for node in nodes
+            if node.label == "https://example.org/profile"
         )
+        self.assertIn("Site web", source.tags)
+        found_on = next(edge for edge in edges if edge.label == "Trouvé sur")
+        self.assertEqual(found_on.source_label, "ACME SAS")
+        self.assertEqual(found_on.target_label, "https://example.org/profile")
+
+    def test_curated_evidence_attaches_as_entity_files(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            evidence_dir = base_dir / "data" / "evidence"
+            artifact_path = evidence_dir / "capture-1" / "capture.png"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_bytes(b"png-data")
+            workspace["evidence"][0]["result_id"] = "result-1"
+            workspace["evidence"][0]["artifacts"] = [
+                {
+                    "id": "artifact-1",
+                    "file_path": artifact_path.relative_to(base_dir).as_posix(),
+                    "mime_type": "image/png",
+                    "sha256": hashlib.sha256(b"png-data").hexdigest(),
+                    "byte_size": len(b"png-data"),
+                }
+            ]
+            exported = export_zeroneurone_bundle(
+                workspace,
+                base_dir / "export",
+                include_evidence=True,
+                base_dir=base_dir,
+                asset_root=evidence_dir,
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(exported.asset_count, 1)
+        labels = {element["label"] for element in dossier["elements"]}
+        # No standalone evidence node and no project-root node.
+        self.assertNotIn("Profile header", labels)
+        self.assertNotIn("Case One", labels)
+        person = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "Jane Doe"
+        )
+        # The evidence file is attached to the entity it supports.
+        self.assertEqual(len(person["assetIds"]), 1)
+        prop_keys = {item["key"] for item in person["properties"]}
+        self.assertNotIn("ID Synthesix", prop_keys)
+        self.assertNotIn("Manifeste Synthesix", prop_keys)
 
     def test_date_candidates_default_to_event_elements(self):
         workspace = export_workspace()
