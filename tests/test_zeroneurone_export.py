@@ -516,6 +516,35 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertNotIn("ID Synthesix", prop_keys)
         self.assertNotIn("Manifeste Synthesix", prop_keys)
 
+    def test_curated_layout_places_sources_beside_entities(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace,
+                Path(temp_dir) / "export",
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        by_label = {element["label"]: element for element in dossier["elements"]}
+        person = by_label["Jane Doe"]
+        source = by_label["https://example.org/profile"]
+        # Entity on the left, its source URL aligned to the right on the row.
+        self.assertEqual(person["position"]["x"], 0.0)
+        self.assertGreater(source["position"]["x"], person["position"]["x"])
+        self.assertEqual(source["position"]["y"], person["position"]["y"])
+
     def test_date_candidates_default_to_event_elements(self):
         workspace = export_workspace()
         workspace["entities"].append(

@@ -1022,6 +1022,27 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   fichiers visibles sur les entités, liens « Trouvé sur ») — à confirmer par
   l'utilisateur.
 
+### AI-20260623-005 — Mise en page de l'export curé (lisibilité)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** l'export curé s'affichait en une seule ligne verticale (peu
+  lisible) car entités (`curated_entity`, x≈650) et URLs source (`result`,
+  x=700) tombaient quasiment dans la même colonne.
+- **Changements (`exports/zeroneurone.py`) :** `_native_positions` prend
+  désormais les arêtes ; nouvelle `_curated_positions` place les entités en
+  colonne (x=0) et les URLs source **alignées à droite sur la même ligne** que
+  l'entité (via les arêtes « Trouvé sur »). Le chemin « résultats seuls » garde
+  la mise en page en colonnes par type.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest tests.test_zeroneurone_export` (18) OK ;
+  `unittest discover` (259) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** rendu réel dans ZeroNeurone — à confirmer.
+- **Risques / reste à faire :** pour beaucoup d'entités, une disposition en
+  grille (plutôt qu'une colonne) serait plus compacte — itération possible si
+  besoin.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

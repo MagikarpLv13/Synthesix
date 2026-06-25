@@ -1450,14 +1450,8 @@ def _native_visual(node: GraphNode) -> dict[str, object]:
 
 def _native_positions(
     nodes: tuple[GraphNode, ...],
+    edges: tuple[GraphEdge, ...] = (),
 ) -> dict[str, dict[str, float]]:
-    columns = {
-        "investigation": 0.0,
-        "search": -700.0,
-        "result": 700.0,
-        "entity": 1400.0,
-        "evidence": 2100.0,
-    }
     grouped: dict[str, list[GraphNode]] = {}
     for node in nodes:
         node_type = str(
@@ -1465,6 +1459,16 @@ def _native_positions(
         )
         grouped.setdefault(node_type, []).append(node)
 
+    if grouped.get("curated_entity"):
+        return _curated_positions(nodes, edges, grouped["curated_entity"])
+
+    columns = {
+        "investigation": 0.0,
+        "search": -700.0,
+        "result": 700.0,
+        "entity": 1400.0,
+        "evidence": 2100.0,
+    }
     positions = {}
     for node_type, items in grouped.items():
         ordered = sorted(items, key=lambda item: (item.label.casefold(), item.id))
@@ -1474,6 +1478,55 @@ def _native_positions(
                 "x": columns.get(node_type, 650.0),
                 "y": (index - middle) * 260.0,
             }
+    return positions
+
+
+def _curated_positions(
+    nodes: tuple[GraphNode, ...],
+    edges: tuple[GraphEdge, ...],
+    entity_nodes: list[GraphNode],
+) -> dict[str, dict[str, float]]:
+    """Lay curated entities in a column with their source URLs aligned to the
+    right, so each entity and its "Trouvé sur" sources read as a row instead of
+    a single merged vertical line."""
+    entity_row = 360.0
+    source_x = 620.0
+    source_row = 170.0
+    sources_by_entity: dict[str, list[str]] = {}
+    for edge in edges:
+        if edge.label == "Trouvé sur":
+            sources_by_entity.setdefault(edge.source_id, []).append(
+                edge.target_id
+            )
+
+    positions: dict[str, dict[str, float]] = {}
+    placed_sources: set[str] = set()
+    ordered_entities = sorted(
+        entity_nodes, key=lambda item: (item.label.casefold(), item.id)
+    )
+    for index, entity in enumerate(ordered_entities):
+        entity_y = index * entity_row
+        positions[entity.id] = {"x": 0.0, "y": entity_y}
+        sources = sources_by_entity.get(entity.id, [])
+        middle = (len(sources) - 1) / 2
+        for source_index, source_id in enumerate(sources):
+            if source_id in placed_sources:
+                continue
+            placed_sources.add(source_id)
+            positions[source_id] = {
+                "x": source_x,
+                "y": entity_y + (source_index - middle) * source_row,
+            }
+
+    leftover = [node for node in nodes if node.id not in positions]
+    middle = (len(leftover) - 1) / 2
+    for index, node in enumerate(
+        sorted(leftover, key=lambda item: (item.label.casefold(), item.id))
+    ):
+        positions[node.id] = {
+            "x": source_x * 2,
+            "y": (index - middle) * entity_row,
+        }
     return positions
 
 
@@ -1591,7 +1644,7 @@ def _write_native_dossier(
         node.id: _native_uuid("element", investigation_id, node.id)
         for node in nodes
     }
-    positions = _native_positions(nodes)
+    positions = _native_positions(nodes, edges)
     assets: list[dict[str, object]] = []
     element_asset_ids: dict[str, list[str]] = {}
     if include_evidence:
