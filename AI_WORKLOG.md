@@ -1114,20 +1114,6 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   smoke headless (section Relations rendue).
 - **Vérifications non exécutées :** smoke CDP live (ajout/édition/suppression
   relation no-reload) — à confirmer.
-
-### AI-20260623-009 — Relations affichées en phrase (source + mot-clé + cible)
-
-- **Agent :** Claude
-- **Période UTC :** 2026-06-23
-- **Objectif :** afficher la relation comme phrase « entité source — mot-clé —
-  entité cible » (au lieu de « → cible » seul).
-- **Changements (`investigations/view.py`, `theme.css`) :** ajout d'un libellé
-  source (`entity-relation__source`) en tête de chaque ligne ; retrait de la
-  flèche. JS optimiste lit le nom source via `[data-graph-entity-label]`. CSS :
-  source/cible en gras tronqués, input mot-clé central.
-- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `AI_WORKLOG.md`
-- **Tests exécutés :** `unittest discover` (264) OK ; smoke headless (phrase).
-- **Vérifications non exécutées :** smoke CDP live.
 ## Modèle de compte rendu terminé
 
 ```markdown

@@ -1155,11 +1155,9 @@ def _graph_entities_markup(
         )
         source_rows = "".join(_source_row(entry) for entry in source_entries)
         relations = entity.get("relations", []) or []
-        relation_source_label = str(entity.get("label") or entity_id)
         relation_rows = "".join(
             f"""
             <li class="entity-relation" data-relation-id="{_html(relation.get("id", ""))}">
-                <span class="entity-relation__source">{_html(relation_source_label)}</span>
                 <input
                     type="text"
                     class="entity-relation__label"
@@ -1169,7 +1167,7 @@ def _graph_entities_markup(
                     placeholder="Mot clé…"
                     {disabled}
                 >
-                <span class="entity-relation__target">{_html(relation.get("target_label", ""))}</span>
+                <span class="entity-relation__target">→ {_html(relation.get("target_label", ""))}</span>
                 <button type="button" class="icon-action icon-action--danger delete-relation"
                     title="Supprimer la relation" aria-label="Supprimer la relation"{disabled}>{_icon("trash")}</button>
             </li>
@@ -3353,15 +3351,9 @@ def generate_investigation_page(
                             const targetLabel = targetSelect.options[
                                 targetSelect.selectedIndex
                             ].text;
-                            const sourceLabel = (card.querySelector(
-                                "[data-graph-entity-label]"
-                            )?.value || "").trim();
                             const li = document.createElement("li");
                             li.className = "entity-relation";
                             li.dataset.relationId = relationId;
-                            const sourceSpan = document.createElement("span");
-                            sourceSpan.className = "entity-relation__source";
-                            sourceSpan.textContent = sourceLabel;
                             const input = document.createElement("input");
                             input.type = "text";
                             input.className = "entity-relation__label";
@@ -3371,7 +3363,7 @@ def generate_investigation_page(
                             input.placeholder = "Mot clé…";
                             const span = document.createElement("span");
                             span.className = "entity-relation__target";
-                            span.textContent = targetLabel;
+                            span.textContent = "→ " + targetLabel;
                             const btn = document.createElement("button");
                             btn.type = "button";
                             btn.className = (
@@ -3382,7 +3374,6 @@ def generate_investigation_page(
                                 "aria-label", "Supprimer la relation"
                             );
                             btn.textContent = "×";
-                            li.appendChild(sourceSpan);
                             li.appendChild(input);
                             li.appendChild(span);
                             li.appendChild(btn);

@@ -2698,21 +2698,8 @@ a:focus-visible {
     min-width: 0;
 }
 
-.entity-relation__source,
-.entity-relation__target {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 38%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text);
-}
-
 .entity-relation__label {
-    flex: 1 1 30%;
+    flex: 1 1 45%;
     min-width: 0;
     padding: 4px 7px;
     border: 1px solid var(--line);
@@ -2721,6 +2708,16 @@ a:focus-visible {
     color: var(--text);
     font: inherit;
     font-size: 12px;
+}
+
+.entity-relation__target {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--muted);
 }
 
 .entity-relation-add {
