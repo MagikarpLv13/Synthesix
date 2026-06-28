@@ -1185,6 +1185,35 @@ class InvestigationRepository:
                 (utc_now(), investigation_id),
             )
 
+    def list_entity_relations_by_target(
+        self,
+        investigation_id: str,
+    ) -> dict[str, list[dict]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.id, r.source_entity_id, r.target_entity_id,
+                       r.label, s.label AS source_label
+                FROM investigation_entity_relations r
+                JOIN investigation_entities s
+                    ON s.id = r.source_entity_id
+                WHERE r.investigation_id = ?
+                ORDER BY r.created_at
+                """,
+                (investigation_id,),
+            ).fetchall()
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            grouped.setdefault(row["target_entity_id"], []).append(
+                {
+                    "id": row["id"],
+                    "source_entity_id": row["source_entity_id"],
+                    "source_label": row["source_label"],
+                    "label": row["label"],
+                }
+            )
+        return grouped
+
     def list_entity_relations_by_source(
         self,
         investigation_id: str,

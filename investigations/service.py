@@ -354,6 +354,9 @@ class InvestigationService:
         relations_by_source = self.repository.list_entity_relations_by_source(
             investigation_id
         )
+        relations_by_target = self.repository.list_entity_relations_by_target(
+            investigation_id
+        )
         return {
             "investigation": investigation.to_payload(),
             "results": [
@@ -394,6 +397,9 @@ class InvestigationService:
                 {
                     **entity.to_payload(),
                     "relations": relations_by_source.get(entity.id, []),
+                    "incoming_relations": relations_by_target.get(
+                        entity.id, []
+                    ),
                 }
                 for entity in self.repository.list_investigation_entities(
                     investigation_id

@@ -915,6 +915,19 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.assertEqual(relations[0]["target_entity_id"], b["id"])
         self.assertEqual(relations[0]["target_label"], "Société A")
 
+        # The target entity sees the relation as incoming.
+        workspace = self.service.workspace_payload(investigation.id)
+        target = next(
+            entity
+            for entity in workspace["graph_entities"]
+            if entity["id"] == b["id"]
+        )
+        self.assertEqual(len(target["incoming_relations"]), 1)
+        self.assertEqual(
+            target["incoming_relations"][0]["source_label"], "Jean Michel"
+        )
+        self.assertEqual(target["incoming_relations"][0]["label"], "PDG de")
+
         self.service.update_graph_entity_relation(
             investigation.id, rel["id"], "Directeur de"
         )

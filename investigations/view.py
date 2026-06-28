@@ -1174,6 +1174,17 @@ def _graph_entities_markup(
             """
             for relation in relations
         )
+        incoming_relations = entity.get("incoming_relations", []) or []
+        relation_rows += "".join(
+            f"""
+            <li class="entity-relation entity-relation--incoming" data-relation-id="{_html(relation.get("id", ""))}">
+                <span class="entity-relation__incoming">← {_html(relation.get("source_label", ""))} : {_html(relation.get("label", "") or "lié")}</span>
+                <button type="button" class="icon-action icon-action--danger delete-relation"
+                    title="Supprimer la relation" aria-label="Supprimer la relation"{disabled}>{_icon("trash")}</button>
+            </li>
+            """
+            for relation in incoming_relations
+        )
         relation_options = "".join(
             f'<option value="{_html(str(other.get("id", "") or ""))}">'
             f'{_html(other.get("label", ""))}</option>'

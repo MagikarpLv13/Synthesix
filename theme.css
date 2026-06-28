@@ -2710,7 +2710,8 @@ a:focus-visible {
     font-size: 12px;
 }
 
-.entity-relation__target {
+.entity-relation__target,
+.entity-relation__incoming {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -2718,6 +2719,10 @@ a:focus-visible {
     white-space: nowrap;
     font-size: 12px;
     color: var(--muted);
+}
+
+.entity-relation__incoming {
+    font-style: italic;
 }
 
 .entity-relation-add {
