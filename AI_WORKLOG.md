@@ -1134,6 +1134,21 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Tests exécutés :** `unittest discover` (264) OK ; smoke headless (ligne
   entrante sur la cible).
 - **Vérifications non exécutées :** smoke CDP live.
+
+### AI-20260623-011 — Relations cliquables (aller à l'entité)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** rendre la cible (sortante) et la source (entrante) d'une
+  relation cliquables pour ouvrir l'entité liée.
+- **Changements (`investigations/view.py`, `theme.css`) :** la cible/source
+  devient un bouton `entity-relation__goto` avec `data-relation-goto={entité}` ;
+  clic → `selectInspectorEntity(id)` (handler délégué sur la carte). Append
+  optimiste produit aussi le bouton. CSS lien (hover accent + souligné).
+- **Fichiers modifiés :** `investigations/view.py`, `theme.css`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (264) OK (inclut `node --check` du JS
+  inline) ; smoke headless.
+- **Vérifications non exécutées :** smoke CDP live.
 ## Modèle de compte rendu terminé
 
 ```markdown

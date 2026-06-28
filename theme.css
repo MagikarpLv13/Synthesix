@@ -2725,6 +2725,19 @@ a:focus-visible {
     font-style: italic;
 }
 
+.entity-relation__goto {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.entity-relation__goto:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 .entity-relation-add {
     display: flex;
     gap: 6px;

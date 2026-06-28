@@ -1167,7 +1167,7 @@ def _graph_entities_markup(
                     placeholder="Mot clé…"
                     {disabled}
                 >
-                <span class="entity-relation__target">→ {_html(relation.get("target_label", ""))}</span>
+                <button type="button" class="entity-relation__target entity-relation__goto" data-relation-goto="{_html(relation.get("target_entity_id", ""))}" title="Aller à l'entité">→ {_html(relation.get("target_label", ""))}</button>
                 <button type="button" class="icon-action icon-action--danger delete-relation"
                     title="Supprimer la relation" aria-label="Supprimer la relation"{disabled}>{_icon("trash")}</button>
             </li>
@@ -1178,7 +1178,7 @@ def _graph_entities_markup(
         relation_rows += "".join(
             f"""
             <li class="entity-relation entity-relation--incoming" data-relation-id="{_html(relation.get("id", ""))}">
-                <span class="entity-relation__incoming">← {_html(relation.get("source_label", ""))} : {_html(relation.get("label", "") or "lié")}</span>
+                <button type="button" class="entity-relation__incoming entity-relation__goto" data-relation-goto="{_html(relation.get("source_entity_id", ""))}" title="Aller à l'entité">← {_html(relation.get("source_label", ""))} : {_html(relation.get("label", "") or "lié")}</button>
                 <button type="button" class="icon-action icon-action--danger delete-relation"
                     title="Supprimer la relation" aria-label="Supprimer la relation"{disabled}>{_icon("trash")}</button>
             </li>
@@ -3321,6 +3321,11 @@ def generate_investigation_page(
                     bindRelationLabel
                 );
                 card.addEventListener("click", (event) => {{
+                    const goto = event.target.closest("[data-relation-goto]");
+                    if (goto && goto.dataset.relationGoto) {{
+                        selectInspectorEntity(goto.dataset.relationGoto);
+                        return;
+                    }}
                     const del = event.target.closest(".delete-relation");
                     const li = del && del.closest("[data-relation-id]");
                     if (!li) {{
@@ -3372,8 +3377,13 @@ def generate_investigation_page(
                             input.maxLength = 120;
                             input.value = label;
                             input.placeholder = "Mot clé…";
-                            const span = document.createElement("span");
-                            span.className = "entity-relation__target";
+                            const span = document.createElement("button");
+                            span.type = "button";
+                            span.className = (
+                                "entity-relation__target entity-relation__goto"
+                            );
+                            span.dataset.relationGoto = targetId;
+                            span.title = "Aller à l'entité";
                             span.textContent = "→ " + targetLabel;
                             const btn = document.createElement("button");
                             btn.type = "button";
