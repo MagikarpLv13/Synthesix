@@ -1067,6 +1067,21 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   fait non rattaché à l'entité (triage) — hors export. Disposition grille possible
   si beaucoup d'entités.
 
+
+### AI-20260623-007 — Export ZeroNeurone : valeurs date en ISO
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** propriété date (ex. « Date de naissance » = `19/10/2003`)
+  s'exportait avec type `date` mais valeur non-ISO → champ date vide dans
+  ZeroNeurone.
+- **Changements (`exports/zeroneurone.py`) :** `_iso_property_date()` normalise
+  les valeurs de propriétés de type `date` vers `YYYY-MM-DD` (parse `DD/MM/YYYY`,
+  `DD-MM-YYYY`, ISO…) dans `_native_properties`. Inchangé si non parsable.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (261) OK.
+- **Vérifications non exécutées :** rendu réel ZeroNeurone — à confirmer.
 ## Modèle de compte rendu terminé
 
 ```markdown

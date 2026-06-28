@@ -545,6 +545,39 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertGreater(source["position"]["x"], person["position"]["x"])
         self.assertEqual(source["position"]["y"], person["position"]["y"])
 
+    def test_date_property_value_normalized_to_iso(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "p1",
+                "label": "Jane",
+                "tags": ["Personne"],
+                "properties": {"Date de naissance": "19/10/2003"},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace, Path(temp_dir) / "export"
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        person = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "Jane"
+        )
+        prop = next(
+            item
+            for item in person["properties"]
+            if item["key"] == "Date de naissance"
+        )
+        self.assertEqual(prop["type"], "date")
+        self.assertEqual(prop["value"], "2003-10-19")
+
     def test_unparseable_date_stays_as_property(self):
         workspace = export_workspace()
         workspace["graph_entities"] = [

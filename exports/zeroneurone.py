@@ -1292,6 +1292,35 @@ PROPERTY_TYPES = {
 }
 
 
+_DATE_INPUT_FORMATS = (
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%d.%m.%Y",
+    "%Y/%m/%d",
+)
+
+
+def _iso_property_date(value: object) -> str:
+    """Normalize a date-typed property value to YYYY-MM-DD so ZeroNeurone's date
+    field can read it. Returns "" when it cannot be parsed."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(
+            text.replace("Z", "+00:00")
+        ).date().isoformat()
+    except ValueError:
+        pass
+    for fmt in _DATE_INPUT_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
 def _native_property_type(
     key: str,
     value: object,
@@ -1353,6 +1382,8 @@ def _native_properties(
             value,
             str(property_types.get(key, "") or ""),
         )
+        if property_type == "date":
+            value = _iso_property_date(value) or value
         if isinstance(value, bool):
             value = "Oui" if value else "Non"
         property_name = names.get(key)
