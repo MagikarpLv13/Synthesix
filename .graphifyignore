@@ -1,0 +1,61 @@
+# .graphifyignore
+
+# Environnements et dépendances
+
+.venv/
+venv/
+env/
+node_modules/
+
+# Caches et couverture
+
+**pycache**/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+htmlcov/
+.coverage
+
+# Builds, bundles et fichiers générés
+
+dist/
+build/
+frontend/package-lock.json
+assets/synthesix-ui.js
+assets/synthesix-overlay.js
+
+# Données runtime et artefacts locaux
+
+data/
+history/
+reports/
+tmp_ui_render/
+*-profile/
+
+# Documentation nécessitant une extraction LLM
+
+*.md
+*.mdx
+*.qmd
+*.rst
+*.txt
+*.html
+
+# Fichiers de configuration interprétés comme documentation
+
+*.yaml
+*.yml
+
+# Images nécessitant une extraction multimodale
+
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+
+# Sorties Graphify
+
+graphify-out/

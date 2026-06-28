@@ -81,3 +81,7 @@ docker-compose.override.yml
 .tmp/
 tmp_ui_render/
 /enquete.zip
+
+# Graphify — fichiers locaux
+graphify-out/cache/
+graphify-out/cost.json

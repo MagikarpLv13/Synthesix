@@ -1,126 +1,196 @@
 @AGENTS.md
 
-# Instructions propres à Claude Code
+# CLAUDE.md — Instructions propres à Claude Code
 
-## Démarrage
+Les règles communes du projet sont définies dans `AGENTS.md`.
+Le présent fichier contient uniquement les règles spécifiques à Claude Code.
+
+## 1. Démarrage d’une tâche
 
 Avant toute modification non triviale :
 
 1. lire `AI_WORKLOG.md` ;
-2. vérifier branche et `git status --short` ;
-3. identifier fichiers, contrats et tests concernés ;
-4. rechercher les références avant de renommer une action CDP, un attribut `data-*`, un événement Lit, une API ou une clé i18n ;
-5. revendiquer la tâche et les fichiers chauds dans le journal.
-
-Ne pas écrire si un autre agent possède un verrou incompatible.
-
-## Architecture
-
-- `main.py` : cycle navigateur, boucle UI et actions CDP.
-- `browser_manager.py`, `search_engine.py` : navigateur et comportement moteur commun.
-- `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` : logique propre aux moteurs.
-- `search_orchestrator.py` : concurrence, retries, scoring et rapports.
-- `investigations/`, `analysis/`, `evidence/`, `exports/` : domaine, analyse, preuves et exports.
-- `ui.py`, `utils.py`, `theme.css`, `i18n.js` : rendu, thème et traductions.
-- `frontend/src/components/` : composants Lit applicatifs.
-- `frontend/src/overlay/` : composants injectés sur des pages tierces.
-- `assets/synthesix-*.js` : bundles IIFE générés et versionnés.
-- `tests/` : suite `unittest`.
-
-## Plan et périmètre
-
-- Correction locale évidente : agir directement.
-- Tâche multi-fichiers ou risquée : plan court avec critères de validation.
-- Découper les gros travaux en lots indépendants.
-- Préférer une correction ciblée à une réécriture.
-- Ne pas effectuer de « nettoyage au passage » hors périmètre.
-
-## Sous-agents
-
-Utiliser les sous-agents pour l'exploration en lecture seule, l'inventaire des références, la revue de tests ou l'analyse d'un sous-système.
-
-- Un seul agent écrivain par fichier ou lot.
-- Jamais d'écritures parallèles sur les mêmes fichiers.
-- Transmettre explicitement invariants, périmètre et fichiers interdits.
-- Rappeler les règles critiques aux agents Explore/Plan.
-- Exiger un retour synthétique : fichiers, contrats, risques et tests.
-- Vérifier les conclusions avant toute modification.
-
-## Discipline d'édition
-
-- Lire les sections utiles avant de patcher.
-- Préserver style local, noms publics et ordre logique.
-- Faire des patches petits ; relire le diff après un changement structurel.
-- Modifier la source TS, jamais directement le bundle généré.
-- Ne jamais inventer un résultat de commande, test ou comportement observé.
-- En cas d'échec, corriger la cause ou documenter précisément la limite.
-
-## Rappels Synthesix
-
-- Python 3.10+, async-first, Zendriver/CDP ; entrée : `python main.py`.
-- Recherche exacte, isolation des moteurs et arrêt propre du navigateur sont des invariants.
-- Pages internes en `file://` avec bundle IIFE chargé par script classique.
-- Overlay IIFE injecté sur DOM tiers, isolé par Shadow DOM.
-- TypeScript strict, Lit, préfixe `sx-`, tokens CSS, accessibilité et i18n.
-- Source frontend et bundle doivent être committés ensemble.
-- Changement CDP/overlay fonctionnel : smoke live obligatoire ou absence explicitement signalée.
-- Ne jamais versionner données d'enquête, preuves, profils, rapports ou secrets.
-
-## Séquences de travail
-
-### Python
-
-1. identifier/reproduire le défaut ;
-2. lire module et tests concernés ;
-3. corriger la cause racine ;
-4. ajouter/adapter un test ciblé ;
-5. exécuter test ciblé puis suite large si transversal ;
-6. `git diff --check` ;
-7. clôturer `AI_WORKLOG.md`.
-
-### Lit
-
-1. vérifier claim et composants voisins ;
-2. préserver API, slots, événements et attributs ;
-3. éviter tout texte i18n en dur ;
-4. mettre à jour l'index et la démo ;
-5. `npm run typecheck` puis `npm run build` ;
-6. vérifier clair/sombre, vide, long et dense ;
-7. clôturer `AI_WORKLOG.md`.
-
-### CDP / overlay
-
-1. inventorier producteurs et consommateurs ;
-2. préserver actions et payloads sauf migration demandée ;
-3. modifier par petits incréments ;
-4. exécuter tests Python et build nécessaire ;
-5. effectuer le smoke CDP live ;
-6. documenter chaque scénario non testé.
-
-## Commandes
+2. vérifier la branche et l’état du dépôt :
 
 ```powershell
-.venv\Scripts\python.exe -m unittest discover
-.venv\Scripts\python.exe -m py_compile <modules>
-git diff --check
-
-cd frontend
-npm run typecheck
-npm run build
+git branch --show-current
+git status --short
 ```
 
-Utiliser les équivalents du virtualenv sous Linux/macOS. Ne pas installer globalement.
+3. identifier les fichiers, contrats et tests concernés ;
+4. consulter Graphify lorsque le périmètre ou les dépendances sont inconnus ;
+5. déclarer la tâche et les éventuels verrous dans `AI_WORKLOG.md`.
 
-## Suivi et réponse finale
+Ne pas modifier un fichier couvert par un verrou incompatible.
 
-À chaque relais, consigner état, fichiers, décisions, tests, inconnues et prochaine action exacte. Ne pas mettre dans le journal de raisonnement interne ni de logs bruts.
+Pour une correction locale évidente et sans effet contractuel, agir directement sans produire un plan inutile.
 
-Terminer avec :
+## 2. Planification
 
-- résultat ;
-- fichiers modifiés ;
-- tests réellement exécutés ;
-- vérifications non exécutées ;
-- risques ou prochaine étape indispensable.
+Produire un plan court lorsque la tâche :
 
-Ne pas déclarer un changement validé sans preuve.
+* touche plusieurs fichiers ;
+* modifie un contrat ou un comportement transversal ;
+* concerne le CDP, l’overlay, les données ou les migrations ;
+* nécessite plusieurs étapes de validation ;
+* présente un risque de régression important.
+
+Le plan doit préciser :
+
+* le résultat attendu ;
+* les fichiers ou sous-systèmes concernés ;
+* les invariants à préserver ;
+* les tests prévus.
+
+Découper les travaux importants en lots cohérents et vérifiables.
+
+Ne pas effectuer de nettoyage, refactorisation ou renommage hors périmètre.
+
+## 3. Exploration du code
+
+Avant de modifier un comportement :
+
+* rechercher ses définitions et références ;
+* identifier les producteurs et consommateurs ;
+* lire les tests existants ;
+* vérifier les conventions des fichiers voisins.
+
+Utiliser Graphify pour sélectionner les fichiers pertinents lorsque la localisation ou les dépendances ne sont pas évidentes.
+
+Le graphe sert à orienter l’exploration. Le code source et les tests restent les sources de vérité.
+
+Ne pas charger de larges portions du dépôt lorsque quelques fichiers ciblés suffisent.
+
+## 4. Utilisation des sous-agents
+
+Utiliser les sous-agents principalement pour :
+
+* l’exploration en lecture seule ;
+* l’inventaire des références ;
+* l’analyse d’un sous-système ;
+* la recherche de tests concernés ;
+* la revue d’un diff ;
+* la vérification d’hypothèses indépendantes.
+
+Règles :
+
+* un seul agent écrivain par fichier ou lot ;
+* aucune écriture parallèle sur les mêmes fichiers ;
+* transmettre explicitement le périmètre, les invariants et les exclusions ;
+* rappeler aux sous-agents de lire les règles nécessaires ;
+* demander un résultat synthétique et vérifiable ;
+* contrôler leurs conclusions avant toute modification.
+
+Ne pas multiplier les sous-agents pour une tâche simple. Chaque sous-agent consomme du contexte et des tokens supplémentaires.
+
+## 5. Discipline d’édition
+
+* Lire la section concernée avant de la modifier.
+* Préserver le style et les conventions locales.
+* Faire des modifications petites et ciblées.
+* Corriger la cause racine plutôt qu’un symptôme lorsque cela reste dans le périmètre.
+* Relire le diff après chaque modification structurelle.
+* Modifier les sources TypeScript, jamais directement les bundles générés.
+* Ne pas lancer de formatage global.
+* Ne pas changer une API publique sans migration ou demande explicite.
+* Ne jamais inventer un résultat de commande, de test ou d’observation.
+* Ne jamais présenter une hypothèse comme un comportement vérifié.
+
+En cas d’échec :
+
+1. analyser la cause ;
+2. tenter une correction raisonnable ;
+3. documenter précisément ce qui reste bloquant ;
+4. indiquer la prochaine action utile.
+
+## 6. Validation
+
+Exécuter les vérifications définies dans `AGENTS.md` selon le périmètre réel de la tâche.
+
+Commencer par les tests les plus ciblés, puis élargir lorsque le changement est transversal.
+
+Pour toute modification du frontend :
+
+1. exécuter le typecheck ;
+2. reconstruire les bundles ;
+3. vérifier le diff des fichiers générés ;
+4. effectuer les vérifications visuelles nécessaires.
+
+Pour toute modification CDP ou overlay :
+
+1. identifier les deux côtés du contrat ;
+2. exécuter les tests ciblés ;
+3. effectuer un smoke test réel lorsque possible ;
+4. signaler explicitement les scénarios non testés.
+
+Ne jamais déclarer un changement validé uniquement parce que le code paraît correct.
+
+## 7. Gestion du contexte
+
+Privilégier les lectures ciblées et les recherches précises.
+
+Éviter de :
+
+* relire plusieurs fois les mêmes fichiers sans raison ;
+* charger intégralement un rapport lorsqu’une requête Graphify suffit ;
+* recopier dans la conversation de longues portions de code inchangées ;
+* répéter les règles déjà définies dans `AGENTS.md` ;
+* conserver dans le contexte des sorties de commandes devenues inutiles.
+
+Après une phase d’exploration importante, conserver une synthèse factuelle :
+
+* fichiers pertinents ;
+* contrats identifiés ;
+* décision prise ;
+* tests nécessaires ;
+* risques restant à contrôler.
+
+## 8. Suivi et relais
+
+Lorsqu’une tâche doit être interrompue ou transmise, consigner dans `AI_WORKLOG.md` :
+
+* l’objectif ;
+* l’état actuel ;
+* les fichiers modifiés ;
+* les décisions prises ;
+* les tests exécutés ;
+* les résultats obtenus ;
+* les inconnues ou blocages ;
+* la prochaine action exacte.
+
+Ne pas placer dans le journal :
+
+* le raisonnement interne ;
+* des hypothèses non qualifiées ;
+* des logs bruts volumineux ;
+* des données sensibles ;
+* des informations sans utilité pour le prochain agent.
+
+## 9. Communication
+
+Pendant une tâche longue, fournir des points d’avancement courts et factuels.
+
+Signaler rapidement :
+
+* une contrainte découverte ;
+* un conflit avec une règle existante ;
+* un verrou bloquant ;
+* un test en échec ;
+* une modification de périmètre nécessaire.
+
+Ne pas détailler les opérations évidentes ni répéter le plan à chaque étape.
+
+## 10. Réponse finale
+
+La réponse finale doit rester concise et contenir :
+
+* le résultat obtenu ;
+* les fichiers modifiés ;
+* les tests réellement exécutés ;
+* les vérifications non exécutées et leur raison ;
+* les limites ou risques restants ;
+* la prochaine action uniquement si elle est nécessaire.
+
+Ne pas répéter l’intégralité du raisonnement, du diff ou des règles du projet.
+
+Ne jamais déclarer un changement terminé ou validé sans preuve correspondante.

@@ -1,153 +1,311 @@
 # AGENTS.md — Règles communes pour les agents IA
 
-## Portée et sources de vérité
+## 1. Portée et sources de vérité
 
-Ce fichier s'applique à tout agent IA qui lit, modifie, teste ou documente Synthesix.
+Ce fichier s’applique à tout agent IA qui lit, modifie, teste ou documente Synthesix.
 
-Priorité : demande utilisateur → contraintes de sécurité/environnement → `AGENTS.md` → documentation spécialisée → conventions locales.
+Ordre de priorité :
 
-Lire selon le périmètre :
+1. demande explicite de l’utilisateur ;
+2. contraintes de sécurité et d’environnement ;
+3. `AGENTS.md` ;
+4. documentation spécialisée ;
+5. conventions locales du code concerné.
 
-- `AI_WORKLOG.md` : source de vérité pour claims, verrous, blocages, décisions et comptes rendus IA ;
-- `README.md` : architecture, fonctionnement, configuration et commandes ;
-- `COLLAB.md`, `docs/CODEX_CLAUDE_WORKPLAN.md` : contraintes et historique de la migration Lit ;
-- `docs/UX_REDESIGN.md` : design system et UX ;
-- `frontend/README.md` : build et vérification visuelle ;
-- `frontend/TASKS.md` : backlog/historique frontend. Pour les travaux actifs, `AI_WORKLOG.md` fait autorité.
+Documents de référence :
 
-## Coordination obligatoire
+* `AI_WORKLOG.md` : tâches actives, verrous, blocages, décisions et comptes rendus ;
+* `README.md` : installation, architecture générale et commandes ;
+* `docs/UX_REDESIGN.md` : design system et règles UX ;
+* `frontend/README.md` : build et vérifications frontend ;
+* `frontend/TASKS.md` : backlog et historique frontend ;
+* `COLLAB.md` et `docs/CODEX_CLAUDE_WORKPLAN.md` : historique de collaboration et migration Lit.
 
-Toute modification non triviale doit avoir une tâche `AI-YYYYMMDD-NNN` dans `AI_WORKLOG.md` avant l'édition. Sont non triviales les modifications multi-fichiers, comportementales, contractuelles, générant un bundle, ajoutant une dépendance ou touchant un fichier chaud.
+Pour les travaux actifs, `AI_WORKLOG.md` fait autorité.
 
-### Avant d'écrire
+## 2. Coordination entre agents
 
-1. Lire les travaux actifs, verrous, blocages et décisions.
-2. Exécuter `git branch --show-current` et `git status --short`.
-3. Faire `git pull --rebase` si le distant est accessible.
-4. Déclarer agent, objectif, fichiers prévus, tests et dépendances.
-5. Poser les verrous nécessaires. En travail simultané, commit/push du claim seul.
+Toute modification non triviale doit être déclarée dans `AI_WORKLOG.md` avant l’édition.
 
-### Pendant
+Une modification est considérée comme non triviale lorsqu’elle :
 
-- Ne pas modifier un fichier verrouillé par un autre agent.
-- Étendre le périmètre dans le journal avant de toucher un nouveau fichier chaud.
-- Garder des commits petits ; rebaser régulièrement.
-- Ne pas effacer l'historique d'une autre IA.
-- En cas d'interruption, consigner état, fichiers, tests, risques et prochaine action exacte.
+* touche plusieurs fichiers ;
+* change un comportement ou un contrat ;
+* modifie un fichier partagé ou sensible ;
+* ajoute une dépendance ;
+* génère ou modifie un bundle ;
+* nécessite une migration ou une mise à jour de données.
 
-### Fin
+### Avant de modifier
 
-- Exécuter les vérifications adaptées.
-- Mettre à jour documentation, tâche et verrous.
-- Ajouter un compte rendu factuel : changements, fichiers, tests exécutés, tests omis, commit, risques et reste à faire.
+1. Lire les tâches actives, verrous, blocages et décisions.
+2. Exécuter :
 
-Une tâche n'est pas terminée tant que `AI_WORKLOG.md` n'est pas à jour.
+```powershell
+git branch --show-current
+git status --short
+```
 
-## Fichiers chauds
+3. Déclarer dans `AI_WORKLOG.md` :
 
-Verrou exclusif obligatoire avant modification :
+   * l’agent ;
+   * l’objectif ;
+   * les fichiers prévus ;
+   * les tests prévus ;
+   * les dépendances ou risques connus.
+4. Poser les verrous nécessaires.
+5. En travail parallèle, rendre le claim visible aux autres agents avant de modifier les fichiers concernés.
 
-- `main.py`, `ui.py`, `utils.py`, `theme.css`, `index.html`, `i18n.js`
-- `settings.py`, `search_orchestrator.py`
-- `investigations/view.py`, `investigations/search_view.py`
-- `frontend/package.json`, `frontend/tsconfig.json`, `frontend/build.mjs`
-- `frontend/src/index.ts`, `frontend/src/overlay/index.ts`
-- `assets/synthesix-ui.js`, `assets/synthesix-overlay.js`
+Synchroniser avec le distant uniquement si la branche est propre, que le distant est accessible et que l’opération ne risque pas d’écraser un travail local.
 
-Un verrou doit être précis et aussi court que possible.
+### Pendant la tâche
 
-## Invariants produit
+* Ne pas modifier un fichier verrouillé par un autre agent.
+* Mettre à jour le périmètre avant de toucher un nouveau fichier partagé.
+* Garder les modifications et commits ciblés.
+* Ne pas mélanger une correction fonctionnelle avec un nettoyage global.
+* Ne jamais effacer ou réécrire le travail d’un autre agent.
+* En cas d’interruption, documenter :
 
-Synthesix est une application OSINT locale, Python 3.10+, async-first, pilotée par Zendriver/CDP. Elle doit rester lançable par `python main.py` sans serveur ni Node requis pour l'utilisateur final.
+  * l’état actuel ;
+  * les fichiers modifiés ;
+  * les tests exécutés ;
+  * les risques ;
+  * la prochaine action exacte.
 
-Ne jamais casser sans demande explicite et tests dédiés :
+### À la fin
 
-- recherche en phrase exacte quand les dorks automatiques sont actifs ;
-- isolation des moteurs, retries, timeouts, scoring explicable et rapports ;
-- fermeture propre de Zendriver/Chrome ;
-- pages locales `file://`, enquêtes, preuves, provenance et exports ZeroNeurone ;
-- contrats CDP/JavaScript : `window.name`, `window.synthesixHome`, `window.synthesixPage`, actions, payloads, IDs, événements et attributs `data-*`.
+* Exécuter les vérifications adaptées.
+* Mettre à jour la documentation concernée.
+* Retirer les verrous.
+* Clôturer la tâche dans `AI_WORKLOG.md`.
+* Indiquer les tests exécutés et ceux qui ne l’ont pas été.
 
-Avant de modifier un contrat, rechercher tous ses producteurs, consommateurs et tests. Toute évolution CDP/overlay exige un test ciblé et un smoke live, ou une mention explicite de l'absence de smoke.
+Une tâche n’est pas terminée tant que son suivi n’est pas à jour.
 
-## Architecture
+## 3. Fichiers partagés sensibles
 
-- `main.py` : cycle navigateur, boucle UI et actions CDP.
-- `browser_manager.py`, `search_engine.py` : navigateur et comportement moteur commun.
-- `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` : logique propre aux moteurs.
-- `search_orchestrator.py` : concurrence, retries, scoring et rapports.
-- `investigations/`, `analysis/`, `evidence/`, `exports/` : domaine, analyse, preuves et exports.
-- `ui.py`, `utils.py`, `theme.css`, `i18n.js` : rendu, thème et traductions.
-- `frontend/src/components/` : composants Lit applicatifs.
-- `frontend/src/overlay/` : composants injectés sur des pages tierces.
-- `assets/synthesix-*.js` : bundles IIFE générés et versionnés.
-- `tests/` : suite `unittest`.
+Un verrou exclusif est requis avant de modifier :
 
-Séparer métier, données, navigateur et rendu. Préférer une correction ciblée à une réécriture large.
+* `main.py`
+* `ui.py`
+* `utils.py`
+* `theme.css`
+* `index.html`
+* `i18n.js`
+* `settings.py`
+* `search_orchestrator.py`
+* `investigations/view.py`
+* `investigations/search_view.py`
+* `frontend/package.json`
+* `frontend/tsconfig.json`
+* `frontend/build.mjs`
+* `frontend/src/index.ts`
+* `frontend/src/overlay/index.ts`
+* `assets/synthesix-ui.js`
+* `assets/synthesix-overlay.js`
+* `graphify-out/graph.json`
+* `graphify-out/GRAPH_REPORT.md`
 
-## Python
+Les verrous doivent être précis et conservés uniquement pendant la durée nécessaire.
 
-- Compatibilité Python 3.10+, annotations de types sur le code modifié.
-- Fonctions petites, testables ; préférer `pathlib`, `dataclasses`, `typing`, `logging`.
-- Éviter l'état global et les effets de bord implicites.
-- Dans l'async : `await asyncio.sleep()`, jamais `time.sleep()`.
-- Fermer le navigateur via le gestionnaire prévu ou `await browser.stop()`.
-- Isoler les erreurs par moteur.
-- Utiliser les migrations pour le schéma ; préserver les données existantes.
-- Ne pas changer une API ou un payload sans rechercher tous les consommateurs.
+## 4. Invariants produit
 
-## TypeScript, Lit et CSS
+Synthesix est une application OSINT locale :
 
-- TypeScript strict ; aucun local/paramètre inutilisé.
-- `LitElement`, Shadow DOM, préfixe `sx-`, un composant principal par fichier.
-- Enregistrer dans `frontend/src/index.ts` ou `frontend/src/overlay/index.ts`.
-- Utiliser les tokens CSS existants. L'overlay ne dépend jamais du CSS de la page hôte.
-- Pas de texte utilisateur en dur dans un composant réutilisable : propriétés, attributs, slots ou `i18n.js`.
-- Focus visible, clavier, rôles et `aria-label` pour les icônes.
-- Préserver événements, attributs réfléchis, slots et API publiques.
-- Les pages `file://` chargent le bundle applicatif par script classique, pas `type="module"`.
-- Ne pas éditer les bundles minifiés directement.
-- Après modification TS : `npm run typecheck`, `npm run build`, puis commit source + bundle.
-- Adapter une démo `frontend/demo/` et vérifier clair/sombre, vide, long et dense si l'UI change.
+* compatible Python 3.10+ ;
+* async-first ;
+* pilotée par Zendriver et Chrome DevTools Protocol ;
+* lançable avec `python main.py` ;
+* utilisable sans serveur ni environnement Node par l’utilisateur final.
 
-## i18n et UX
+Ne pas casser sans demande explicite et tests adaptés :
 
-- Toute nouvelle chaîne utilisateur doit être traduisible.
-- Synchroniser les dictionnaires de `i18n.js`, dont `multilingual` et `additionalTranslations`.
-- Exécuter les tests i18n après changement de clé.
-- Privilégier densité utile, hiérarchie claire et actions rapides.
-- Masquer les champs vides ; fournir `title`/`aria-label` aux icônes seules.
-- Ne pas introduire React, Tailwind ou serveur obligatoire sans décision explicite.
+* la recherche en phrase exacte avec les dorks automatiques ;
+* l’isolation des moteurs de recherche ;
+* les retries, timeouts et mécanismes de scoring ;
+* la fermeture propre de Zendriver et Chrome ;
+* les pages locales chargées en `file://` ;
+* les enquêtes, preuves, provenances et exports ZeroNeurone ;
+* les contrats entre Python, CDP et JavaScript.
 
-## Sécurité et fichiers interdits
+## 5. Contrats publics
 
-Ne jamais afficher ou versionner secrets, cookies, profils navigateur, données d'enquête, bases runtime, captures, archives de preuve ou rapports générés.
+Avant de modifier un élément contractuel, rechercher ses producteurs, consommateurs et tests.
 
-Ne pas committer notamment : `.venv/`, `env/`, `node_modules/`, `data/`, `history/`, `*-profile/`, `zendriver-profile/`, `tmp_ui_render/`, `.cache/`, caches Python/tests et couverture.
+Cela concerne notamment :
 
-Valider chemins, URL et entrées externes. Éviter `eval`, `exec`, désérialisation dangereuse et shell construit depuis une entrée. Ne pas contourner les protections SSRF ou le nettoyage des preuves.
+* API Python ;
+* payloads ;
+* schémas de données ;
+* actions CDP ;
+* `window.name` ;
+* `window.synthesixHome` ;
+* `window.synthesixPage` ;
+* IDs et attributs `data-*` ;
+* événements Lit ;
+* propriétés réfléchies ;
+* slots ;
+* API publiques des composants.
 
-## Dépendances et Git
+Toute évolution fonctionnelle du CDP ou de l’overlay doit avoir :
 
-- Préférer standard library et dépendances existantes.
-- Justifier toute dépendance et l'ajouter au bon manifeste.
-- Pour Zendriver, suivre la procédure du `README.md`.
-- Ne pas lancer de formatage global hors périmètre.
-- Ne pas écraser des changements utilisateur/agent.
-- Interdits sans autorisation : `git reset --hard`, `git clean -fd`, force-push, rebase destructif.
-- Inspecter `git diff`, `git diff --staged`, `git status --short`.
-- Messages de commit centrés sur le résultat, pas sur l'outil IA.
+* un test ciblé ;
+* un smoke test réel lorsque possible ;
+* ou une mention explicite indiquant pourquoi ce smoke test n’a pas été exécuté.
 
-## Vérifications
+## 6. Architecture générale
 
-Python ciblé :
+Respecter les frontières suivantes :
+
+* backend Python asynchrone pour le métier et le pilotage navigateur ;
+* moteurs de recherche isolés derrière des interfaces communes ;
+* orchestration séparée du scraping propre à chaque moteur ;
+* séparation entre enquêtes, analyse, preuves et exports ;
+* interface Lit compilée en bundles IIFE ;
+* composants applicatifs séparés des composants injectés sur les pages tierces ;
+* tests Python basés sur `unittest`.
+
+Préférer une correction ciblée à une réécriture large.
+
+## 7. Python
+
+* Maintenir la compatibilité Python 3.10+.
+* Ajouter des annotations de types au code modifié lorsque pertinent.
+* Préférer des fonctions petites et testables.
+* Utiliser de préférence `pathlib`, `dataclasses`, `typing` et `logging`.
+* Limiter l’état global et les effets de bord implicites.
+* Dans du code asynchrone, utiliser `await asyncio.sleep()`, jamais `time.sleep()`.
+* Fermer le navigateur avec le mécanisme prévu ou `await browser.stop()`.
+* Isoler les erreurs par moteur.
+* Utiliser les migrations pour toute évolution de schéma.
+* Préserver les données existantes.
+
+## 8. TypeScript, Lit et CSS
+
+* Conserver TypeScript en mode strict.
+* Ne pas laisser de variables ou paramètres inutilisés.
+* Utiliser `LitElement`, le Shadow DOM et le préfixe `sx-`.
+* Garder un composant principal par fichier.
+* Enregistrer les composants dans :
+
+  * `frontend/src/index.ts` ;
+  * ou `frontend/src/overlay/index.ts`.
+* Utiliser les tokens CSS existants.
+* L’overlay ne doit pas dépendre du CSS de la page hôte.
+* Préserver les événements, propriétés, attributs et slots publics.
+* Fournir un focus visible et les attributs d’accessibilité nécessaires.
+* Les icônes seules doivent avoir un `title` ou un `aria-label`.
+* Ne pas éditer directement les bundles minifiés.
+* Les pages `file://` doivent charger les bundles par script classique, sans `type="module"`.
+
+Après toute modification TypeScript :
+
+```powershell
+cd frontend
+npm run typecheck
+npm run build
+cd ..
+```
+
+Committer ensemble les sources et les bundles générés.
+
+En cas de changement visuel, vérifier au minimum :
+
+* thème clair ;
+* thème sombre ;
+* état vide ;
+* texte long ;
+* affichage dense ou étroit.
+
+## 9. i18n et UX
+
+* Toute nouvelle chaîne visible doit être traduisible.
+* Ne pas placer de texte utilisateur en dur dans un composant réutilisable.
+* Synchroniser les dictionnaires de `i18n.js`, notamment `multilingual` et `additionalTranslations`.
+* Exécuter les tests i18n après toute modification de clé.
+* Masquer les champs sans valeur.
+* Privilégier une hiérarchie claire, une densité utile et des actions accessibles.
+* Ne pas introduire React, Tailwind ou un serveur obligatoire sans décision explicite.
+
+## 10. Sécurité et données locales
+
+Ne jamais inclure dans un commit, une réponse externe ou un journal partagé :
+
+* secrets ou clés API ;
+* cookies ;
+* profils navigateur ;
+* données d’enquête ;
+* preuves ou captures ;
+* bases runtime ;
+* rapports générés ;
+* informations personnelles ou client.
+
+La lecture locale de ces données est autorisée uniquement lorsque la tâche l’exige.
+
+Ne pas versionner notamment :
+
+* `.venv/`
+* `env/`
+* `node_modules/`
+* `data/`
+* `history/`
+* `*-profile/`
+* `zendriver-profile/`
+* `tmp_ui_render/`
+* `.cache/`
+* caches Python et résultats de couverture.
+
+Valider les chemins, URL et entrées externes.
+
+Éviter :
+
+* `eval` ;
+* `exec` ;
+* la désérialisation non sûre ;
+* les commandes shell construites depuis une entrée utilisateur ;
+* le contournement des protections SSRF ;
+* le contournement du nettoyage des preuves.
+
+## 11. Dépendances et Git
+
+* Préférer la bibliothèque standard et les dépendances existantes.
+* Justifier toute nouvelle dépendance.
+* Ajouter la dépendance dans le manifeste approprié.
+* Pour Zendriver, suivre la procédure du `README.md`.
+* Ne pas lancer de formatage global hors périmètre.
+* Ne pas écraser les changements locaux d’un utilisateur ou d’un autre agent.
+
+Interdits sans autorisation explicite :
+
+```text
+git reset --hard
+git clean -fd
+git push --force
+rebase destructif
+```
+
+Avant de clôturer :
+
+```powershell
+git diff
+git diff --staged
+git status --short
+git diff --check
+```
+
+Les messages de commit doivent décrire le résultat, pas l’outil IA utilisé.
+
+## 12. Vérifications
+
+### Python ciblé
 
 ```powershell
 .venv\Scripts\python.exe -m unittest tests.test_<module>
 git diff --check
 ```
 
-Frontend :
+### Frontend
 
 ```powershell
 cd frontend
@@ -157,7 +315,7 @@ cd ..
 git diff --check
 ```
 
-Changement large :
+### Changement transversal
 
 ```powershell
 cd frontend
@@ -168,19 +326,54 @@ cd ..
 git diff --check
 ```
 
-Utiliser l'équivalent du virtualenv sous Linux/macOS. Ajouter selon le périmètre : `py_compile`, capture Chrome headless, smoke CDP live ou smoke ZeroNeurone.
+Sous Linux ou macOS, utiliser l’équivalent du virtualenv.
 
-Ne jamais déclarer un test réussi sans l'avoir exécuté.
+Ajouter selon le périmètre :
 
-## Definition of Done
+* `py_compile` ;
+* test i18n ;
+* capture Chrome headless ;
+* smoke test CDP ;
+* smoke test ZeroNeurone.
 
-- objectif réalisé sans élargissement caché ;
-- invariants et contrats préservés ;
-- tests adaptés exécutés et résultats rapportés ;
-- bundles régénérés si nécessaire ;
-- vérification visuelle/CDP faite ou explicitement omise ;
-- documentation à jour ;
-- `git diff --check` propre ;
-- aucun fichier sensible/temporaire staged ;
-- `AI_WORKLOG.md` clôturé sans verrou actif ;
-- réponse finale : résumé, fichiers, tests, limites et reste à faire.
+Ne jamais déclarer un test réussi sans l’avoir exécuté.
+
+## 13. Navigation avec Graphify
+
+Utiliser Graphify pour les questions transversales d’architecture, de dépendances ou de localisation de code inconnue :
+
+```powershell
+graphify query "<question précise>"
+```
+
+Règles :
+
+* utiliser le résultat pour sélectionner les fichiers à lire ;
+* toujours vérifier le code source avant de modifier ;
+* ne pas considérer le graphe comme une preuve du comportement actuel ;
+* ne pas lire tout `GRAPH_REPORT.md` pour une question locale ;
+* ne pas utiliser Graphify pour connaître l’état des tâches ;
+* lire directement `AI_WORKLOG.md` pour les claims, verrous et décisions ;
+* vérifier la mise à jour du graphe après un changement architectural important.
+
+## 14. Clôture et réponse finale
+
+Avant de terminer, vérifier que :
+
+* l’objectif demandé est réalisé ;
+* les contrats et invariants sont préservés ;
+* les tests adaptés ont été exécutés ;
+* les bundles ont été régénérés si nécessaire ;
+* les vérifications visuelles ou CDP ont été faites ou explicitement omises ;
+* aucun fichier sensible ou temporaire n’est staged ;
+* `git diff --check` est propre ;
+* les verrous ont été retirés ;
+* `AI_WORKLOG.md` est à jour.
+
+La réponse finale doit contenir uniquement :
+
+* le résultat ;
+* les fichiers modifiés ;
+* les tests réellement exécutés ;
+* les vérifications non exécutées ;
+* les limites ou prochaines actions nécessaires.
