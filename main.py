@@ -2807,6 +2807,9 @@ async def main():
                 "set_entity_property_scope",
                 "delete_entities",
                 "attach_extracted_properties",
+                "add_graph_entity_relation",
+                "update_graph_entity_relation",
+                "delete_graph_entity_relation",
             }:
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -2846,6 +2849,27 @@ async def main():
                             investigation_id,
                             entity_id,
                             result.get("property", {}),
+                        )
+                    elif action == "add_graph_entity_relation":
+                        investigation_service.add_graph_entity_relation(
+                            investigation_id,
+                            entity_id,
+                            str(result.get("targetEntityId", "") or "").strip(),
+                            str(result.get("label", "") or ""),
+                            relation_id=str(
+                                result.get("relationId", "") or ""
+                            ).strip(),
+                        )
+                    elif action == "update_graph_entity_relation":
+                        investigation_service.update_graph_entity_relation(
+                            investigation_id,
+                            str(result.get("relationId", "") or "").strip(),
+                            str(result.get("label", "") or ""),
+                        )
+                    elif action == "delete_graph_entity_relation":
+                        investigation_service.delete_graph_entity_relation(
+                            investigation_id,
+                            str(result.get("relationId", "") or "").strip(),
                         )
                     elif action == "link_result_to_graph_entity":
                         investigation_service.link_result_to_graph_entity(
@@ -2937,6 +2961,9 @@ async def main():
                     # scroll position instead of reloading the whole page.
                     if action in {
                         "set_graph_entity_property",
+                        "add_graph_entity_relation",
+                        "update_graph_entity_relation",
+                        "delete_graph_entity_relation",
                         "attach_extracted_property",
                         "detach_extracted_property",
                         "set_entity_property_scope",

@@ -1082,6 +1082,138 @@ class InvestigationRepository:
             if entity.id == entity_id
         )
 
+    def add_entity_relation(
+        self,
+        investigation_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        label: str,
+        relation_id: str = "",
+    ) -> dict:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        if not source_entity_id or not target_entity_id:
+            raise InvestigationValidationError("Two entities are required.")
+        if source_entity_id == target_entity_id:
+            raise InvestigationValidationError(
+                "An entity cannot be linked to itself."
+            )
+        known = {
+            entity.id
+            for entity in self.list_investigation_entities(investigation_id)
+        }
+        if source_entity_id not in known or target_entity_id not in known:
+            raise InvestigationValidationError("Unknown entity.")
+        relation_id = str(relation_id or "").strip() or str(uuid4())
+        now = utc_now()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO investigation_entity_relations(
+                    id, investigation_id, source_entity_id,
+                    target_entity_id, label, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    relation_id,
+                    investigation_id,
+                    source_entity_id,
+                    target_entity_id,
+                    label,
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+        return {
+            "id": relation_id,
+            "source_entity_id": source_entity_id,
+            "target_entity_id": target_entity_id,
+            "label": label,
+        }
+
+    def update_entity_relation(
+        self,
+        investigation_id: str,
+        relation_id: str,
+        label: str,
+    ) -> None:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        now = utc_now()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE investigation_entity_relations
+                SET label = ?, updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (label, now, relation_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError("Relation not found.")
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (now, investigation_id),
+            )
+
+    def delete_entity_relation(
+        self,
+        investigation_id: str,
+        relation_id: str,
+    ) -> None:
+        with self._connection() as connection:
+            connection.execute(
+                """
+                DELETE FROM investigation_entity_relations
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (relation_id, investigation_id),
+            )
+            connection.execute(
+                "UPDATE investigations SET updated_at = ? WHERE id = ?",
+                (utc_now(), investigation_id),
+            )
+
+    def list_entity_relations_by_source(
+        self,
+        investigation_id: str,
+    ) -> dict[str, list[dict]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.id, r.source_entity_id, r.target_entity_id,
+                       r.label, t.label AS target_label
+                FROM investigation_entity_relations r
+                JOIN investigation_entities t
+                    ON t.id = r.target_entity_id
+                WHERE r.investigation_id = ?
+                ORDER BY r.created_at
+                """,
+                (investigation_id,),
+            ).fetchall()
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            grouped.setdefault(row["source_entity_id"], []).append(
+                {
+                    "id": row["id"],
+                    "target_entity_id": row["target_entity_id"],
+                    "target_label": row["target_label"],
+                    "label": row["label"],
+                }
+            )
+        return grouped
+
     def list_investigation_entities(
         self,
         investigation_id: str,

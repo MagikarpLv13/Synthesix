@@ -1154,6 +1154,32 @@ def _graph_entities_markup(
             if str(value or "").strip()
         )
         source_rows = "".join(_source_row(entry) for entry in source_entries)
+        relations = entity.get("relations", []) or []
+        relation_rows = "".join(
+            f"""
+            <li class="entity-relation" data-relation-id="{_html(relation.get("id", ""))}">
+                <input
+                    type="text"
+                    class="entity-relation__label"
+                    data-relation-label
+                    maxlength="120"
+                    value="{_html(relation.get("label", ""))}"
+                    placeholder="Mot clé…"
+                    {disabled}
+                >
+                <span class="entity-relation__target">→ {_html(relation.get("target_label", ""))}</span>
+                <button type="button" class="icon-action icon-action--danger delete-relation"
+                    title="Supprimer la relation" aria-label="Supprimer la relation"{disabled}>{_icon("trash")}</button>
+            </li>
+            """
+            for relation in relations
+        )
+        relation_options = "".join(
+            f'<option value="{_html(str(other.get("id", "") or ""))}">'
+            f'{_html(other.get("label", ""))}</option>'
+            for other in graph_entities
+            if str(other.get("id", "") or "") != entity_id
+        )
         entity_tags = entity.get("tags", []) or []
         tag_chips = "".join(
             f'<span class="tag-chip" data-tag="{_html(tag)}">{_html(tag)}'
@@ -1239,6 +1265,25 @@ def _graph_entities_markup(
                             class="secondary-button graph-property-add__submit"
                             {disabled}
                         >Ajouter</button>
+                    </form>
+                </div>
+                <div class="entity-section">
+                    <span class="entity-section__title">Relations</span>
+                    <ul class="entity-relation-list">{relation_rows}</ul>
+                    <form class="entity-relation-add" data-add-relation>
+                        <input
+                            type="text"
+                            class="entity-relation-add__label"
+                            data-relation-add-label
+                            maxlength="120"
+                            placeholder="Mot clé (ex. PDG de)"
+                            {disabled}
+                        >
+                        <select class="entity-relation-add__target" data-relation-add-target{disabled}>
+                            <option value="">Entité…</option>
+                            {relation_options}
+                        </select>
+                        <button type="submit" class="secondary-button"{disabled}>Lier</button>
                     </form>
                 </div>
                 <div class="entity-section">
@@ -3242,6 +3287,108 @@ def generate_investigation_page(
                         }}
                         flashSaved();
                     }});
+                const relationList = card.querySelector(
+                    ".entity-relation-list"
+                );
+                const bindRelationLabel = (input) => {{
+                    let last = input.value.trim();
+                    input.addEventListener("change", () => {{
+                        const li = input.closest("[data-relation-id]");
+                        const value = input.value.trim();
+                        if (!li || value === last) {{
+                            return;
+                        }}
+                        last = value;
+                        queueAction("update_graph_entity_relation", {{
+                            relationId: li.dataset.relationId,
+                            label: value
+                        }});
+                        flashSaved();
+                    }});
+                }};
+                card.querySelectorAll("[data-relation-label]").forEach(
+                    bindRelationLabel
+                );
+                card.addEventListener("click", (event) => {{
+                    const del = event.target.closest(".delete-relation");
+                    const li = del && del.closest("[data-relation-id]");
+                    if (!li) {{
+                        return;
+                    }}
+                    queueAction("delete_graph_entity_relation", {{
+                        relationId: li.dataset.relationId
+                    }});
+                    li.remove();
+                    flashSaved();
+                }});
+                card.querySelector("[data-add-relation]")?.addEventListener(
+                    "submit",
+                    (event) => {{
+                        event.preventDefault();
+                        const labelInput = card.querySelector(
+                            "[data-relation-add-label]"
+                        );
+                        const targetSelect = card.querySelector(
+                            "[data-relation-add-target]"
+                        );
+                        const targetId = targetSelect?.value || "";
+                        const label = labelInput?.value.trim() || "";
+                        if (!targetId) {{
+                            return;
+                        }}
+                        const relationId = (
+                            window.crypto && crypto.randomUUID
+                                ? crypto.randomUUID()
+                                : String(Date.now()) + Math.random()
+                        );
+                        queueAction("add_graph_entity_relation", {{
+                            entityId,
+                            targetEntityId: targetId,
+                            label,
+                            relationId
+                        }});
+                        if (relationList) {{
+                            const targetLabel = targetSelect.options[
+                                targetSelect.selectedIndex
+                            ].text;
+                            const li = document.createElement("li");
+                            li.className = "entity-relation";
+                            li.dataset.relationId = relationId;
+                            const input = document.createElement("input");
+                            input.type = "text";
+                            input.className = "entity-relation__label";
+                            input.setAttribute("data-relation-label", "");
+                            input.maxLength = 120;
+                            input.value = label;
+                            input.placeholder = "Mot clé…";
+                            const span = document.createElement("span");
+                            span.className = "entity-relation__target";
+                            span.textContent = "→ " + targetLabel;
+                            const btn = document.createElement("button");
+                            btn.type = "button";
+                            btn.className = (
+                                "icon-action icon-action--danger delete-relation"
+                            );
+                            btn.title = "Supprimer la relation";
+                            btn.setAttribute(
+                                "aria-label", "Supprimer la relation"
+                            );
+                            btn.textContent = "×";
+                            li.appendChild(input);
+                            li.appendChild(span);
+                            li.appendChild(btn);
+                            relationList.appendChild(li);
+                            bindRelationLabel(input);
+                        }}
+                        if (labelInput) {{
+                            labelInput.value = "";
+                        }}
+                        if (targetSelect) {{
+                            targetSelect.value = "";
+                        }}
+                        flashSaved();
+                    }}
+                );
             }});
 
             resultCards.forEach((card) => {{

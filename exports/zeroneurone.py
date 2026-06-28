@@ -556,6 +556,24 @@ def _build_curated_graph(
         for result_id in linked_result_ids:
             linked_entities_by_result.setdefault(result_id, []).append(node)
 
+    # Entity-to-entity keyword relations become labelled edges.
+    for entity in workspace.get("graph_entities", []):
+        source_node = entity_nodes.get(str(entity.get("id", "") or ""))
+        if source_node is None:
+            continue
+        for relation in entity.get("relations", []) or []:
+            target_node = entity_nodes.get(
+                str(relation.get("target_entity_id", "") or "")
+            )
+            if target_node is None:
+                continue
+            relation_edge = _edge(
+                source_node,
+                target_node,
+                str(relation.get("label", "") or "").strip() or "Lié à",
+            )
+            edges[relation_edge.id] = relation_edge
+
     # Evidence is no longer exported as separate nodes: the capture artifacts are
     # attached as files on the entities they support (see _copy_native_assets).
 

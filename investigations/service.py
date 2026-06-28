@@ -351,6 +351,9 @@ class InvestigationService:
 
     def workspace_payload(self, investigation_id: str) -> dict:
         investigation = self.get(investigation_id)
+        relations_by_source = self.repository.list_entity_relations_by_source(
+            investigation_id
+        )
         return {
             "investigation": investigation.to_payload(),
             "results": [
@@ -388,7 +391,10 @@ class InvestigationService:
                 )
             ],
             "graph_entities": [
-                entity.to_payload()
+                {
+                    **entity.to_payload(),
+                    "relations": relations_by_source.get(entity.id, []),
+                }
                 for entity in self.repository.list_investigation_entities(
                     investigation_id
                 )
@@ -546,6 +552,44 @@ class InvestigationService:
         self.repository.delete_investigation_entity(
             investigation_id,
             entity_id,
+        )
+
+    def add_graph_entity_relation(
+        self,
+        investigation_id: str,
+        source_entity_id: str,
+        target_entity_id: str,
+        label: str,
+        relation_id: str = "",
+    ) -> dict:
+        return self.repository.add_entity_relation(
+            investigation_id,
+            str(source_entity_id or "").strip(),
+            str(target_entity_id or "").strip(),
+            _clean_text(label, max_length=120),
+            relation_id=str(relation_id or "").strip(),
+        )
+
+    def update_graph_entity_relation(
+        self,
+        investigation_id: str,
+        relation_id: str,
+        label: str,
+    ) -> None:
+        self.repository.update_entity_relation(
+            investigation_id,
+            str(relation_id or "").strip(),
+            _clean_text(label, max_length=120),
+        )
+
+    def delete_graph_entity_relation(
+        self,
+        investigation_id: str,
+        relation_id: str,
+    ) -> None:
+        self.repository.delete_entity_relation(
+            investigation_id,
+            str(relation_id or "").strip(),
         )
 
     def set_graph_entity_property(

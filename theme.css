@@ -2682,6 +2682,74 @@ a:focus-visible {
     flex: 0 0 auto;
 }
 
+.entity-relation-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.entity-relation {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.entity-relation__label {
+    flex: 1 1 45%;
+    min-width: 0;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-relation__target {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.entity-relation-add {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.entity-relation-add__label {
+    flex: 1 1 45%;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.entity-relation-add__target {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
 .graph-property-list li {
     display: grid;
     grid-template-columns: minmax(100px, auto) minmax(0, 1fr) auto;

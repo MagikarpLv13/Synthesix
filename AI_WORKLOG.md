@@ -1082,6 +1082,38 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   `tests/test_zeroneurone_export.py`, `AI_WORKLOG.md`
 - **Tests exécutés :** `unittest discover` (261) OK.
 - **Vérifications non exécutées :** rendu réel ZeroNeurone — à confirmer.
+
+### AI-20260623-008 — Relations entité↔entité (mot-clé)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** lier deux entités par un mot-clé/phrase (ex. « PDG de »),
+  no-reload + save au blur.
+- **Changements :**
+  - Migration 15 : table `investigation_entity_relations` (source, target,
+    label).
+  - `repository.py` : `add_entity_relation` (id client accepté),
+    `update_entity_relation`, `delete_entity_relation`,
+    `list_entity_relations_by_source`.
+  - `service.py` : `add/update/delete_graph_entity_relation` ; workspace_payload
+    injecte `relations` par entité (avec `target_label`).
+  - `main.py` : actions CDP `add/update/delete_graph_entity_relation`
+    (no-reload).
+  - `view.py` : section « Relations » sur la carte entité (liste éditable +
+    formulaire « mot-clé » + select entité) ; JS optimiste (id relation généré
+    client via `crypto.randomUUID`), save au blur, suppression.
+  - `theme.css` : styles relations.
+  - `exports/zeroneurone.py` : relations → arêtes étiquetées (label = mot-clé,
+    sinon « Lié à ») entre entités.
+- **Fichiers modifiés :** `investigations/migrations.py`,
+  `investigations/repository.py`, `investigations/service.py`, `main.py`,
+  `investigations/view.py`, `theme.css`, `exports/zeroneurone.py`,
+  `tests/test_investigations.py`, `tests/test_zeroneurone_export.py`,
+  `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (264) OK ; `git diff --check` OK ;
+  smoke headless (section Relations rendue).
+- **Vérifications non exécutées :** smoke CDP live (ajout/édition/suppression
+  relation no-reload) — à confirmer.
 ## Modèle de compte rendu terminé
 
 ```markdown

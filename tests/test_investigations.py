@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 14)
+        self.assertEqual(self.repository.schema_version(), 15)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 14)
+            self.assertEqual(repository.schema_version(), 15)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,7 +194,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 14)
+            self.assertEqual(service.repository.schema_version(), 15)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
@@ -235,7 +235,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             repository = InvestigationRepository(database_path)
             repository.initialize()
 
-            self.assertEqual(repository.schema_version(), 14)
+            self.assertEqual(repository.schema_version(), 15)
             self.assertEqual(repository.table_count("page_monitors"), 0)
             repaired = sqlite3.connect(database_path)
             try:
@@ -888,6 +888,50 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
         self.assertEqual(entity["tags"], ["Source confidentielle"])
         self.assertEqual(entity["properties"], {})
+
+    def test_entity_relations_round_trip(self):
+        investigation = self.service.create({"title": "Relations"})
+        a = self.service.create_graph_entity(
+            investigation.id, {"label": "Jean Michel", "tags": "Personne"}
+        )
+        b = self.service.create_graph_entity(
+            investigation.id, {"label": "Société A", "tags": "Entreprise"}
+        )
+        rel = self.service.add_graph_entity_relation(
+            investigation.id, a["id"], b["id"], "PDG de"
+        )
+
+        def _source():
+            workspace = self.service.workspace_payload(investigation.id)
+            return next(
+                entity
+                for entity in workspace["graph_entities"]
+                if entity["id"] == a["id"]
+            )
+
+        relations = _source()["relations"]
+        self.assertEqual(len(relations), 1)
+        self.assertEqual(relations[0]["label"], "PDG de")
+        self.assertEqual(relations[0]["target_entity_id"], b["id"])
+        self.assertEqual(relations[0]["target_label"], "Société A")
+
+        self.service.update_graph_entity_relation(
+            investigation.id, rel["id"], "Directeur de"
+        )
+        self.assertEqual(_source()["relations"][0]["label"], "Directeur de")
+
+        self.service.delete_graph_entity_relation(investigation.id, rel["id"])
+        self.assertEqual(_source()["relations"], [])
+
+    def test_entity_relation_rejects_self_link(self):
+        investigation = self.service.create({"title": "Self"})
+        entity = self.service.create_graph_entity(
+            investigation.id, {"label": "X", "tags": "Personne"}
+        )
+        with self.assertRaises(InvestigationValidationError):
+            self.service.add_graph_entity_relation(
+                investigation.id, entity["id"], entity["id"], "x"
+            )
 
     def test_creates_graph_entities_directly_from_results_and_properties(self):
         investigation = self.service.create({"title": "Quick entities"})

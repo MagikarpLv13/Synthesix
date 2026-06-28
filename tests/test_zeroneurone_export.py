@@ -612,6 +612,41 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             person.properties["Date de naissance"], "5 mars 1983"
         )
 
+    def test_entity_relations_become_labelled_edges(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "a",
+                "label": "Jean",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+                "relations": [
+                    {
+                        "id": "r1",
+                        "target_entity_id": "b",
+                        "target_label": "Société A",
+                        "label": "PDG de",
+                    }
+                ],
+            },
+            {
+                "id": "b",
+                "label": "Société A",
+                "tags": ["Entreprise"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            },
+        ]
+
+        _, edges = build_export_graph(workspace)
+
+        edge = next(edge for edge in edges if edge.label == "PDG de")
+        self.assertEqual(edge.source_label, "Jean")
+        self.assertEqual(edge.target_label, "Société A")
+
     def test_date_candidates_default_to_event_elements(self):
         workspace = export_workspace()
         workspace["entities"].append(

@@ -562,4 +562,26 @@ MIGRATIONS = (
             ON extracted_entities(investigation_entity_id, property_key);
         """,
     ),
+    (
+        15,
+        """
+        CREATE TABLE investigation_entity_relations (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            source_entity_id TEXT NOT NULL
+                REFERENCES investigation_entities(id) ON DELETE CASCADE,
+            target_entity_id TEXT NOT NULL
+                REFERENCES investigation_entities(id) ON DELETE CASCADE,
+            label TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX idx_entity_relations_source
+            ON investigation_entity_relations(
+                investigation_id, source_entity_id
+            );
+        """,
+    ),
 )
