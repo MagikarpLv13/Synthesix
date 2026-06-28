@@ -1043,6 +1043,30 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   grille (plutôt qu'une colonne) serait plus compacte — itération possible si
   besoin.
 
+### AI-20260623-006 — Export ZeroNeurone : dates, taille nœud, mise en page
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** retours utilisateur : dates qui disparaissent (date de naissance
+  absente), nœuds qui ne s'adaptent pas au contenu, cascade peu lisible.
+- **Changements (`exports/zeroneurone.py`) :**
+  1. **Dates** : un fait `date` ne devient un événement que s'il parse
+     (`_entity_events`) ; sinon il reste une **propriété** (ne disparaît plus).
+     Libellé d'événement = `custom_label` → `property_key` → « Événement détecté ».
+  2. **Taille nœud** : `_content_size(label)` (small/medium/large selon longueur)
+     posée comme taille de base dans `_native_visual` ; les URLs longues ne sont
+     plus tassées (les tagsets ne forçant pas de taille, le contenu prime).
+  3. **Mise en page** : `_curated_positions` donne à chaque entité un **bloc
+     vertical** dimensionné sur son éventail de sources (pas de chevauchement),
+     entités à gauche, sources à droite, écarts élargis.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (260) OK ; `git diff --check` OK (CRLF).
+- **Vérifications non exécutées :** rendu réel ZeroNeurone — à confirmer.
+- **Risques / reste à faire :** date de naissance absente peut aussi venir d'un
+  fait non rattaché à l'entité (triage) — hors export. Disposition grille possible
+  si beaucoup d'entités.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

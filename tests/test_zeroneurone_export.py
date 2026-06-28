@@ -545,6 +545,40 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertGreater(source["position"]["x"], person["position"]["x"])
         self.assertEqual(source["position"]["y"], person["position"]["y"])
 
+    def test_unparseable_date_stays_as_property(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-bday",
+                "result_id": "result-1",
+                "entity_type": "date",
+                "value_original": "5 mars 1983",
+                "value_normalized": "5 mars 1983",
+                "status": "validated",
+                "investigation_entity_id": "person-1",
+                "property_key": "Date de naissance",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        person = next(node for node in nodes if node.label == "Jane Doe")
+        # A date that cannot become a timeline event must not vanish.
+        self.assertEqual(
+            person.properties["Date de naissance"], "5 mars 1983"
+        )
+
     def test_date_candidates_default_to_event_elements(self):
         workspace = export_workspace()
         workspace["entities"].append(
