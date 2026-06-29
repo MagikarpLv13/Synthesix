@@ -434,7 +434,12 @@
         "Open report": ["Ouvrir le rapport","Abrir informe","打开报告"],
         "Delete this capture and its local evidence files": ["Supprimer cette capture et ses fichiers de preuve locaux","Eliminar esta captura y sus archivos de evidencia locales","删除此捕获及其本地证据文件"],
         "Add or remove this page from favorites": ["Ajouter ou retirer cette page des favoris","Añadir o quitar esta página de favoritos","添加或移除此页面的收藏状态"],
-        "Remove this saved page from the investigation": ["Retirer cette page enregistrée de l'enquête","Quitar esta página guardada de la investigación","从调查中移除此已保存页面"]
+        "Remove this saved page from the investigation": ["Retirer cette page enregistrée de l'enquête","Quitar esta página guardada de la investigación","从调查中移除此已保存页面"],
+        "Type": ["Type","Tipo","类型"],
+        "All types": ["Tous les types","Todos los tipos","所有类型"],
+        "Web pages": ["Pages web","Páginas web","网页"],
+        "Imported documents": ["Documents importés","Documentos importados","导入的文档"],
+        "Imported document": ["Document importé","Documento importado","导入的文档"]
     };
 
     const languageIndexes = {fr: 0, es: 1, zh: 2};
@@ -725,7 +730,12 @@
         "Open report": ["Abrir relatório", "Bericht öffnen"],
         "Delete this capture and its local evidence files": ["Eliminar esta captura e os respetivos ficheiros de prova locais", "Diese Aufnahme und ihre lokalen Beweisdateien löschen"],
         "Add or remove this page from favorites": ["Adicionar ou remover esta página dos favoritos", "Diese Seite zu den Favoriten hinzufügen oder daraus entfernen"],
-        "Remove this saved page from the investigation": ["Remover esta página guardada da investigação", "Diese gespeicherte Seite aus der Ermittlung entfernen"]
+        "Remove this saved page from the investigation": ["Remover esta página guardada da investigação", "Diese gespeicherte Seite aus der Ermittlung entfernen"],
+        "Type": ["Tipo", "Typ"],
+        "All types": ["Todos os tipos", "Alle Typen"],
+        "Web pages": ["Páginas web", "Webseiten"],
+        "Imported documents": ["Documentos importados", "Importierte Dokumente"],
+        "Imported document": ["Documento importado", "Importiertes Dokument"]
     };
 
     const additionalLanguageIndexes = {pt: 0, de: 1};

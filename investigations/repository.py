@@ -3141,7 +3141,7 @@ class InvestigationRepository:
             raise InvestigationValidationError(
                 "Unsupported evidence capture scope."
             )
-        if capture_kind not in {"screenshot", "page_archive"}:
+        if capture_kind not in {"screenshot", "page_archive", "imported"}:
             raise InvestigationValidationError(
                 "Unsupported evidence capture kind."
             )

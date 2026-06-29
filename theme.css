@@ -2161,6 +2161,21 @@ a:focus-visible {
     white-space: nowrap;
 }
 
+.result-type-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .result-review-controls {
     display: flex;
     flex-wrap: wrap;
@@ -2851,6 +2866,20 @@ a:focus-visible {
     content: "HTML";
     color: var(--accent);
     font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.evidence-thumbnail--file {
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+}
+
+.evidence-thumbnail--file::after {
+    content: "FICHIER";
+    color: var(--accent);
+    font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.08em;
 }

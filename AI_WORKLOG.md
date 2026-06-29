@@ -1197,6 +1197,43 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Risques / reste à faire :** fichiers externes créent une page source
   synthétique (`files.synthesix.local`) ; à terme, regrouper sous une source
   « Fichiers importés » unique serait plus propre.
+
+### AI-20260630-001 — Import de fichiers : déblocage, ouverture, badge + filtre
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Objectif :** rendre l'import de fichiers locaux réellement fonctionnel
+  (tous types), ouvrable, et distinguable des pages web dans la liste.
+- **Changements :**
+  - `investigations/repository.py` : `record_evidence_capture` rejetait
+    `capture_kind='imported'` (allowlist Python `{screenshot, page_archive}`
+    non synchronisée avec la migration 16) → tout import levait
+    `InvestigationValidationError`. Ajout de `imported` à l'allowlist.
+  - `investigations/view.py` : helper `_imported_artifact_view` (href local
+    relatif + détection image). Le titre du résultat et l'inspector panel
+    pointent vers le fichier local (au lieu de l'URL synthétique injoignable)
+    et affichent « Imported document ». `_evidence_markup` : lien « Ouvrir »
+    pour tout import, miniature image inline ou vignette « FICHIER » générique.
+    Carte résultat : badge « Imported document » + `data-imported`. Filtre
+    « Type » (Tous / Pages web / Documents importés) intégré au JS de filtrage
+    existant (recherche et autres filtres préservés). Indication dropzone
+    élargie (PDF, image, audio, vidéo, document…).
+  - `i18n.js` : 5 clés (`Type`, `All types`, `Web pages`,
+    `Imported documents`, `Imported document`) ajoutées dans `multilingual`
+    (fr/es/zh) et `additionalTranslations` (pt/de).
+  - `theme.css` : styles `.result-type-badge` et `.evidence-thumbnail--file`.
+- **Fichiers modifiés :** `investigations/repository.py`,
+  `investigations/view.py`, `i18n.js`, `theme.css`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (265) OK ; `test_i18n_coverage` OK ;
+  repros de rendu hors-ligne (href local résolvant vers fichier existant,
+  badge, `data-imported`, filtre Type) OK ; `git diff --check` propre.
+- **Vérifications non exécutées :** néant de bloquant — smoke UI réel
+  (upload tous types, ouverture, badge, filtre, thèmes clair/sombre) **validé
+  par l'utilisateur le 2026-06-30**.
+- **Risques / reste à faire :** l'URL synthétique reste dans l'index de
+  recherche (`data-search`, invisible) ; regroupement « Fichiers importés »
+  comme source unique toujours possible plus tard.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

@@ -30,6 +30,12 @@ _PROPERTY_SUGGESTION_KEYS = sorted(
 # fact to attach to a curated entity.
 _SOURCE_PROPERTY_TYPES = {"domain", "url", "ipv4", "ipv6"}
 _ARCHIVE_ARTIFACT_TYPES = {"html", "mhtml", "text", "txt"}
+_IMAGE_EXTENSIONS = {
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
+    "avif", "tiff", "tif", "ico", "heic", "heif",
+}
+# Synthetic URL prefix used for imported files without an external source URL.
+_LOCAL_FILE_URL_PREFIX = "https://files.synthesix.local/"
 
 
 def _is_source_property(entity: Mapping) -> bool:
@@ -60,6 +66,33 @@ def _has_archive_artifact(capture: Mapping) -> bool:
         if "html" in mime_type or mime_type.startswith("text/"):
             return True
     return False
+
+
+def _imported_artifact_view(
+    capture: Mapping,
+    output_dir: Path,
+    base_dir: Path,
+) -> dict | None:
+    """Resolve a local, openable href for an imported file capture.
+
+    Returns ``{"href", "is_image"}`` for the first artifact whose file is
+    resolvable on disk, or ``None`` when the capture is not an import.
+    """
+    if str(capture.get("capture_kind", "") or "") != "imported":
+        return None
+    for artifact in capture.get("artifacts", []) or []:
+        if not isinstance(artifact, Mapping):
+            continue
+        path = _resolve_runtime_path(artifact.get("file_path"), base_dir)
+        if path is None:
+            continue
+        mime = str(artifact.get("mime_type", "") or "").casefold()
+        ext = str(artifact.get("artifact_type", "") or "").casefold()
+        return {
+            "href": _relative_href(path, output_dir),
+            "is_image": mime.startswith("image/") or ext in _IMAGE_EXTENSIONS,
+        }
+    return None
 
 
 def _archive_artifact(capture: Mapping) -> Mapping | None:
@@ -1496,25 +1529,38 @@ def _inspector_panel(
     *,
     is_monitored: bool,
     details_markup: str = "",
+    local_file_href: str = "",
 ) -> str:
     """Compact summary of a saved page, shown in the workspace rail on click."""
     result_id = str(result.get("id", ""))
     title = str(result.get("title") or result.get("url") or "Untitled result")
     url = str(result.get("url", ""))
+    is_local_file = url.startswith(_LOCAL_FILE_URL_PREFIX)
     status = str(result.get("analyst_status", "a_verifier"))
     status_label = STATUS_LABELS.get(status, status)
-    title_markup = (
-        f'<a class="inspector-panel__title" href="{_html(url)}" target="_blank" '
-        f'rel="noopener noreferrer">{_html(title)}</a>'
-        if url.startswith(("http://", "https://"))
-        else f'<span class="inspector-panel__title">{_html(title)}</span>'
-    )
-    url_markup = (
-        f'<div class="inspector-panel__url" title="{_html(url)}">'
-        f"{_html(_compact_url(url, max_length=90))}</div>"
-        if url
-        else ""
-    )
+    if is_local_file and local_file_href:
+        title_markup = (
+            f'<a class="inspector-panel__title" href="{_html(local_file_href)}" '
+            f'target="_blank" rel="noopener noreferrer">{_html(title)}</a>'
+        )
+    elif url.startswith(("http://", "https://")):
+        title_markup = (
+            f'<a class="inspector-panel__title" href="{_html(url)}" target="_blank" '
+            f'rel="noopener noreferrer">{_html(title)}</a>'
+        )
+    else:
+        title_markup = f'<span class="inspector-panel__title">{_html(title)}</span>'
+    if is_local_file:
+        url_markup = (
+            '<div class="inspector-panel__url">Imported document</div>'
+        )
+    elif url:
+        url_markup = (
+            f'<div class="inspector-panel__url" title="{_html(url)}">'
+            f"{_html(_compact_url(url, max_length=90))}</div>"
+        )
+    else:
+        url_markup = ""
     badges = [
         f'<span class="inspector-badge inspector-badge--status">'
         f"{_html(status_label)}</span>"
@@ -1701,6 +1747,19 @@ def _evidence_markup(
         capture_kind = str(
             capture.get("capture_kind", "screenshot") or "screenshot"
         )
+        imported_view = _imported_artifact_view(capture, output_dir, base_dir)
+        imported_href = imported_view["href"] if imported_view else ""
+        if imported_href:
+            artifact_links = (
+                '<a class="secondary-link" '
+                f'href="{_html(imported_href)}" '
+                'target="_blank" rel="noopener noreferrer">Ouvrir</a>'
+            ) + artifact_links
+        # Image imports get an inline thumbnail; other files reuse png logic.
+        thumb_img_href = png_href or (
+            imported_href if imported_view and imported_view["is_image"] else ""
+        )
+        view_href = png_href or imported_href
         can_extract_properties = _has_extractable_archive([capture])
         if capture_kind == "page_archive":
             scope = "Page archive"
@@ -1741,25 +1800,36 @@ def _evidence_markup(
                 f'{disabled}>{_icon("trash")}</button>'
             )
         )
-        thumbnail = (
-            f'<a class="evidence-thumbnail" href="{_html(png_href)}" '
-            'target="_blank" rel="noopener noreferrer" '
-            f'aria-label="Open {_html(display_name)}">'
-            f'<img src="{_html(png_href)}" alt="" loading="lazy"></a>'
-            if png_href
-            else (
+        if thumb_img_href:
+            thumbnail = (
+                f'<a class="evidence-thumbnail" href="{_html(thumb_img_href)}" '
+                'target="_blank" rel="noopener noreferrer" '
+                f'aria-label="Open {_html(display_name)}">'
+                f'<img src="{_html(thumb_img_href)}" alt="" loading="lazy"></a>'
+            )
+        elif capture_kind == "page_archive":
+            thumbnail = (
                 '<div class="evidence-thumbnail '
                 'evidence-thumbnail--empty evidence-thumbnail--archive" '
                 'aria-label="Page archive"></div>'
-                if capture_kind == "page_archive"
-                else '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
             )
-        )
+        elif imported_href:
+            thumbnail = (
+                f'<a class="evidence-thumbnail '
+                'evidence-thumbnail--empty evidence-thumbnail--file" '
+                f'href="{_html(imported_href)}" '
+                'target="_blank" rel="noopener noreferrer" '
+                f'aria-label="Open {_html(display_name)}"></a>'
+            )
+        else:
+            thumbnail = (
+                '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
+            )
         name_markup = (
-            f'<a class="evidence-name" href="{_html(png_href)}" '
+            f'<a class="evidence-name" href="{_html(view_href)}" '
             'target="_blank" rel="noopener noreferrer">'
             f"{_html(display_name)}</a>"
-            if png_href
+            if view_href
             else f'<strong class="evidence-name">{_html(display_name)}</strong>'
         )
         verify_title = (
@@ -1845,8 +1915,39 @@ def _result_cards(
         title = str(result.get("title") or result.get("url") or "Untitled result")
         description = str(result.get("description", ""))
         url = str(result.get("url", ""))
+        result_captures = evidence_by_result.get(result_id, [])
+        is_imported = url.startswith(_LOCAL_FILE_URL_PREFIX) or any(
+            str(capture.get("capture_kind", "") or "") == "imported"
+            for capture in result_captures
+        )
+        # Imported files without a source URL use a synthetic, unreachable URL.
+        # Point the title at the local file instead so it can be opened.
+        title_href = url
         compact_url = _compact_url(url)
-        wayback_url = _wayback_url(url)
+        if url.startswith(_LOCAL_FILE_URL_PREFIX):
+            imported_view = next(
+                (
+                    view
+                    for capture in result_captures
+                    if (view := _imported_artifact_view(
+                        capture, output_dir, base_dir
+                    ))
+                ),
+                None,
+            )
+            if imported_view and imported_view["href"]:
+                title_href = imported_view["href"]
+                compact_url = "Imported document"
+        type_badge = (
+            '<span class="result-type-badge">Imported document</span>'
+            if is_imported
+            else ""
+        )
+        wayback_url = (
+            ""
+            if url.startswith(_LOCAL_FILE_URL_PREFIX)
+            else _wayback_url(url)
+        )
         wayback_control = (
             f'<a class="icon-action icon-action--frame" href="{_html(wayback_url)}" '
             'target="_blank" rel="noopener noreferrer" '
@@ -1908,18 +2009,20 @@ def _result_cards(
                 data-tags="{_html(tag_filter)}"
                 data-observed="{_html(latest_observed[:10])}"
                 data-favorite="{"1" if favorite else "0"}"
+                data-imported="{"1" if is_imported else "0"}"
             >
                 <div class="result-heading">
                     <div class="result-title-block">
                         <a
                             class="result-title"
-                            href="{_html(url)}"
+                            href="{_html(title_href)}"
                             target="_blank"
                             rel="noopener noreferrer"
                         >{_html(title)}</a>
-                        <div class="result-url" title="{_html(url)}">
+                        <div class="result-url" title="{_html(compact_url if is_imported else url)}">
                             {_html(compact_url)}
                         </div>
+                        {type_badge}
                     </div>
                     <div class="result-review-controls">
                         {wayback_control}
@@ -2353,10 +2456,25 @@ def generate_investigation_page(
         result_id = str(result.get("id", ""))
         result_entities = entities_by_result.get(result_id, [])
         result_evidence = evidence_by_result.get(result_id, [])
+        local_file_href = ""
+        if str(result.get("url", "")).startswith(_LOCAL_FILE_URL_PREFIX):
+            imported_view = next(
+                (
+                    view
+                    for capture in result_evidence
+                    if (view := _imported_artifact_view(
+                        capture, output_dir, base_dir
+                    ))
+                ),
+                None,
+            )
+            if imported_view:
+                local_file_href = imported_view["href"]
         inspector_panel_items.append(
             _inspector_panel(
                 result,
                 is_monitored=result_id in monitors_by_result,
+                local_file_href=local_file_href,
                 details_markup=(
                     _page_linked_entities_markup(
                         result,
@@ -2542,7 +2660,7 @@ def generate_investigation_page(
                 </div>
             </div>
             <div class="import-dropzone" data-import-dropzone>
-                <p class="import-dropzone__hint">Glissez un fichier (PDF…) ici ou cliquez pour le choisir.</p>
+                <p class="import-dropzone__hint">Glissez un fichier (PDF, image, audio, vidéo, document…) ici ou cliquez pour le choisir.</p>
                 <input
                     type="url"
                     class="import-dropzone__url"
@@ -2611,6 +2729,14 @@ def generate_investigation_page(
                     <select id="result-filter-tag">
                         <option value="">All tags</option>
                         {tag_options}
+                    </select>
+                </label>
+                <label>
+                    Type
+                    <select id="result-filter-type">
+                        <option value="">All types</option>
+                        <option value="page">Web pages</option>
+                        <option value="imported">Imported documents</option>
                     </select>
                 </label>
                 <label>
@@ -2894,6 +3020,7 @@ def generate_investigation_page(
                 "result-filter-status",
                 "result-filter-source",
                 "result-filter-tag",
+                "result-filter-type",
                 "result-filter-after",
                 "result-filter-before",
                 "result-filter-favorite"
@@ -3680,6 +3807,7 @@ def generate_investigation_page(
                 const status = document.getElementById("result-filter-status").value;
                 const source = normalize(document.getElementById("result-filter-source").value);
                 const tag = normalize(document.getElementById("result-filter-tag").value);
+                const type = document.getElementById("result-filter-type").value;
                 const after = document.getElementById("result-filter-after").value;
                 const before = document.getElementById("result-filter-before").value;
                 const favoritesOnly = document.getElementById(
@@ -3694,6 +3822,11 @@ def generate_investigation_page(
                         && (!status || card.dataset.status === status)
                         && (!source || card.dataset.sources.includes(`|${{source}}|`))
                         && (!tag || card.dataset.tags.includes(`|${{tag}}|`))
+                        && (
+                            !type
+                            || (type === "imported" && card.dataset.imported === "1")
+                            || (type === "page" && card.dataset.imported !== "1")
+                        )
                         && (!after || observed >= after)
                         && (!before || observed <= before)
                         && (!favoritesOnly || card.dataset.favorite === "1")
