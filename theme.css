@@ -4091,3 +4091,42 @@ kbd {
     font-size: 12px;
     color: var(--muted);
 }
+
+.import-dropzone {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 18px;
+    border: 2px dashed var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    cursor: pointer;
+    text-align: center;
+}
+
+.import-dropzone.is-dragover {
+    border-color: var(--accent);
+    background: var(--surface-2);
+}
+
+.import-dropzone__hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.import-dropzone__url {
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+
+.import-status {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+}

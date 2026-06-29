@@ -2534,6 +2534,33 @@ def generate_investigation_page(
             </div>
         </section>
 
+        <section id="import-file" class="investigation-section">
+            <div class="section-header">
+                <div>
+                    <p class="section-eyebrow">Sources externes</p>
+                    <h3>Importer un fichier</h3>
+                </div>
+            </div>
+            <div class="import-dropzone" data-import-dropzone>
+                <p class="import-dropzone__hint">Glissez un fichier (PDF…) ici ou cliquez pour le choisir.</p>
+                <input
+                    type="url"
+                    class="import-dropzone__url"
+                    data-import-url
+                    placeholder="URL source (optionnel — laisser vide si externe)"
+                    {"disabled" if read_only else ""}
+                >
+                <input
+                    type="file"
+                    class="import-dropzone__file"
+                    data-import-file
+                    hidden
+                    {"disabled" if read_only else ""}
+                >
+            </div>
+            <p class="import-status" data-import-status aria-live="polite"></p>
+        </section>
+
         <section
             id="saved-pages"
             class="investigation-section"
@@ -4605,6 +4632,75 @@ def generate_investigation_page(
                     }} catch (_error) {{
                         // Nothing to clear when storage is unavailable.
                     }}
+                }});
+            }}
+
+            const importDropzone = document.querySelector(
+                "[data-import-dropzone]"
+            );
+            if (importDropzone) {{
+                const fileInput = importDropzone.querySelector(
+                    "[data-import-file]"
+                );
+                const urlInput = importDropzone.querySelector(
+                    "[data-import-url]"
+                );
+                const statusEl = document.querySelector("[data-import-status]");
+                const importFiles = (files) => {{
+                    Array.from(files || []).forEach((file) => {{
+                        if (!file) {{
+                            return;
+                        }}
+                        const reader = new FileReader();
+                        reader.onload = () => {{
+                            const text = String(reader.result || "");
+                            const comma = text.indexOf(",");
+                            const data = comma >= 0
+                                ? text.slice(comma + 1)
+                                : text;
+                            queueAction("import_evidence_file", {{
+                                fileName: file.name,
+                                mimeType: (
+                                    file.type || "application/octet-stream"
+                                ),
+                                sourceUrl: (urlInput?.value || "").trim(),
+                                data: data
+                            }});
+                            if (statusEl) {{
+                                statusEl.textContent = (
+                                    "Import de " + file.name + "…"
+                                );
+                            }}
+                        }};
+                        reader.readAsDataURL(file);
+                    }});
+                    if (urlInput) {{
+                        urlInput.value = "";
+                    }}
+                }};
+                importDropzone.addEventListener("click", (event) => {{
+                    if (event.target.closest("[data-import-url]")) {{
+                        return;
+                    }}
+                    fileInput?.click();
+                }});
+                fileInput?.addEventListener("change", () => {{
+                    importFiles(fileInput.files);
+                }});
+                ["dragover", "dragenter"].forEach((name) => {{
+                    importDropzone.addEventListener(name, (event) => {{
+                        event.preventDefault();
+                        importDropzone.classList.add("is-dragover");
+                    }});
+                }});
+                ["dragleave", "drop"].forEach((name) => {{
+                    importDropzone.addEventListener(name, (event) => {{
+                        event.preventDefault();
+                        importDropzone.classList.remove("is-dragover");
+                    }});
+                }});
+                importDropzone.addEventListener("drop", (event) => {{
+                    importFiles(event.dataTransfer?.files);
                 }});
             }}
         }})();

@@ -584,4 +584,45 @@ MIGRATIONS = (
             );
         """,
     ),
+    (
+        16,
+        """
+        CREATE TABLE evidence_captures_new (
+            id TEXT PRIMARY KEY,
+            investigation_id TEXT NOT NULL
+                REFERENCES investigations(id) ON DELETE CASCADE,
+            result_id TEXT NOT NULL
+                REFERENCES results(id) ON DELETE CASCADE,
+            source_url TEXT NOT NULL,
+            page_title TEXT NOT NULL DEFAULT '',
+            capture_scope TEXT NOT NULL
+                CHECK (capture_scope IN ('viewport', 'region')),
+            selection_json TEXT NOT NULL DEFAULT '{}',
+            manifest_path TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'completed'
+                CHECK (status IN ('completed', 'partial', 'failed')),
+            error TEXT NOT NULL DEFAULT '',
+            tool_version TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            capture_kind TEXT NOT NULL DEFAULT 'screenshot'
+                CHECK (capture_kind IN (
+                    'screenshot', 'page_archive', 'imported'
+                ))
+        );
+        INSERT INTO evidence_captures_new
+            SELECT id, investigation_id, result_id, source_url, page_title,
+                   capture_scope, selection_json, manifest_path, captured_at,
+                   status, error, tool_version, name, capture_kind
+            FROM evidence_captures;
+        DROP TABLE evidence_captures;
+        ALTER TABLE evidence_captures_new RENAME TO evidence_captures;
+        CREATE INDEX idx_evidence_captures_investigation
+            ON evidence_captures(investigation_id, captured_at DESC);
+        CREATE INDEX idx_evidence_captures_result
+            ON evidence_captures(result_id, captured_at DESC);
+        CREATE INDEX idx_evidence_captures_kind
+            ON evidence_captures(result_id, capture_kind, captured_at DESC);
+        """,
+    ),
 )

@@ -1,6 +1,9 @@
 import asyncio
 import argparse
+import base64
+import binascii
 import hashlib
+import re
 import importlib.metadata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1153,6 +1156,117 @@ async def _capture_evidence(
             f"Evidence capture failed: {exc}"
         ) from exc
 
+    return investigation, saved, capture
+
+
+_MAX_IMPORT_BYTES = 50 * 1024 * 1024
+
+
+def _safe_import_filename(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name or "").strip())
+    cleaned = cleaned.strip("._") or "fichier"
+    return cleaned[:120]
+
+
+def _import_evidence_file(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+    payload: dict,
+):
+    investigation = service.get(investigation_id)
+    if investigation.status != "active":
+        raise EvidenceCaptureError("Archived investigations are read-only.")
+    filename = str(payload.get("fileName", "") or "").strip()[:200] or "fichier"
+    try:
+        raw = base64.b64decode(str(payload.get("data", "") or ""), validate=False)
+    except (ValueError, binascii.Error):
+        raise EvidenceCaptureError("Invalid file data.")
+    if not raw:
+        raise EvidenceCaptureError("Empty file.")
+    if len(raw) > _MAX_IMPORT_BYTES:
+        raise EvidenceCaptureError("File too large (max 50 MB).")
+    mime = str(payload.get("mimeType", "") or "application/octet-stream")
+    source_url = str(payload.get("sourceUrl", "") or "").strip()
+    capture_id = str(uuid4())
+    captured_at = utc_now()
+    if source_url:
+        page = {"url": source_url, "title": filename}
+        evidence_source_url = source_url
+    else:
+        page = {
+            "url": f"https://files.synthesix.local/{capture_id}",
+            "title": filename,
+        }
+        evidence_source_url = ""
+    saved = service.save_page(investigation_id, page)
+
+    capture_dir = settings.evidence_dir / investigation_id / capture_id
+    safe_name = _safe_import_filename(filename)
+    file_path = capture_dir / safe_name
+    manifest_path = capture_dir / "manifest.json"
+    tool_version = _tool_version()
+    try:
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(raw)
+        sha = hashlib.sha256(raw).hexdigest()
+        stored = _stored_path(file_path, settings.base_dir)
+        artifact_type = (Path(safe_name).suffix.lower().lstrip(".") or "file")[:20]
+        artifacts = [
+            {
+                "id": str(uuid4()),
+                "artifact_type": artifact_type,
+                "file_path": stored,
+                "mime_type": mime,
+                "sha256": sha,
+                "byte_size": len(raw),
+                "created_at": captured_at,
+            }
+        ]
+        manifest = build_evidence_manifest(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=filename,
+            captured_at=captured_at,
+            source_url=evidence_source_url or saved.url,
+            page_title=filename,
+            capture_kind="imported",
+            capture_scope="viewport",
+            selection={},
+            browser_context={},
+            tool_version=tool_version,
+            artifacts=[
+                {
+                    "type": artifact_type,
+                    "path": stored,
+                    "mime_type": mime,
+                    "sha256": sha,
+                    "byte_size": len(raw),
+                }
+            ],
+        )
+        write_manifest(manifest_path, manifest)
+        capture = service.record_evidence_capture(
+            capture_id=capture_id,
+            investigation_id=investigation_id,
+            result_id=saved.id,
+            name=filename,
+            source_url=evidence_source_url,
+            page_title=filename,
+            capture_scope="viewport",
+            selection={},
+            manifest_path=_stored_path(manifest_path, settings.base_dir),
+            captured_at=captured_at,
+            tool_version=tool_version,
+            artifacts=artifacts,
+            capture_kind="imported",
+        )
+    except Exception as exc:
+        shutil.rmtree(capture_dir, ignore_errors=True)
+        if isinstance(exc, InvestigationError):
+            raise
+        raise EvidenceCaptureError(f"Import failed: {exc}") from exc
     return investigation, saved, capture
 
 
@@ -2480,6 +2594,37 @@ async def main():
                         str(exc),
                         is_error=True,
                     )
+                continue
+            if result["action"] == "import_evidence_file":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                try:
+                    investigation, saved, capture = _import_evidence_file(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                        result,
+                    )
+                    active_investigation = investigation
+                    page_path = _generate_investigation_page(
+                        investigation_service,
+                        settings,
+                        investigation_id,
+                    )
+                    await _open_or_refresh_investigation_page(
+                        browser,
+                        page_path,
+                        bring_to_front=False,
+                        open_if_missing=False,
+                    )
+                    await _set_page_status(
+                        source_tab,
+                        f'Fichier importé : {capture.name or saved.title}.',
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
             if result["action"] == "capture_evidence_to_investigation":
                 investigation_id = str(

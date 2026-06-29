@@ -24,7 +24,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 15)
+        self.assertEqual(self.repository.schema_version(), 16)
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +92,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 15)
+            self.assertEqual(repository.schema_version(), 16)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,7 +194,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 15)
+            self.assertEqual(service.repository.schema_version(), 16)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
@@ -235,7 +235,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             repository = InvestigationRepository(database_path)
             repository.initialize()
 
-            self.assertEqual(repository.schema_version(), 15)
+            self.assertEqual(repository.schema_version(), 16)
             self.assertEqual(repository.table_count("page_monitors"), 0)
             repaired = sqlite3.connect(database_path)
             try:

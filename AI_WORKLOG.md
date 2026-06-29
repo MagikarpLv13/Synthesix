@@ -1169,6 +1169,34 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Tests exécutés :** `unittest discover` (265) OK (asserts datalist adaptés +
   nouveau test mémoire-validées).
 - **Vérifications non exécutées :** smoke CDP live.
+
+### AI-20260623-013 — Import de fichiers locaux (preuves/sources)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** glisser/déposer (ou choisir) un fichier local (PDF…) dans
+  Synthesix comme preuve/source, avec URL source optionnelle (vide si externe).
+- **Changements :**
+  - Migration 16 : reconstruit `evidence_captures` pour autoriser
+    `capture_kind = 'imported'`.
+  - `main.py` : `_import_evidence_file` (décode base64, écrit le fichier sous
+    `evidence_dir/<inv>/<capture>/`, sha256, manifeste, `record_evidence_capture`
+    kind `imported`). Si URL → `save_page(url)` ; sinon page synthétique
+    `https://files.synthesix.local/<id>` (source_url vide). Action CDP
+    `import_evidence_file` (reload pour afficher la preuve).
+  - `view.py` : section « Importer un fichier » avec zone de drop + input URL
+    optionnel ; JS `FileReader`→base64→`queueAction`.
+  - `theme.css` : style dropzone.
+- **Fichiers modifiés :** `investigations/migrations.py`, `main.py`,
+  `investigations/view.py`, `theme.css`, `tests/test_investigations.py`,
+  `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (265) OK (migration + JS inline check) ;
+  schema_version=16.
+- **Vérifications non exécutées :** smoke live (drag-drop réel d'un PDF, fichier
+  rattaché à l'entité via la page source).
+- **Risques / reste à faire :** fichiers externes créent une page source
+  synthétique (`files.synthesix.local`) ; à terme, regrouper sous une source
+  « Fichiers importés » unique serait plus propre.
 ## Modèle de compte rendu terminé
 
 ```markdown
