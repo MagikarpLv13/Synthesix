@@ -1149,6 +1149,26 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Tests exécutés :** `unittest discover` (264) OK (inclut `node --check` du JS
   inline) ; smoke headless.
 - **Vérifications non exécutées :** smoke CDP live.
+
+### AI-20260623-012 — Scan : pas de popup doublon sur propriété vide + mémoire = validées
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-23
+- **Objectif :** (1) le scan d'une archive sur une entité neuve affichait la
+  popup ajouter/remplacer pour les propriétés de base (SIREN/SIRET) pourtant
+  vides ; (2) les noms gardés en mémoire (datalists) incluaient les propriétés
+  proposées → beaucoup de déchet.
+- **Changements (`investigations/view.py`) :**
+  - `duplicateStrategyForAttach` : si la valeur existante est vide (placeholder
+    de tagset), on remplit sans demander (strategy `replace`, pas de prompt).
+  - `_property_suggestion_keys`, `_used_property_suggestion_keys` (scoped),
+    `_source_property_suggestion_keys` : n'ajoutent les noms d'entités extraites
+    que si `status == "validated"`.
+- **Fichiers modifiés :** `investigations/view.py`,
+  `tests/test_investigation_view.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (265) OK (asserts datalist adaptés +
+  nouveau test mémoire-validées).
+- **Vérifications non exécutées :** smoke CDP live.
 ## Modèle de compte rendu terminé
 
 ```markdown

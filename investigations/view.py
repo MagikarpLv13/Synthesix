@@ -105,6 +105,9 @@ def _property_suggestion_keys(
     """
     keys = set(_PROPERTY_SUGGESTION_KEYS)
     for entity in entities:
+        # Only validated facts feed the memory; proposed ones are noise.
+        if str(entity.get("status", "") or "") != "validated":
+            continue
         for candidate in (entity.get("custom_label"), entity.get("property_key")):
             text = str(candidate or "").strip()
             if text:
@@ -131,6 +134,9 @@ def _used_property_suggestion_keys(
     """Property names already typed or curated in this investigation."""
     keys: set[str] = set()
     for entity in entities:
+        # Only validated facts feed the memory; proposed ones are noise.
+        if str(entity.get("status", "") or "") != "validated":
+            continue
         for candidate in (entity.get("custom_label"), entity.get("property_key")):
             text = str(candidate or "").strip()
             if text:
@@ -198,6 +204,8 @@ def _source_property_suggestion_keys(entities: Iterable[Mapping]) -> list[str]:
     }
     for entity in entities:
         if not _is_source_property(entity):
+            continue
+        if str(entity.get("status", "") or "") != "validated":
             continue
         for candidate in (entity.get("custom_label"), entity.get("property_key")):
             text = str(candidate or "").strip()
@@ -4089,6 +4097,11 @@ def generate_investigation_page(
                 );
                 if (!existingKey) {{
                     return {{ ok: true, strategy: "append" }};
+                }}
+                // An empty placeholder (e.g. a tagset base property) is not a
+                // real conflict: just fill it without prompting.
+                if (!String(properties[existingKey] ?? "").trim()) {{
+                    return {{ ok: true, strategy: "replace" }};
                 }}
                 const label = option?.textContent?.trim() || "cette entité";
                 const typeLabel = propertyType ? ` (${{propertyType}})` : "";

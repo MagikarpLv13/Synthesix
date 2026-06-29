@@ -366,8 +366,8 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("duplicateStrategyForAttach", content)
         self.assertIn("duplicate_strategy: strategy.strategy", content)
         self.assertIn("Une propriété", content)
-        # The property suggestions reuse names already used in this case.
-        self.assertIn(
+        # Only validated facts feed the memory; this proposed one is excluded.
+        self.assertNotIn(
             "Primary contact",
             tree.xpath("//datalist[@id='property-suggestions']/option/@value"),
         )
@@ -377,7 +377,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             )
         )
         self.assertIn("SIREN", scoped_property_values)
-        self.assertIn("Primary contact", scoped_property_values)
+        self.assertNotIn("Primary contact", scoped_property_values)
         self.assertNotIn("Go to card", content)
         self.assertNotIn("Créer une entité depuis ce site", content)
         self.assertNotIn("create_graph_entity_from_result", content)
@@ -947,6 +947,34 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         self.assertIn("property_type: row.dataset.propertyType", content)
 
+    def test_property_memory_keeps_only_validated_names(self):
+        workspace = workspace_payload()
+        validated = dict(workspace["entities"][0])
+        validated["id"] = "entity-mem"
+        validated["custom_label"] = "Sandwich"
+        validated["property_key"] = "Sandwich"
+        validated["status"] = "validated"
+        workspace["entities"].append(validated)
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(
+                output_path.read_text(encoding="utf-8")
+            )
+
+        values = tree.xpath(
+            "//datalist[@id='property-suggestions']/option/@value"
+        )
+        self.assertIn("Sandwich", values)
+        self.assertNotIn("Primary contact", values)
+
     def test_validated_extracted_entity_hides_the_validate_button(self):
         workspace = workspace_payload()
         validated = dict(workspace["entities"][0])
@@ -1102,6 +1130,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         workspace["graph_entities"][0]["tags"] = ["Personne"]
         workspace["graph_entities"][0]["properties"] = {}
         workspace["entities"][0]["custom_label"] = "Sandwich"
+        workspace["entities"][0]["status"] = "validated"
 
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
