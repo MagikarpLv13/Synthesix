@@ -1295,6 +1295,90 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   l'utilisateur uniquement ; toute autre base déjà migrée garde la perte tant
   que le script de récupération n'est pas rejoué (manifests requis).
 
+### AI-20260630-005 — Graphe de relations des entités (composant Lit) + toggle Liste/Graphe
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** présenter les entités d'une enquête sous forme de graphe de
+  relations (retour utilisateur : préférence pour un graphe type link-analysis
+  plutôt qu'une liste dense ou des infos en ligne). Une première piste de
+  densification + preview de propriétés inline (ex-AI-20260630-004) a été
+  **annulée** sur retour utilisateur et n'a jamais été committée.
+- **Changements :**
+  - nouveau composant Lit `frontend/src/components/sx-entity-graph.ts` (enregistré
+    dans `frontend/src/index.ts`) : graphe force-directed rendu en SVG, mises à
+    jour de position impératives pour la fluidité. Nœuds colorés par catégorie
+    (1er tag) et dimensionnés par degré, liens dirigés avec libellé, toolbar
+    zoom/ajuster, légende, drag des nœuds, pan, zoom molette, survol = mise en
+    avant du voisinage, clic/Entrée = `CustomEvent('sx-entity-select')`. Aucune
+    dépendance ajoutée (uniquement `lit`).
+  - `investigations/view.py` : la page charge désormais le bundle
+    `assets/synthesix-ui.js` (script classique, file://-safe) ; section « Entités »
+    dotée d'un toggle **Liste ⇄ Graphe** (persisté en `localStorage`,
+    `list` par défaut) ; nouveau helper `_entity_graph_payload` qui sérialise
+    nœuds+liens en JSON (self-loops, liens vers nœud inconnu et doublons écartés ;
+    `<` échappé pour l'îlot JSON). Le clic d'un nœud appelle le
+    `selectInspectorEntity(id)` existant → entité ouverte dans le rail. Icônes
+    `list` et `graph` ajoutées au registre.
+  - `theme.css` : styles `.view-toggle` / `.entity-view` + dimension du conteneur
+    `sx-entity-graph` (les tokens CSS traversent le Shadow DOM → thème hérité).
+  - `tests/test_investigation_view.py` : tests des deux vues + îlot JSON, et du
+    helper `_entity_graph_payload` (nœuds/liens, filtrage, échappement). Les deux
+    tests qui scannent les `<script>` inline excluent désormais les
+    `type="application/json"`.
+- **Contrats ou décisions :**
+  - aucun contrat Python/CDP/payload existant modifié ; aucune nouvelle action CDP.
+  - nouveau contrat front : élément `sx-entity-graph` + îlot
+    `<script type="application/json" data-graph-data>` ({nodes, edges}) + événement
+    `sx-entity-select` ({ detail: { id } }).
+  - la page d'investigation devient la première vue applicative à charger
+    `assets/synthesix-ui.js` (jusqu'ici : pages history/démos).
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck` — OK
+  - `cd frontend && npm run build` — OK (bundle `assets/synthesix-ui.js` régénéré ;
+    `synthesix-overlay.js` inchangé)
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 26 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 268 tests
+  - `git diff --check` — OK (avertissements CRLF uniquement)
+  - smoke headless Chrome (payload 10 entités + relations, vue graphe forcée,
+    `--virtual-time-budget`) — OK : layout organique, nœuds colorés, liens
+    fléchés, légende, toolbar.
+- **Vérifications non exécutées :**
+  - smoke live navigateur réel non exécuté : interactions (drag/zoom/pan, survol,
+    clic → rail) validées seulement en capture statique ;
+  - rendu thème clair non capturé (tokens hérités, attendu OK mais non vérifié).
+- **Risques / reste à faire :**
+  - chevauchement de libellés possible dans les clusters denses (inhérent au
+    node-link ; le drag permet de désencombrer) ; à valider sur un vrai jeu
+    d'entités ;
+  - layout O(n²) (répulsion toutes paires) : convient à des dizaines d'entités,
+    à surveiller au-delà de ~150 nœuds.
+- **Relais :** aucun. Bundle + sources committés ensemble si validé en live.
+
+### AI-20260630-006 — Ajustements graphe (layout figé, libellés, hauteur)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend`, non committé (suite de AI-20260630-005)
+- **Objectif :** trois retours utilisateur sur `sx-entity-graph`.
+- **Changements (`frontend/src/components/sx-entity-graph.ts` + `theme.css`) :**
+  - layout calculé **en une passe synchrone** puis figé (suppression de la boucle
+    `requestAnimationFrame`/`_reheat`) : le graphe ne bouge plus tout seul ; un
+    drag déplace uniquement le nœud saisi, sans re-simulation globale ;
+  - libellés de relation **affichés par défaut** (`opacity` 0 → 0.92 ; au survol,
+    seuls les libellés du voisinage restent pleins, les autres s'atténuent) ;
+  - hauteur du conteneur passée à `--graph-height: 55vh`.
+- **Contrats ou décisions :** aucun contrat modifié.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck` — OK
+  - `cd frontend && npm run build` — OK (bundle régénéré)
+  - `git diff --check` — OK
+  - smoke headless Chrome — OK : graphe statique, libellés de relation visibles,
+    hauteur réduite.
+- **Vérifications non exécutées :** smoke live navigateur réel (drag/zoom/survol).
+- **Relais :** aucun.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

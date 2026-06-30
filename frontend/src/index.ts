@@ -12,4 +12,5 @@ import "./components/sx-provenance";
 import "./components/sx-evidence-badge";
 import "./components/sx-inspector";
 import "./components/sx-entity";
+import "./components/sx-entity-graph";
 import "./components/sx-property";

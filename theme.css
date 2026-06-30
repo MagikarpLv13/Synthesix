@@ -2634,6 +2634,59 @@ a:focus-visible {
     margin-top: 12px;
 }
 
+/* Liste ⇄ Graphe : sélecteur de vue des entités. */
+.view-toggle {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.view-toggle__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.view-toggle__btn .icon {
+    width: 15px;
+    height: 15px;
+}
+
+.view-toggle__btn:hover {
+    color: var(--text);
+}
+
+.view-toggle__btn.is-active {
+    background: var(--accent);
+    color: var(--white);
+}
+
+.view-toggle__btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+}
+
+.entity-view[hidden] {
+    display: none;
+}
+
+sx-entity-graph {
+    display: block;
+    margin-top: 12px;
+    --graph-height: 55vh;
+}
+
 .graph-entity-card {
     padding: 14px;
     border: 1px solid var(--line);

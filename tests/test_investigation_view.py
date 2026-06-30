@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 import subprocess
@@ -7,7 +8,10 @@ from tempfile import TemporaryDirectory
 
 from lxml import html
 
-from investigations.view import generate_investigation_page
+from investigations.view import (
+    _entity_graph_payload,
+    generate_investigation_page,
+)
 
 
 def workspace_payload(*, status="active"):
@@ -279,10 +283,14 @@ class InvestigationViewTestCase(unittest.TestCase):
                 history_report_path=base_dir / "history.html",
             )
             content = output_path.read_text(encoding="utf-8")
-            inline_scripts = re.findall(
-                r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",
-                content,
-            )
+            inline_scripts = [
+                body
+                for attrs, body in re.findall(
+                    r"<script((?:\s[^>]*)?)>([\s\S]*?)</script>",
+                    content,
+                )
+                if "application/json" not in attrs
+            ]
             script_path = base_dir / "inline-investigation.js"
             script_path.write_text(
                 next(script for script in inline_scripts if script.strip()),
@@ -599,10 +607,14 @@ class InvestigationViewTestCase(unittest.TestCase):
             ["result-body-result-123"],
         )
 
-        inline_scripts = re.findall(
-            r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",
-            content,
-        )
+        inline_scripts = [
+            body
+            for attrs, body in re.findall(
+                r"<script((?:\s[^>]*)?)>([\s\S]*?)</script>",
+                content,
+            )
+            if "application/json" not in attrs
+        ]
         self.assertEqual(
             len([script for script in inline_scripts if script.strip()]),
             1,
@@ -756,6 +768,108 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertTrue(delete[0].xpath(".//*[local-name()='svg']"))
         self.assertEqual((delete[0].text or "").strip(), "")
         self.assertEqual(delete[0].get("aria-label"), "Delete entity")
+
+    def test_entities_offer_list_and_graph_views(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        # The shared UI bundle is loaded so <sx-entity-graph> can upgrade.
+        self.assertTrue(
+            tree.xpath("//script[contains(@src, 'assets/synthesix-ui.js')]")
+        )
+        # Two-way Liste/Graphe toggle with matching panels.
+        self.assertEqual(
+            sorted(tree.xpath("//*[@data-entity-view]/@data-entity-view")),
+            ["graph", "list"],
+        )
+        self.assertEqual(
+            sorted(
+                tree.xpath(
+                    "//*[@data-entity-view-panel]/@data-entity-view-panel"
+                )
+            ),
+            ["graph", "list"],
+        )
+        # Graph view starts hidden (list is the default), list stays visible.
+        self.assertIsNotNone(
+            tree.xpath("//*[@data-entity-view-panel='graph']")[0].get("hidden")
+        )
+        self.assertIsNone(
+            tree.xpath("//*[@data-entity-view-panel='list']")[0].get("hidden")
+        )
+        # Widget + JSON payload island built from the graph entities.
+        self.assertEqual(len(tree.xpath("//sx-entity-graph")), 1)
+        payload = tree.xpath(
+            "//sx-entity-graph/script[@type='application/json']/text()"
+        )
+        self.assertEqual(len(payload), 1)
+        data = json.loads(payload[0])
+        self.assertEqual(
+            [node["id"] for node in data["nodes"]], ["graph-entity-123"]
+        )
+        self.assertIn("edges", data)
+
+    def test_entity_graph_payload_builds_nodes_and_edges(self):
+        entities = [
+            {
+                "id": "a",
+                "label": "A",
+                "tags": ["Personne"],
+                "properties": {"x": "1"},
+                "linked_result_ids": ["r1"],
+                "relations": [
+                    {"target_entity_id": "b", "label": "knows"},
+                    {"target_entity_id": "a", "label": "self"},
+                    {"target_entity_id": "ghost", "label": "missing"},
+                    {"target_entity_id": "b", "label": "knows"},
+                ],
+            },
+            {
+                "id": "b",
+                "label": "B",
+                "tags": [],
+                "properties": {},
+                "linked_result_ids": [],
+                "relations": [],
+            },
+        ]
+        data = json.loads(_entity_graph_payload(entities))
+        self.assertEqual({n["id"] for n in data["nodes"]}, {"a", "b"})
+        node_a = next(n for n in data["nodes"] if n["id"] == "a")
+        self.assertEqual(node_a["category"], "Personne")
+        self.assertEqual(node_a["props"], 1)
+        self.assertEqual(node_a["sources"], 1)
+        # Self-loops, edges to unknown nodes and duplicates are dropped.
+        self.assertEqual(
+            data["edges"],
+            [{"source": "a", "target": "b", "label": "knows"}],
+        )
+
+    def test_entity_graph_payload_escapes_script_breakout(self):
+        entities = [
+            {
+                "id": "a",
+                "label": "</script><x>",
+                "tags": [],
+                "properties": {},
+                "linked_result_ids": [],
+                "relations": [],
+            }
+        ]
+        raw = _entity_graph_payload(entities)
+        self.assertNotIn("<", raw)
+        # Still valid JSON that decodes back to the original label.
+        data = json.loads(raw)
+        self.assertEqual(data["nodes"][0]["label"], "</script><x>")
 
     def test_overview_metrics_are_compact_tooltip_chips(self):
         with TemporaryDirectory() as temp_dir:

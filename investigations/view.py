@@ -433,6 +433,21 @@ _ACTION_ICON_PATHS = {
         '<polyline points="15 3 21 3 21 9"/>'
         '<line x1="10" y1="14" x2="21" y2="3"/>'
     ),
+    "list": (
+        '<line x1="8" y1="6" x2="21" y2="6"/>'
+        '<line x1="8" y1="12" x2="21" y2="12"/>'
+        '<line x1="8" y1="18" x2="21" y2="18"/>'
+        '<line x1="3" y1="6" x2="3.01" y2="6"/>'
+        '<line x1="3" y1="12" x2="3.01" y2="12"/>'
+        '<line x1="3" y1="18" x2="3.01" y2="18"/>'
+    ),
+    "graph": (
+        '<circle cx="18" cy="5" r="3"/>'
+        '<circle cx="6" cy="12" r="3"/>'
+        '<circle cx="18" cy="19" r="3"/>'
+        '<line x1="8.6" y1="10.7" x2="15.4" y2="6.3"/>'
+        '<line x1="8.6" y1="13.3" x2="15.4" y2="17.7"/>'
+    ),
 }
 
 
@@ -1409,6 +1424,55 @@ def _entity_rows_markup(
             """
         )
     return "".join(rows)
+
+
+def _entity_graph_payload(graph_entities: list[Mapping]) -> str:
+    """Serialise entities + relations as JSON for the ``<sx-entity-graph>`` widget.
+
+    Nodes come from the graph entities (the first tag drives the node category
+    and colour); edges from their outgoing relations (incoming relations are
+    mirrors, skipped to avoid duplicate links). The result is escaped so it is
+    safe to embed inside a JSON ``<script>`` block.
+    """
+    nodes: list[dict] = []
+    ids: set[str] = set()
+    for entity in graph_entities:
+        entity_id = str(entity.get("id", "") or "")
+        if not entity_id:
+            continue
+        ids.add(entity_id)
+        properties = entity.get("properties", {})
+        tags = [
+            str(tag) for tag in entity.get("tags", []) or [] if str(tag).strip()
+        ]
+        nodes.append(
+            {
+                "id": entity_id,
+                "label": str(entity.get("label", "") or "Sans nom"),
+                "category": tags[0] if tags else "Entité",
+                "props": len(properties) if isinstance(properties, Mapping) else 0,
+                "sources": sum(1 for _ in entity.get("linked_result_ids", []) or []),
+            }
+        )
+    edges: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for entity in graph_entities:
+        source = str(entity.get("id", "") or "")
+        if source not in ids:
+            continue
+        for relation in entity.get("relations", []) or []:
+            target = str(relation.get("target_entity_id", "") or "")
+            if not target or target == source or target not in ids:
+                continue
+            label = str(relation.get("label", "") or "")
+            key = (source, target, label)
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append({"source": source, "target": target, "label": label})
+    payload = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
+    # Neutralise any "</script>" breakout inside the JSON <script> block.
+    return payload.replace("<", "\\u003c")
 
 
 def _url_analysis_markup(
@@ -2553,6 +2617,7 @@ def generate_investigation_page(
     <link rel="stylesheet" href="{asset_prefix}theme.css">
     <script src="{asset_prefix}theme.js"></script>
     <script src="{asset_prefix}i18n.js"></script>
+    <script src="{asset_prefix}assets/synthesix-ui.js"></script>
 </head>
 <body>
     <main class="app app--wide app--workspace">
@@ -2624,6 +2689,20 @@ def generate_investigation_page(
                 </div>
                 <div class="section-header__actions">
                     <span id="visible-entity-count" class="meta-pill">{len(graph_entities)} entités</span>
+                    <div class="view-toggle" role="group" aria-label="Affichage des entités">
+                        <button
+                            type="button"
+                            class="view-toggle__btn is-active"
+                            data-entity-view="list"
+                            aria-pressed="true"
+                        >{_icon("list")}<span>Liste</span></button>
+                        <button
+                            type="button"
+                            class="view-toggle__btn"
+                            data-entity-view="graph"
+                            aria-pressed="false"
+                        >{_icon("graph")}<span>Graphe</span></button>
+                    </div>
                     <button
                         id="open-entity-create"
                         type="button"
@@ -2632,23 +2711,30 @@ def generate_investigation_page(
                     >+ Entité</button>
                 </div>
             </div>
-            <div class="entity-list-tools">
-                <label class="entity-search">
-                    <span class="sr-only">Rechercher une entité</span>
-                    <span class="entity-search__icon">{_icon("search")}</span>
-                    <input
-                        id="entity-filter-query"
-                        type="search"
-                        placeholder="Filtrer les entités..."
-                        autocomplete="off"
-                    >
-                </label>
+            <div class="entity-view" data-entity-view-panel="list">
+                <div class="entity-list-tools">
+                    <label class="entity-search">
+                        <span class="sr-only">Rechercher une entité</span>
+                        <span class="entity-search__icon">{_icon("search")}</span>
+                        <input
+                            id="entity-filter-query"
+                            type="search"
+                            placeholder="Filtrer les entités..."
+                            autocomplete="off"
+                        >
+                    </label>
+                </div>
+                <div class="graph-entity-list">
+                    {_entity_rows_markup(
+                        graph_entities,
+                        read_only=read_only,
+                    )}
+                </div>
             </div>
-            <div class="graph-entity-list">
-                {_entity_rows_markup(
-                    graph_entities,
-                    read_only=read_only,
-                )}
+            <div class="entity-view" data-entity-view-panel="graph" hidden>
+                <sx-entity-graph>
+                    <script type="application/json" data-graph-data>{_entity_graph_payload(graph_entities)}</script>
+                </sx-entity-graph>
             </div>
         </section>
 
@@ -4122,6 +4208,52 @@ def generate_investigation_page(
                     () => selectInspectorEntity(row.dataset.entitySelect)
                 );
             }});
+            // Liste ⇄ Graphe : bascule de l'affichage des entités.
+            (function setupEntityViews() {{
+                const toggleButtons = Array.from(
+                    document.querySelectorAll("[data-entity-view]")
+                );
+                const panels = Array.from(
+                    document.querySelectorAll("[data-entity-view-panel]")
+                );
+                if (!toggleButtons.length || !panels.length) {{
+                    return;
+                }}
+                const viewKey = `synthesix:entity-view:${{investigationId}}`;
+                const applyView = (view, persist = true) => {{
+                    panels.forEach((panel) => {{
+                        panel.hidden = panel.dataset.entityViewPanel !== view;
+                    }});
+                    toggleButtons.forEach((btn) => {{
+                        const active = btn.dataset.entityView === view;
+                        btn.classList.toggle("is-active", active);
+                        btn.setAttribute("aria-pressed", active ? "true" : "false");
+                    }});
+                    if (persist) {{
+                        try {{ localStorage.setItem(viewKey, view); }} catch (err) {{}}
+                    }}
+                }};
+                toggleButtons.forEach((btn) => {{
+                    btn.addEventListener("click", () => {{
+                        applyView(btn.dataset.entityView);
+                    }});
+                }});
+                let initialView = "list";
+                try {{
+                    initialView = localStorage.getItem(viewKey) || "list";
+                }} catch (err) {{}}
+                applyView(initialView, false);
+
+                const graph = document.querySelector("sx-entity-graph");
+                if (graph) {{
+                    graph.addEventListener("sx-entity-select", (ev) => {{
+                        const id = ev.detail && ev.detail.id;
+                        if (id) {{
+                            selectInspectorEntity(id);
+                        }}
+                    }});
+                }}
+            }})();
             document.querySelectorAll("[data-page-linked-entity]").forEach(
                 (button) => {{
                     button.addEventListener("click", () => {{
