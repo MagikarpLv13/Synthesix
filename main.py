@@ -1940,6 +1940,39 @@ async def _set_page_status(tab, message: str, *, is_error: bool = False) -> None
         logger.debug("Unable to update page status", exc_info=True)
 
 
+def _refresh_investigation_page_file(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+) -> None:
+    """Regenerate the on-disk investigation page after a no-reload save.
+
+    The open tab is intentionally not reloaded; only the generated file is
+    rewritten so a manual refresh reflects the change instead of the stale
+    snapshot that otherwise survives until the next restart.
+    """
+    if not investigation_id:
+        return
+    try:
+        _generate_investigation_page(service, settings, investigation_id)
+    except Exception:
+        logger.debug(
+            "Unable to refresh the investigation page file after a save",
+            exc_info=True,
+        )
+
+
+async def _save_in_place(
+    service: InvestigationService,
+    settings: AppSettings,
+    source_tab,
+    investigation_id: str,
+) -> None:
+    """Persist a no-reload action to the page file and confirm with "Saved."."""
+    _refresh_investigation_page_file(service, settings, investigation_id)
+    await _set_page_status(source_tab, "Saved.")
+
+
 async def _open_or_refresh_investigation_page(
     browser: uc.Browser,
     page_path: Path,
@@ -2899,7 +2932,9 @@ async def main():
                     )
                     # In-place: the card already reflects favorite/status/tags,
                     # so keep the analyst's place instead of reloading.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -2917,7 +2952,9 @@ async def main():
                     )
                     # In-place save: the rail keeps the edited values, so skip
                     # the page reload for a smoother editing flow.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -2935,7 +2972,9 @@ async def main():
                     )
                     # In-place delete: the row is removed client-side, so skip
                     # the page reload.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3115,7 +3154,12 @@ async def main():
                         "delete_entities",
                         "attach_extracted_properties",
                     }:
-                        await _set_page_status(source_tab, "Saved.")
+                        await _save_in_place(
+                            investigation_service,
+                            settings,
+                            source_tab,
+                            investigation_id,
+                        )
                     else:
                         page_path = _generate_investigation_page(
                             investigation_service,
@@ -3208,7 +3252,9 @@ async def main():
                     )
                     # Persist in place; the panel already shows the new value,
                     # so a full page reload would only disrupt the analyst.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3225,7 +3271,9 @@ async def main():
                         result.get("entity", {}),
                     )
                     # In-place save: no reload so the analyst keeps their place.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3242,7 +3290,9 @@ async def main():
                     )
                     # In-place: the JS already hid the row, so a reload would
                     # only disrupt the analyst mid-triage.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3361,7 +3411,9 @@ async def main():
                         investigation_id,
                         export_id,
                     )
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3385,7 +3437,9 @@ async def main():
                     )
                     # In-place: the JS removes the card and closes its rail
                     # panel, so keep the analyst's place instead of reloading.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3404,7 +3458,9 @@ async def main():
                     )
                     # The evidence row is removed client-side. Keep the rail
                     # context instead of refreshing the whole investigation.
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue
@@ -3473,7 +3529,9 @@ async def main():
                         investigation_id,
                         monitor_id,
                     )
-                    await _set_page_status(source_tab, "Saved.")
+                    await _save_in_place(
+                        investigation_service, settings, source_tab, investigation_id
+                    )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
                 continue

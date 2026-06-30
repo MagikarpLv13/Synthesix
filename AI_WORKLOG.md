@@ -1234,6 +1234,33 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   recherche (`data-search`, invisible) ; regroupement « Fichiers importés »
   comme source unique toujours possible plus tard.
 
+### AI-20260630-002 — No-reload : régénérer le fichier page après sauvegarde
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Objectif :** corriger le bug où une action no-reload (suppression, etc.)
+  s'enlève visuellement mais réapparaît au F5 jusqu'au prochain redémarrage.
+- **Cause racine :** les handlers no-reload de `main.py` persistaient bien en
+  base via le service mais ne régénéraient jamais le HTML statique sur disque
+  (`generate_investigation_page`). Un F5 rechargeait donc le fichier périmé ;
+  seul un redémarrage régénérait la page depuis la base.
+- **Changements (`main.py`) :**
+  - `_refresh_investigation_page_file` : régénère le fichier page sur disque
+    sans recharger l'onglet (try/except → log debug si échec).
+  - `_save_in_place` : régénère le fichier puis pose le statut « Saved. ».
+  - les 11 sites no-reload (`update_investigation_result`, `update_graph_entity`,
+    `delete_graph_entity_property`, dispatch partagé `set_graph_entity_property`
+    /relations/attach/detach/scope/batch, `update_entity_status`,
+    `update_entity_metadata`, `delete_entity`, `delete_zeroneurone_export`,
+    `remove_saved_page`, `delete_evidence_capture`, `delete_page_monitor`)
+    appellent désormais `_save_in_place`. L'onglet ouvert n'est pas rechargé.
+- **Fichiers modifiés :** `main.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `py_compile main.py` OK ;
+  `unittest tests.test_investigations tests.test_investigation_view` (63) OK ;
+  `git diff --check` propre.
+- **Vérifications non exécutées :** smoke CDP live (action no-reload puis F5
+  réel reflétant l'état) — à confirmer en session navigateur.
+
 ## Modèle de compte rendu terminé
 
 ```markdown
