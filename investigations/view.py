@@ -2734,7 +2734,7 @@ def generate_investigation_page(
                 </div>
             </div>
             <div class="entity-view" data-entity-view-panel="graph" hidden>
-                <sx-entity-graph>
+                <sx-entity-graph storage-key="synthesix:graph-layout:{_html(str(investigation.get("id", "") or ""))}">
                     <script type="application/json" data-graph-data>{_entity_graph_payload(graph_entities)}</script>
                 </sx-entity-graph>
             </div>

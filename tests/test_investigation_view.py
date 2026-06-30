@@ -810,6 +810,13 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         # Widget + JSON payload island built from the graph entities.
         self.assertEqual(len(tree.xpath("//sx-entity-graph")), 1)
+        # Node positions persist per investigation via a localStorage key.
+        self.assertTrue(
+            tree.xpath(
+                "//sx-entity-graph[starts-with("
+                "@storage-key, 'synthesix:graph-layout:')]"
+            )
+        )
         payload = tree.xpath(
             "//sx-entity-graph/script[@type='application/json']/text()"
         )

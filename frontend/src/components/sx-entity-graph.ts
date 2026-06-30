@@ -103,6 +103,10 @@ export class SxEntityGraph extends LitElement {
   @property({ attribute: false })
   data: GraphData | null = null;
 
+  /** localStorage key for persisting node positions (per investigation). */
+  @property({ attribute: "storage-key" })
+  storageKey = "";
+
   @state()
   private _empty = false;
 
@@ -405,8 +409,9 @@ export class SxEntityGraph extends LitElement {
       degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
     }
 
-    // Seed positions at random inside a disk: an asymmetric start lets the
-    // force layout relax into an organic shape instead of staying ring-like.
+    // Restore saved positions when available; otherwise seed at random inside a
+    // disk so the force layout relaxes into an organic shape (not a ring).
+    const saved = this._loadLayout();
     const n = nodes.length;
     const spread = 50 * Math.sqrt(n) + 60;
     const categories = new Map<string, string>();
@@ -415,17 +420,20 @@ export class SxEntityGraph extends LitElement {
       const deg = degree.get(node.id) ?? 0;
       const color = colorFor(node.category);
       if (node.category) categories.set(node.category, color);
+      const savedPos = saved?.[node.id];
       const seedAngle = Math.random() * Math.PI * 2;
       const seedRadius = Math.sqrt(Math.random()) * spread;
       const particle: Particle = {
         node,
-        x: Math.cos(seedAngle) * seedRadius,
-        y: Math.sin(seedAngle) * seedRadius,
+        x: savedPos ? savedPos.x : Math.cos(seedAngle) * seedRadius,
+        y: savedPos ? savedPos.y : Math.sin(seedAngle) * seedRadius,
         vx: 0,
         vy: 0,
         r: 8 + Math.min(14, deg * 2.2),
         degree: deg,
-        fixed: false,
+        // Saved nodes are pinned during the settle so the arrangement is kept;
+        // only nodes added since the last save relax around them.
+        fixed: !!savedPos,
         el: this._makeNode(node, color, deg),
         circle: null as unknown as SVGCircleElement,
       };
@@ -463,8 +471,50 @@ export class SxEntityGraph extends LitElement {
     // Compute the whole layout synchronously, then freeze it: the graph never
     // drifts on its own — nodes only move when the user drags them.
     this._settle();
+    for (const p of this._particles) p.fixed = false;
+    // Persist the resolved layout (covers entities added since the last save).
+    this._saveLayout();
     this.fit();
     this.requestUpdate();
+  }
+
+  // ---- Layout persistence (per-investigation, localStorage) ---------------
+
+  private _loadLayout(): Record<string, { x: number; y: number }> | null {
+    if (!this.storageKey) return null;
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Record<string, { x: number; y: number }>;
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private _saveLayout(): void {
+    if (!this.storageKey || this._particles.length === 0) return;
+    try {
+      const map: Record<string, { x: number; y: number }> = {};
+      for (const p of this._particles) {
+        map[p.node.id] = { x: Math.round(p.x), y: Math.round(p.y) };
+      }
+      localStorage.setItem(this.storageKey, JSON.stringify(map));
+    } catch {
+      /* storage unavailable — arrangement just won't persist */
+    }
+  }
+
+  /** Drop the saved arrangement and recompute the automatic layout. */
+  reorganize(): void {
+    if (this.storageKey) {
+      try {
+        localStorage.removeItem(this.storageKey);
+      } catch {
+        /* ignore */
+      }
+    }
+    this._build();
   }
 
   private _makeNode(node: GraphNode, color: string, deg: number): SVGGElement {
@@ -713,9 +763,13 @@ export class SxEntityGraph extends LitElement {
     if (this._mode === "node" && this._dragParticle) {
       const particle = this._dragParticle;
       particle.fixed = false;
-      // A click without movement opens the entity; a drag just leaves the node
-      // where it was dropped (no re-simulation, so nothing else shifts).
-      if (!this._moved) this._select(particle.node.id);
+      // A click without movement opens the entity; a drag leaves the node where
+      // it was dropped (no re-simulation) and persists the new arrangement.
+      if (!this._moved) {
+        this._select(particle.node.id);
+      } else {
+        this._saveLayout();
+      }
     }
     this._mode = "idle";
     this._dragParticle = null;
@@ -795,6 +849,7 @@ export class SxEntityGraph extends LitElement {
               <button type="button" title="Zoom avant" aria-label="Zoom avant" @click=${() => this._zoomBy(1.2)}>+</button>
               <button type="button" title="Zoom arrière" aria-label="Zoom arrière" @click=${() => this._zoomBy(1 / 1.2)}>−</button>
               <button type="button" title="Ajuster" aria-label="Ajuster la vue" @click=${() => this.fit()}>⤢</button>
+              <button type="button" title="Réorganiser" aria-label="Réorganiser le graphe" @click=${() => this.reorganize()}>↻</button>
             </div>
             ${this._legend.length
               ? html`<div class="legend">

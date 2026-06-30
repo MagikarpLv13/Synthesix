@@ -1510,6 +1510,37 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   inconnus si souhaité ; brand map facile à étendre.
 - **Relais :** aucun.
 
+### AI-20260630-010 — Persistance des positions du graphe par enquête
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend` (suite de AI-20260630-005/006)
+- **Objectif :** conserver l'agencement manuel du graphe entre deux visites d'une
+  enquête (retour utilisateur).
+- **Changements :**
+  - `frontend/src/components/sx-entity-graph.ts` : attribut `storage-key` ;
+    `_loadLayout`/`_saveLayout` (localStorage). Au build, les nœuds avec position
+    sauvegardée sont restaurés et épinglés pendant le settle (seuls les nouveaux
+    nœuds se replacent autour), puis la position résolue est persistée ; un drag
+    sauvegarde la nouvelle position ; bouton toolbar `↻ Réorganiser` qui efface la
+    sauvegarde et relance l'auto-layout.
+  - `investigations/view.py` : `storage-key="synthesix:graph-layout:{id}"` sur
+    `<sx-entity-graph>`.
+  - `tests/test_investigation_view.py` : assertion de présence du `storage-key`.
+- **Contrats ou décisions :** persistance **client (localStorage)**, cohérente
+  avec l'état de vue existant (rail, toggle, scroll, file d'actions) ; local au
+  navigateur, non exporté avec le dossier d'enquête (pas de DB pour ce besoin).
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck` — OK
+  - `cd frontend && npm run build` — OK (bundle régénéré)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 268 tests
+  - `git diff --check` — OK
+  - smoke headless Chrome : layout pré-injecté en localStorage (grille 2×5)
+    restitué à l'identique → chemin de restauration validé.
+- **Vérifications non exécutées :** aller-retour live (drag → reload) en
+  navigateur réel ; sauvegarde au drag validée par lecture de code uniquement.
+- **Relais :** aucun.
+
 ## Modèle de compte rendu terminé
 
 ```markdown
