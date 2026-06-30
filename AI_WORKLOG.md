@@ -1379,6 +1379,137 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** smoke live navigateur réel (drag/zoom/survol).
 - **Relais :** aucun.
 
+### AI-20260630-007 — Cartes « Pages enregistrées » en composant Lit + page élargie
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30 12:46-15:10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** refonte des cartes de pages enregistrées pour gagner de la place
+  et migrer leur présentation en Lit (demande utilisateur : moins de JS inline,
+  rendu propre). Bordures noires réduites, observations minifiées, actions
+  secondaires regroupées dans un menu extensible.
+- **Changements :**
+  - **Nouveau composant `frontend/src/components/sx-saved-page-card.ts`** : shell
+    Shadow DOM (favicon-lettre, pills observations `œil`/`horloge` formatées en
+    locale, menu `⋯` avec état open/close + click-outside + Escape). Les éléments
+    porteurs de mots ou bindés par le JS de page restent en **slots light-DOM**
+    (titre, domaine, favori, statut, items de menu, tags, champs cachés) → i18n et
+    dispatch CDP inchangés. Convention repo suivie (libellés composant en FR, comme
+    `sx-entity-graph`).
+  - `frontend/src/index.ts` : enregistrement du composant ; bundle
+    `assets/synthesix-ui.js` régénéré.
+  - `investigations/view.py` (`_result_cards`) : chaque carte ré-émise en
+    `<sx-saved-page-card>` (attributs `observations`/`first-seen`/`last-seen`/
+    `initial`/`imported` + slots). Wayback, Monitor et Remove deviennent des items
+    de menu libellés (`saved-card__menu-item`). Description tronquée 1 ligne.
+    Suppression de l'`<article>`/`result-heading`/`result-metadata`/`result-body`
+    et du pill « Monitoring » d'en-tête. `type_badge` retiré (→ `badge_markup` slot).
+  - `theme.css` : `.app--workspace` 1600→1920px ; box de carte neutralisée (dessinée
+    par le composant) ; styles compacts des slots (`saved-card__actions`,
+    `saved-card__menu-item`, `saved-card__desc`, titre/url/tags) ; retrait du
+    `.investigation-result.is-inspected` externe (géré par `:host(.is-inspected)`).
+  - `i18n.js` : clés « Open Wayback Machine » et « Remove from investigation »
+    (multilingual + additionalTranslations).
+  - `tests/test_investigation_view.py` : assertions adaptées à
+    `<sx-saved-page-card>` (sélecteurs `article`→tag, `.result-url` div→span,
+    libellés menu, ancien `result-body` → slot `title`).
+- **Contrats ou décisions :** aucun contrat/payload CDP modifié ; les `data-*`
+  (filtre/favori/statut), `data-result-favorite`, `data-result-status`,
+  `.remove-saved-page`, `.start/stop-page-monitor`, champs cachés notes/tags
+  conservés à l'identique en light DOM. Le menu `⋯` est extensible (ajouter un
+  `slot="menu"`). Présentation seule migrée ; le JS global de page (file d'actions,
+  no-reload, filtres) reste inline = lots ultérieurs.
+- **Tests exécutés :**
+  - `npm run typecheck` — OK
+  - `npm run build` — OK (bundle 55.5kb régénéré)
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_i18n_coverage` — OK, 29 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 268 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome — OK : carte compacte (favicon, pills, statut, kebab,
+    description 1 ligne) + menu `⋯` ouvert (Wayback/Monitor/Remove) capturés.
+- **Vérifications non exécutées :**
+  - smoke CDP live dans une vraie session navigateur (clic-carte→inspecteur,
+    favori/statut/remove/monitor via le menu, click-outside) — à confirmer en live.
+- **Risques / reste à faire :**
+  - en-tête de carte ne montre plus le pill « Monitoring » (l'item « Stop
+    monitoring » du menu l'implique) ; rajouter un indicateur discret si souhaité ;
+  - règles CSS `.result-heading`/`.result-metadata`/`.result-body`/`.result-description`
+    désormais inutilisées pour ces cartes — laissées en place (nettoyage hors
+    périmètre) ;
+  - étendre la même approche Lit aux autres blocs denses (rail workspace) en lot
+    séparé.
+- **Relais :** aucun.
+
+### AI-20260630-008 — Cartes pages : grille multi-colonnes + carte épurée
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30 15:10-15:35
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** retours utilisateur — liste pleine largeur trop étirée + carte
+  trop chargée provoquant un débordement horizontal. Passer en grille et épurer la
+  carte (autorisation explicite de retirer des éléments).
+- **Changements :**
+  - `theme.css` : `.investigation-results` en
+    `grid-template-columns: repeat(auto-fill, minmax(380px, 1fr))` + `align-items:
+    start` (responsive ~3 colonnes, cartes courtes non étirées).
+  - `sx-saved-page-card.ts` : carte réécrite en **2 lignes** — (1) favicon coloré +
+    titre + favori + menu `⋯`, (2) statut + domaine + pills observations/dates.
+    **Description retirée** de la carte (cause du débordement : `white-space:nowrap`
+    gonflait la largeur min) ; statut déplacé en ligne 2 ; favicon coloré
+    déterministe par domaine (attribut `site`) ; `:host([menu-open])` → `z-index:20`
+    (+ attribut reflété) pour que le pop `⋯` passe au-dessus de la carte voisine.
+  - `view.py` (`_result_cards`) : favori/statut séparés en slots `star`/`status` ;
+    attribut `site` = domaine seul (`netloc`) ; suppression de l'émission
+    description + badge importé (l'icône doc du favicon suffit).
+  - `theme.css` : titre `display:block` + ellipsis (tronque enfin) ; select statut
+    borné (`max-width:116px`) ; favori/statut compacts ; retrait des styles
+    `.saved-card__actions`/`.saved-card__desc` obsolètes. Bundle régénéré.
+- **Tests exécutés :** `npm run typecheck` — OK ; `npm run build` — OK ;
+  `unittest tests.test_investigation_view` (26) + `tests.test_i18n_coverage` — OK ;
+  smoke headless (grille 3×2 sans débordement, favicons colorés, titres tronqués,
+  menu ouvert par-dessus la carte du dessous) — OK.
+- **Vérifications non exécutées :** smoke live navigateur réel.
+- **Risques / reste à faire :** description et tags ne sont plus sur la face de
+  carte (tags conservés en DOM, masqués si vides) ; si besoin, les afficher dans
+  l'inspecteur du rail au clic.
+- **Relais :** aucun.
+
+### AI-20260630-009 — Cartes pages : favicons de marque + URL/description repensées
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30 16:05-16:35
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** retours utilisateur — remplacer le nom de domaine par l'icône de
+  la plateforme, déplacer la description dans le rail, rendre le lien titre
+  cliquable sur le texte seul.
+- **Changements :**
+  - `sx-saved-page-card.ts` : favicon = **glyphe de marque** (Simple Icons CC0,
+    embarqués) pour tiktok/instagram/x/facebook/youtube/googlemaps/telegram/
+    snapchat/pinterest/reddit/whatsapp ; fallback lettre colorée pour les domaines
+    inconnus ; X en `currentColor` (s'adapte clair/sombre). Slot `domain` retiré.
+    Titre en `flex: 0 1 auto` + `star` en `margin-left:auto` → la zone cliquable du
+    lien = le texte seul (plus toute la ligne). Map de marques extensible (ajouter
+    une entrée `BRANDS`).
+  - `view.py` : span `result-url` retiré de la carte ; `title` du lien = titre
+    complet + URL (tooltip au survol) ; attribut `site` = domaine (`netloc`) ;
+    `_inspector_panel` ajoute `<p class="inspector-panel__desc">` (description dans
+    le rail au clic).
+  - `theme.css` : style `.inspector-panel__desc` ; retrait du style `.result-url`
+    de carte. Bundle régénéré.
+  - `tests/test_investigation_view.py` : `test_compacts_long_urls` retargeté sur
+    l'URL du rail (`inspector-panel__url`) + le tooltip du titre.
+- **Contrats ou décisions :** aucun contrat CDP/payload modifié ; data-* et
+  contrôles JS-bindés conservés. Marques = Simple Icons (licence CC0).
+- **Tests exécutés :** `npm run typecheck` — OK ; `npm run build` — OK ;
+  `unittest tests.test_investigation_view tests.test_i18n_coverage` (29) — OK ;
+  `unittest discover` (268) — OK ; smoke headless **clair + sombre** (9 cartes,
+  glyphes de marque + fallback lettre, menu par-dessus la carte voisine) — OK.
+- **Vérifications non exécutées :** smoke live navigateur réel.
+- **Risques / reste à faire :** domaines inconnus (ex. pappers) affichent une
+  lettre, sans texte de site — ajouter d'autres marques ou un libellé site pour les
+  inconnus si souhaité ; brand map facile à étendre.
+- **Relais :** aucun.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

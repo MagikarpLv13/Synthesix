@@ -325,7 +325,7 @@ class InvestigationViewTestCase(unittest.TestCase):
 
         self.assertEqual(generated, str(output_path))
         self.assertEqual(
-            tree.xpath("//article[@data-result-id='result-123']/@data-status"),
+            tree.xpath("//sx-saved-page-card[@data-result-id='result-123']/@data-status"),
             ["pertinent"],
         )
         self.assertEqual(
@@ -514,7 +514,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree.xpath("//button[contains(@class, 'remove-saved-page')]/@title"),
             ["Remove this saved page from the investigation"],
         )
-        saved_page_card = tree.xpath("//article[@data-result-id='result-123']")[0]
+        saved_page_card = tree.xpath("//sx-saved-page-card[@data-result-id='result-123']")[0]
         self.assertFalse(
             saved_page_card.xpath(".//*[contains(@class, 'result-evidence')]")
         )
@@ -530,14 +530,16 @@ class InvestigationViewTestCase(unittest.TestCase):
         remove_page = saved_page_card.xpath(
             ".//button[contains(@class, 'remove-saved-page')]"
         )[0]
-        self.assertEqual(remove_page.text_content().strip(), "")
+        self.assertEqual(
+            remove_page.text_content().strip(), "Remove from investigation"
+        )
         self.assertTrue(remove_page.xpath(".//*[local-name()='svg']"))
         wayback = saved_page_card.xpath(
             ".//a[contains(@href, 'web.archive.org') and "
-            "contains(@class, 'icon-action')]"
+            "contains(@class, 'saved-card__menu-item')]"
         )
         self.assertEqual(len(wayback), 1)
-        self.assertEqual(wayback[0].get("aria-label"), "Open Wayback Machine")
+        self.assertEqual(wayback[0].get("title"), "Open Wayback Machine")
         self.assertFalse(
             saved_page_card.xpath(".//*[contains(@class, 'result-provenance')]")
         )
@@ -601,10 +603,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("../../theme.css", content)
         self.assertEqual(
             tree.xpath(
-                "//article[@data-result-id='result-123']"
-                "/div[contains(@class, 'result-body')]/@id"
+                "//sx-saved-page-card[@data-result-id='result-123']"
+                "//a[contains(@class, 'result-title')]/@slot"
             ),
-            ["result-body-result-123"],
+            ["title"],
         )
 
         inline_scripts = [
@@ -1407,23 +1409,31 @@ class InvestigationViewTestCase(unittest.TestCase):
 
         self.assertEqual(
             tree.xpath(
-                "//article[@data-result-id='result-123']"
+                "//sx-saved-page-card[@data-result-id='result-123']"
                 "//a[contains(@class, 'result-title')]/@href"
             ),
             [long_url],
         )
         displayed_urls = tree.xpath(
-            "//article[@data-result-id='result-123']"
-            "//div[contains(@class, 'result-url')]/text()"
+            "//div[@data-inspector-panel='result-123']"
+            "//div[contains(@class, 'inspector-panel__url')]/text()"
         )
         self.assertTrue(all(len(value.strip()) <= 160 for value in displayed_urls))
         self.assertTrue(any("..." in value for value in displayed_urls))
+        self.assertEqual(
+            tree.xpath(
+                "//div[@data-inspector-panel='result-123']"
+                "//div[contains(@class, 'inspector-panel__url')]/@title"
+            ),
+            [long_url],
+        )
+        # The full URL is also reachable from the card via the title tooltip.
         self.assertTrue(
             all(
-                value == long_url
+                long_url in value
                 for value in tree.xpath(
-                    "//article[@data-result-id='result-123']"
-                    "//div[contains(@class, 'result-url')]/@title"
+                    "//sx-saved-page-card[@data-result-id='result-123']"
+                    "//a[contains(@class, 'result-title')]/@title"
                 )
             )
         )

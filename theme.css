@@ -851,7 +851,7 @@ a:focus-visible {
 }
 
 .app--workspace {
-    width: min(1600px, calc(100% - 16px));
+    width: min(1920px, calc(100% - 16px));
 }
 
 .workspace {
@@ -1352,6 +1352,14 @@ a:focus-visible {
     gap: 6px;
 }
 
+.inspector-panel__desc {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
 .inspector-panel__details {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1429,11 +1437,6 @@ a:focus-visible {
 
 .result-heading {
     border-radius: 6px;
-}
-
-.investigation-result.is-inspected {
-    border-color: var(--accent);
-    box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .entity-row {
@@ -2101,28 +2104,109 @@ a:focus-visible {
 
 .investigation-results {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
     gap: 12px;
+    align-items: start;
 }
 
+/* The box chrome (border, padding, hover, inspected ring) is owned by the
+   <sx-saved-page-card> shadow DOM. Here we only style the light-DOM controls
+   it projects through its slots. */
 .investigation-result {
+    display: block;
     min-width: 0;
-    padding: 16px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--surface);
-    cursor: pointer;
-}
-
-.investigation-result:hover {
-    border-color: var(--accent);
-}
-
-.investigation-result.is-collapsed {
-    padding-bottom: 16px;
 }
 
 .investigation-result[hidden] {
     display: none;
+}
+
+.investigation-result .result-title {
+    display: block;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.investigation-result .result-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+}
+
+.investigation-result .result-tags:empty {
+    display: none;
+}
+
+.investigation-result .favorite-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    min-width: 30px;
+    min-height: 28px;
+}
+
+.investigation-result .favorite-star {
+    font-size: 16px;
+}
+
+.investigation-result .status-control select {
+    min-height: 28px;
+    max-width: 116px;
+    padding: 0 22px 0 8px;
+    font-size: 12px;
+}
+
+.saved-card__menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.saved-card__menu-item:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.saved-card__menu-item:focus-visible {
+    outline: none;
+    box-shadow: var(--focus);
+}
+
+.saved-card__menu-item .icon {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    color: var(--muted);
+}
+
+.saved-card__menu-item--danger {
+    color: var(--danger);
+}
+
+.saved-card__menu-item--danger .icon {
+    color: currentColor;
+}
+
+.saved-card__menu-item[disabled] {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .result-heading {

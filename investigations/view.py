@@ -1637,11 +1637,18 @@ def _inspector_panel(
         badges.append(
             '<span class="inspector-badge inspector-badge--mon">Monitoring</span>'
         )
+    description = str(result.get("description", "") or "").strip()
+    desc_markup = (
+        f'<p class="inspector-panel__desc">{_html(description)}</p>'
+        if description
+        else ""
+    )
     return (
         f'<div class="inspector-panel" data-inspector-panel="{_html(result_id)}" '
         f'data-result-id="{_html(result_id)}" hidden>'
         f"{title_markup}{url_markup}"
         f'<div class="inspector-panel__badges">{"".join(badges)}</div>'
+        f"{desc_markup}"
         f'<div class="inspector-panel__details">{details_markup}</div>'
         "</div>"
     )
@@ -2002,21 +2009,16 @@ def _result_cards(
             if imported_view and imported_view["href"]:
                 title_href = imported_view["href"]
                 compact_url = "Imported document"
-        type_badge = (
-            '<span class="result-type-badge">Imported document</span>'
-            if is_imported
-            else ""
-        )
         wayback_url = (
             ""
             if url.startswith(_LOCAL_FILE_URL_PREFIX)
             else _wayback_url(url)
         )
         wayback_control = (
-            f'<a class="icon-action icon-action--frame" href="{_html(wayback_url)}" '
-            'target="_blank" rel="noopener noreferrer" '
-            'title="Open Wayback Machine" aria-label="Open Wayback Machine">'
-            f'{_icon("archive")}</a>'
+            '<a class="saved-card__menu-item" role="menuitem" slot="menu" '
+            f'href="{_html(wayback_url)}" target="_blank" rel="noopener noreferrer" '
+            'title="Open Wayback Machine">'
+            f'{_icon("archive")}<span>Open Wayback Machine</span></a>'
             if wayback_url
             else ""
         )
@@ -2049,21 +2051,40 @@ def _result_cards(
         monitor = monitors_by_result.get(result_id)
         if monitor:
             monitor_control = (
-                '<span class="meta-pill">Monitoring</span>'
-                '<button type="button" class="icon-action icon-action--frame stop-page-monitor" '
+                '<button type="button" '
+                'class="saved-card__menu-item stop-page-monitor" '
+                'role="menuitem" slot="menu" '
                 f'data-monitor-id="{_html(monitor.get("id", ""))}" '
-                'title="Stop monitoring" aria-label="Stop monitoring" '
-                f"{disabled}>{_icon('activity')}</button>"
+                f'title="Stop monitoring"{disabled}>'
+                f"{_icon('activity')}<span>Stop monitoring</span></button>"
             )
         else:
             monitor_control = (
-                '<button type="button" class="icon-action icon-action--frame start-page-monitor" '
-                'title="Monitor changes" aria-label="Monitor changes" '
-                f"{disabled}>{_icon('activity')}</button>"
+                '<button type="button" '
+                'class="saved-card__menu-item start-page-monitor" '
+                'role="menuitem" slot="menu" '
+                f'title="Monitor changes"{disabled}>'
+                f"{_icon('activity')}<span>Monitor changes</span></button>"
             )
+        remove_control = (
+            '<button type="button" '
+            'class="saved-card__menu-item saved-card__menu-item--danger '
+            'remove-saved-page" role="menuitem" slot="menu" '
+            'title="Remove this saved page from the investigation"'
+            f"{disabled}>"
+            f'{_icon("trash")}<span>Remove from investigation</span></button>'
+        )
+        # Compact card data: numeric/date pills are rendered by <sx-saved-page-card>.
+        first_observed_iso = str(result.get("first_observed_at", "") or "")
+        observation_count = int(result.get("observation_count", 0) or 0)
+        host_for_initial = url.split("://", 1)[-1].lstrip("/").split("/", 1)[0]
+        if host_for_initial.startswith("www."):
+            host_for_initial = host_for_initial[4:]
+        card_initial = (host_for_initial[:1] or "?").upper()
+        imported_attr = " imported" if is_imported else ""
         cards.append(
             f"""
-            <article
+            <sx-saved-page-card
                 id="result-{_html(result_id)}"
                 class="investigation-result"
                 data-result-id="{_html(result_id)}"
@@ -2074,72 +2095,53 @@ def _result_cards(
                 data-observed="{_html(latest_observed[:10])}"
                 data-favorite="{"1" if favorite else "0"}"
                 data-imported="{"1" if is_imported else "0"}"
+                observations="{observation_count}"
+                first-seen="{_html(first_observed_iso)}"
+                last-seen="{_html(latest_observed)}"
+                initial="{_html(card_initial)}"
+                site="{_html(host_for_initial)}"{imported_attr}
             >
-                <div class="result-heading">
-                    <div class="result-title-block">
-                        <a
-                            class="result-title"
-                            href="{_html(title_href)}"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >{_html(title)}</a>
-                        <div class="result-url" title="{_html(compact_url if is_imported else url)}">
-                            {_html(compact_url)}
-                        </div>
-                        {type_badge}
-                    </div>
-                    <div class="result-review-controls">
-                        {wayback_control}
-                        {monitor_control}
-                        <label
-                            class="favorite-toggle"
-                            title="Add or remove this page from favorites"
-                        >
-                            <input
-                                class="sr-only"
-                                type="checkbox"
-                                data-result-favorite
-                                aria-label="Favorite"
-                                {favorite_checked}{disabled}
-                            >
-                            <span class="favorite-star" aria-hidden="true"></span>
-                        </label>
-                        <label class="status-control">
-                            <span class="sr-only">Analyst status</span>
-                            <select data-result-status{disabled}>
-                                {_status_options(status)}
-                            </select>
-                        </label>
-                        <button
-                            type="button"
-                            class="icon-action icon-action--danger remove-saved-page"
-                            title="Remove this saved page from the investigation"
-                            aria-label="Remove this saved page from the investigation"
-                            {disabled}
-                        >{_icon("trash")}</button>
-                    </div>
-                </div>
-                <div
-                    id="result-body-{_html(result_id)}"
-                    class="result-body"
+                <a
+                    class="result-title"
+                    slot="title"
+                    href="{_html(title_href)}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="{_html(title + " — " + (compact_url if is_imported else url))}"
+                >{_html(title)}</a>
+                <label
+                    class="favorite-toggle"
+                    slot="star"
+                    title="Add or remove this page from favorites"
                 >
-                    <p class="result-description">{_html(description)}</p>
-                    <div class="result-metadata">
-                        <span>{int(result.get("observation_count", 0) or 0)} observation(s)</span>
-                        <span>First seen {_local_datetime(result.get("first_observed_at"))}</span>
-                        <span>Last seen {_local_datetime(latest_observed)}</span>
-                    </div>
-                    <div class="result-tags" data-result-tags-display>
-                        {tag_markup}
-                    </div>
-                    <textarea data-result-notes hidden>{_html(notes)}</textarea>
                     <input
-                        type="hidden"
-                        data-result-tags
-                        value="{_html(", ".join(tags))}"
+                        class="sr-only"
+                        type="checkbox"
+                        data-result-favorite
+                        aria-label="Favorite"
+                        {favorite_checked}{disabled}
                     >
+                    <span class="favorite-star" aria-hidden="true"></span>
+                </label>
+                <label class="status-control" slot="status">
+                    <span class="sr-only">Analyst status</span>
+                    <select data-result-status{disabled}>
+                        {_status_options(status)}
+                    </select>
+                </label>
+                {wayback_control}
+                {monitor_control}
+                {remove_control}
+                <div class="result-tags" data-result-tags-display slot="tags">
+                    {tag_markup}
                 </div>
-            </article>
+                <textarea data-result-notes hidden>{_html(notes)}</textarea>
+                <input
+                    type="hidden"
+                    data-result-tags
+                    value="{_html(", ".join(tags))}"
+                >
+            </sx-saved-page-card>
             """
         )
     return "".join(cards)
@@ -3839,47 +3841,32 @@ def generate_investigation_page(
                                 card.remove();
                                 return;
                             }}
-                            if (
-                                control.previousElementSibling
-                                && control.previousElementSibling.textContent
-                                    .trim() === "Monitoring"
-                            ) {{
-                                control.previousElementSibling.remove();
-                            }}
                             const hostCard = control.closest(
                                 ".investigation-result"
                             );
-                            control.remove();
-                            if (hostCard) {{
-                                const actions = hostCard.querySelector(
-                                    ".result-review-controls"
-                                );
-                                const start = document.createElement("button");
-                                start.type = "button";
-                                start.className = (
-                                    "icon-action icon-action--frame "
-                                    + "start-page-monitor"
-                                );
-                                start.title = "Monitor changes";
-                                start.setAttribute(
-                                    "aria-label",
-                                    "Monitor changes"
-                                );
-                                start.innerHTML = {json.dumps(_icon("activity"))};
-                                start.addEventListener("click", () => {{
-                                    storeViewState({{
-                                        inspectorType: "page",
-                                        inspectorId: hostCard.dataset.resultId
-                                    }});
-                                    queueAction("create_page_monitor", {{
-                                        resultId: hostCard.dataset.resultId
-                                    }});
+                            const start = document.createElement("button");
+                            start.type = "button";
+                            start.className = (
+                                "saved-card__menu-item start-page-monitor"
+                            );
+                            start.setAttribute("role", "menuitem");
+                            start.setAttribute("slot", "menu");
+                            start.title = "Monitor changes";
+                            start.innerHTML = (
+                                {json.dumps(_icon("activity"))}
+                                + "<span>Monitor changes</span>"
+                            );
+                            start.addEventListener("click", () => {{
+                                if (!hostCard) return;
+                                storeViewState({{
+                                    inspectorType: "page",
+                                    inspectorId: hostCard.dataset.resultId
                                 }});
-                                actions?.insertBefore(
-                                    start,
-                                    actions.querySelector(".favorite-toggle")
-                                );
-                            }}
+                                queueAction("create_page_monitor", {{
+                                    resultId: hostCard.dataset.resultId
+                                }});
+                            }});
+                            control.replaceWith(start);
                         }});
                         updateMonitorCount();
                         flashSaved();

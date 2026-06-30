@@ -14,3 +14,4 @@ import "./components/sx-inspector";
 import "./components/sx-entity";
 import "./components/sx-entity-graph";
 import "./components/sx-property";
+import "./components/sx-saved-page-card";
