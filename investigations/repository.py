@@ -157,16 +157,34 @@ class InvestigationRepository:
             if version in applied:
                 continue
             applied_at = utc_now().replace("'", "''")
+            # Foreign keys are disabled for the duration of the migration: a
+            # table rebuild (``DROP TABLE`` + recreate) would otherwise cascade
+            # ``ON DELETE CASCADE`` and wipe rows in referencing tables (this is
+            # what destroyed evidence_artifacts when evidence_captures was
+            # rebuilt). ``PRAGMA foreign_keys`` is a no-op inside a transaction,
+            # so it must be toggled outside the BEGIN/COMMIT block. A
+            # ``foreign_key_check`` afterwards still catches genuine integrity
+            # breaks introduced by the migration.
             migration = (
+                "PRAGMA foreign_keys = OFF;\n"
                 "BEGIN IMMEDIATE;\n"
                 + sql
                 + "\nINSERT INTO schema_migrations(version, applied_at) "
                 + f"VALUES ({int(version)}, '{applied_at}');\n"
-                + "COMMIT;"
+                + "COMMIT;\n"
+                "PRAGMA foreign_keys = ON;"
             )
             connection = self._connect()
             try:
                 connection.executescript(migration)
+                violations = connection.execute(
+                    "PRAGMA foreign_key_check"
+                ).fetchall()
+                if violations:
+                    raise sqlite3.IntegrityError(
+                        f"Migration {int(version)} left foreign key "
+                        f"violations: {[tuple(row) for row in violations]}"
+                    )
             except Exception:
                 connection.rollback()
                 raise

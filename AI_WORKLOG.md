@@ -1261,6 +1261,40 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
 - **Vérifications non exécutées :** smoke CDP live (action no-reload puis F5
   réel reflétant l'état) — à confirmer en session navigateur.
 
+### AI-20260630-003 — Perte d'artefacts en migration 16 : fix runner + récupération
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Objectif :** comprendre la disparition du bouton scan / miniatures sur les
+  anciennes captures, corriger la cause, restaurer les données.
+- **Cause racine :** la migration 16 reconstruit `evidence_captures`
+  (`DROP TABLE` + recreate). Le runner ouvre chaque migration avec
+  `PRAGMA foreign_keys = ON` ; or `evidence_artifacts.capture_id` a
+  `ON DELETE CASCADE` → le DROP a cascade-supprimé **toutes** les lignes
+  `evidence_artifacts` des captures antérieures (8 lignes restantes pour 40
+  captures ; 36 captures sans artefact → `_has_extractable_archive` faux →
+  pas de bouton scan ni miniature).
+- **Changements (code) :** `investigations/repository.py` — le runner exécute
+  désormais chaque migration avec `PRAGMA foreign_keys = OFF` autour du
+  `BEGIN/COMMIT` (le PRAGMA est inopérant dans une transaction) puis
+  `PRAGMA foreign_key_check` après pour détecter une vraie violation
+  d'intégrité (lève `IntegrityError` le cas échéant).
+- **Récupération données (hors dépôt) :** script ponctuel relisant chaque
+  `manifest.json` (intact sur disque) pour réinsérer les lignes
+  `evidence_artifacts` manquantes. Backup `data/synthesix.db.bak-<ts>` créé
+  avant écriture. Résultat : 80 lignes réinsérées (8 → 88), 36 → 0 captures
+  sans artefact, 0 fichier manquant. Régénération de la page d'enquête :
+  boutons scan 2 → 14, miniatures images restaurées.
+- **Fichiers modifiés :** `investigations/repository.py`, `AI_WORKLOG.md`
+- **Tests exécutés :** `unittest discover` (265) OK (les 16 migrations
+  s'appliquent proprement avec FK OFF + `foreign_key_check`).
+- **Vérifications non exécutées :** aucun test unitaire dédié au runner ajouté
+  (le tester exige un refacto : la fin de `initialize()` lit des tables réelles,
+  donc patcher `MIGRATIONS` casse). À ajouter si souhaité.
+- **Risques / reste à faire :** récupération appliquée à la base locale de
+  l'utilisateur uniquement ; toute autre base déjà migrée garde la perte tant
+  que le script de récupération n'est pas rejoué (manifests requis).
+
 ## Modèle de compte rendu terminé
 
 ```markdown
