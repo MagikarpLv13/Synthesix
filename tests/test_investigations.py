@@ -1633,6 +1633,122 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         indexed = self.service.search_local_archive({"query": "profile"})
         self.assertEqual(indexed, [])
 
+    def test_renaming_evidence_capture_updates_name(self):
+        investigation = self.service.create({"title": "Case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        capture = self.service.record_evidence_capture(
+            capture_id="capture-1",
+            investigation_id=investigation.id,
+            result_id=saved.id,
+            name="Original name",
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope="region",
+            selection={"x": 10, "y": 20, "width": 300, "height": 200},
+            manifest_path="data/evidence/capture-1/manifest.json",
+            captured_at="2026-06-10T10:00:00.000000+00:00",
+            tool_version="test",
+            artifacts=[
+                {
+                    "id": "artifact-1",
+                    "artifact_type": "png",
+                    "file_path": "data/evidence/capture-1/capture.png",
+                    "mime_type": "image/png",
+                    "sha256": "a" * 64,
+                    "byte_size": 123,
+                    "created_at": "2026-06-10T10:00:00.000000+00:00",
+                }
+            ],
+        )
+
+        renamed = self.service.rename_evidence_capture(
+            investigation.id,
+            capture.id,
+            "  Renamed evidence  ",
+        )
+
+        self.assertEqual(renamed["name"], "Renamed evidence")
+        self.assertEqual(
+            self.service.get_evidence_capture(investigation.id, capture.id).name,
+            "Renamed evidence",
+        )
+        with self.assertRaises(InvestigationValidationError):
+            self.service.rename_evidence_capture(investigation.id, capture.id, "   ")
+        with self.assertRaises(InvestigationValidationError):
+            self.service.rename_evidence_capture(
+                investigation.id,
+                "missing-capture",
+                "Anything",
+            )
+
+    def test_attaching_evidence_capture_creates_sourced_entity_property(self):
+        investigation = self.service.create({"title": "Case"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/profile",
+                "title": "Profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        entity = self.service.create_graph_entity(
+            investigation.id,
+            {"label": "Jane Doe"},
+        )
+        capture = self.service.record_evidence_capture(
+            capture_id="capture-1",
+            investigation_id=investigation.id,
+            result_id=saved.id,
+            name="Profile screenshot",
+            source_url=saved.url,
+            page_title=saved.title,
+            capture_scope="viewport",
+            selection={},
+            manifest_path="data/evidence/capture-1/manifest.json",
+            captured_at="2026-06-10T10:00:00.000000+00:00",
+            tool_version="test",
+            artifacts=[
+                {
+                    "id": "artifact-1",
+                    "artifact_type": "png",
+                    "file_path": "data/evidence/capture-1/capture.png",
+                    "mime_type": "image/png",
+                    "sha256": "a" * 64,
+                    "byte_size": 123,
+                    "created_at": "2026-06-10T10:00:00.000000+00:00",
+                }
+            ],
+        )
+
+        attached = self.service.attach_evidence_capture_to_entity(
+            investigation.id,
+            capture.id,
+            {"graph_entity_id": entity["id"], "property_key": "Capture écran"},
+        )
+
+        self.assertEqual(attached["attributes"]["source_capture_id"], capture.id)
+        workspace = self.service.workspace_payload(investigation.id)
+        graph_entity = workspace["graph_entities"][0]
+        self.assertEqual(
+            graph_entity["properties"]["Capture écran"],
+            "Profile screenshot",
+        )
+        with self.assertRaises(InvestigationValidationError):
+            self.service.attach_evidence_capture_to_entity(
+                investigation.id,
+                capture.id,
+                {"property_key": "Capture écran"},
+            )
+
     def test_source_archive_cannot_be_deleted_while_referenced(self):
         investigation = self.service.create({"title": "Source archive"})
         saved = self.service.save_page(

@@ -3323,6 +3323,30 @@ class InvestigationRepository:
             f"Evidence capture not found: {capture_id}"
         )
 
+    def rename_evidence_capture(
+        self,
+        investigation_id: str,
+        capture_id: str,
+        name: str,
+    ) -> EvidenceCapture:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE evidence_captures
+                SET name = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (name, capture_id, investigation_id),
+            )
+            if cursor.rowcount == 0:
+                self._raise_evidence_not_found(capture_id)
+        return self.get_evidence_capture(investigation_id, capture_id)
+
     def delete_evidence_capture(
         self,
         investigation_id: str,

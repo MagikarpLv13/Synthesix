@@ -1541,6 +1541,133 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   navigateur réel ; sauvegarde au drag validée par lecture de code uniquement.
 - **Relais :** aucun.
 
+### AI-20260630-011 — Export nommé + renommage et rattachement direct des preuves
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** (1) nommer le dossier d'export ZeroNeurone avec le titre de
+  l'enquête plutôt que le littéral `zeroneurone` ; (2) permettre de renommer
+  une preuve (capture, archive, fichier importé) après coup, en plus du nom
+  choisi à la capture qui existait déjà ; (3) rattacher une preuve existante
+  directement à une entité, comme une propriété sourcée (couvre aussi les
+  fichiers importés manuellement, à la demande de l'utilisateur).
+- **Changements :**
+  - `main.py` : helper `_slugify()` (accents repliés, ponctuation → `-`) ;
+    le dossier d'export devient `{slug-du-titre}_{timestamp}` ; deux nouveaux
+    handlers d'action `rename_evidence_capture` et
+    `attach_evidence_capture_to_entity` (reload complet, comme les autres
+    actions qui créent une entité/propriété).
+  - `investigations/repository.py` : `rename_evidence_capture()` (UPDATE
+    ciblé sur `evidence_captures.name`, même garde « enquête active » que
+    `delete_evidence_capture`).
+  - `investigations/service.py` : `rename_evidence_capture()` (validation
+    nom non vide, `MAX_EVIDENCE_NAME_LENGTH` déjà existant) ;
+    `attach_evidence_capture_to_entity()` — réutilise le pipeline existant
+    `record_selection_entity` → `set_extracted_entity_source_capture` →
+    `attach_extracted_property` (même mécanisme que le rattachement de texte
+    sélectionné depuis l'overlay), avec une clé de propriété par défaut selon
+    `capture_kind` (`Capture écran` / `Archive HTML` / `Pièce jointe`).
+  - `investigations/view.py` : helper partagé `_graph_entity_attach_options()`
+    (extrait de `_extracted_entity_row`, réutilisé) ; icône `edit` ; chaque
+    `evidence-item` reçoit un bouton « Renommer » (`prompt()`) et un
+    `<select data-evidence-attach>` réutilisant le style
+    `entity-chip-row__link` (pas de modification de `theme.css`) ; JS de
+    rattachement demande le nom de propriété via `prompt()` avant
+    `queueAction`.
+  - Tests : `tests/test_main.py` (`_slugify`), `tests/test_investigations.py`
+    (renommage, rattachement + erreurs de validation),
+    `tests/test_investigation_view.py` (présence bouton/`select` et
+    `data-default-key`).
+- **Contrats ou décisions :** aucune nouvelle table — le rattachement preuve↔
+  entité réutilise le mécanisme `extracted_entity` + `source_capture_id` déjà
+  en place (cf. `docs/EVIDENCE_ATTACHMENT_PLAN.md`, jamais branché jusqu'ici) ;
+  les deux nouvelles actions rechargent la page (comme
+  `create_graph_entity_from_result`), pas de rendu no-reload pour ce lot.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_investigations tests.test_investigation_view tests.test_zeroneurone_export`
+    — OK, 122 tests
+  - `git diff --check` — OK (avertissements CRLF uniquement)
+  - Aucune modification TypeScript/overlay : `npm run typecheck`/`build` non
+    requis.
+- **Vérifications non exécutées :** smoke visuel/CDP réel en navigateur
+  (pas de navigateur disponible dans cette session) — renommage et
+  rattachement vérifiés uniquement par tests Python (lxml) + relecture du
+  diff JS généré.
+- **Risques / reste à faire :** pas de détachement direct depuis la liste de
+  preuves (seul `detach_extracted_property` existe, via la ligne d'entité
+  extraite) ; le rattachement n'a pas de no-reload (cohérent avec le reste du
+  lot création d'entité).
+- **Relais :** smoke CDP live recommandé avant de considérer le lot
+  définitivement validé.
+
+### AI-20260630-012 — Correctifs du lot preuves (delegation JS, nom de téléchargement) + rattachement à la capture
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend`, non committé (suite de AI-20260630-011)
+- **Objectif :** corriger deux régressions remontées par l'utilisateur après
+  smoke réel sur AI-20260630-011, et combler un manque identifié à cette
+  occasion : pouvoir choisir le nom du fichier **et** l'entité de
+  rattachement directement au moment de la capture, pas seulement après
+  coup.
+- **Bugs corrigés :**
+  - **Bouton « Renommer » inactif :** le JS du lot précédent avait été câblé
+    sur `resultCards.forEach((card) => ...)` (`.investigation-result`), mais
+    les items de preuve vivent dans le rail `.inspector-panel`, un sous-arbre
+    DOM différent — le listener ne s'attachait donc jamais. Les blocs
+    `delete-evidence`/`verify-evidence` du même `resultCards.forEach` étaient
+    déjà du code mort pour la même raison (seul le listener délégué sur
+    `document` + `.closest(".inspector-panel")` fonctionne réellement) ;
+    déplacé `rename-evidence` dans ce listener délégué et ajouté un listener
+    `change` délégué dédié pour `[data-evidence-attach]` (`investigations/view.py`).
+  - **Nom de fichier téléchargé toujours `zeroneurone.zip` :** seul le
+    *dossier* d'export avait été renommé (AI-20260630-011) ; le navigateur
+    nomme le téléchargement d'après le dernier segment de l'URL, donc le
+    fichier zip lui-même restait `zeroneurone.zip`. Ajout d'un attribut
+    `download="{slug-du-titre}.{ext}"` sur chaque lien d'export
+    (`_export_cards` dans `investigations/view.py`, avec un `_slugify()`
+    local — pas d'import croisé avec `main.py`).
+- **Nouvelle fonctionnalité — rattachement dès la capture :**
+  - `frontend/src/overlay/sx-overlay-capture-menu.ts` : nouvelle section
+    optionnelle (affichée seulement si l'enquête a des entités) avec un
+    `<select>` d'entités + un champ nom de propriété, mêmes
+    principes que `sx-overlay-entity-menu` (réutilisé `graphEntities`
+    déjà poussé par `main.py`). Le choix est inclus dans le détail de
+    l'événement `synthesix-capture-choice` (`attach: {entityId, propertyKey, propertyType} | null`).
+  - `main.py` : `host.__synthesixSetGraphEntities` alimente maintenant aussi
+    `captureMenu.graphEntities` (en plus de `entityMenu`) ; `attach` est
+    propagé à travers `__synthesixQueueCapture`/`__synthesixStartRegionSelection`
+    jusqu'au payload `capture_evidence_to_investigation` ; `_capture_evidence()`
+    appelle `service.attach_evidence_capture_to_entity(...)` après
+    l'enregistrement de la capture — en best-effort (une erreur d'attache
+    n'annule pas la capture, juste un `logger.warning`).
+  - Bundle overlay reconstruit (`npm run typecheck && npm run build`).
+- **Tests :**
+  - `tests/test_main.py` : `test_capture_evidence_attaches_to_entity_when_requested`,
+    `test_capture_evidence_ignores_attach_failure`.
+  - `tests/test_investigation_view.py` : `test_generates_filterable_analyst_workspace`
+    étendu avec l'assertion `download="case-alpha-test.zip"`.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck` — OK
+  - `cd frontend && npm run build` — OK (seul `assets/synthesix-overlay.js`
+    a changé)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 274 tests
+  - `git diff --check` — OK (avertissements CRLF uniquement)
+- **Vérifications non exécutées :** smoke CDP live (navigateur réel) toujours
+  pas exécuté dans cette session — c'est précisément ce qui aurait attrapé
+  le bug de délégation JS plus tôt. **À faire avant de considérer ce lot
+  validé : ouvrir une vraie page, capturer un screenshot avec rattachement,
+  vérifier le bouton Renommer, et vérifier le nom du fichier téléchargé.**
+- **Risques / reste à faire :** les libellés de la nouvelle section
+  « rattacher à une entité » du menu de capture ne sont pas encore reliés à
+  `i18n.js` (ils suivent la convention déjà en place pour ce composant —
+  défauts anglais en dur, aucun composant de ce menu n'était traduit avant
+  ce lot non plus) ; pas de détachement direct depuis la liste de preuves.
+- **Relais :** smoke CDP live obligatoire avant de clore définitivement ce
+  lot — c'est le deuxième tour où un bug n'a été détecté que par
+  l'utilisateur en usage réel.
+
 ## Modèle de compte rendu terminé
 
 ```markdown

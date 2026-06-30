@@ -475,6 +475,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Export GraphML and CSV", content)
         self.assertIn(">GraphML</a>", content)
         self.assertIn(">ZeroNeurone ZIP</a>", content)
+        zip_links = tree.xpath(
+            "//a[text()='ZeroNeurone ZIP']/@download"
+        )
+        self.assertEqual(zip_links, ["case-alpha-test.zip"])
         self.assertIn(">Dossier JSON</a>", content)
         self.assertIn(">ZeroNeurone CSV</a>", content)
         self.assertIn(">Manifest</a>", content)
@@ -1018,6 +1022,34 @@ class InvestigationViewTestCase(unittest.TestCase):
             protected_delete[0].get("title"),
             "Archive utilisée comme preuve de provenance",
         )
+
+    def test_evidence_item_offers_rename_and_attach_to_entity(self):
+        workspace = workspace_payload()
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        item = tree.xpath("//*[@data-evidence-id='capture-123']")[0]
+        rename_button = item.xpath(
+            ".//button[contains(@class, 'rename-evidence')]"
+        )
+        self.assertEqual(len(rename_button), 1)
+        attach_select = item.xpath(".//select[@data-evidence-attach]")
+        self.assertEqual(len(attach_select), 1)
+        self.assertEqual(
+            attach_select[0].get("data-default-key"),
+            "Capture écran",
+        )
+        options = attach_select[0].xpath(".//option/@value")
+        self.assertIn(workspace["graph_entities"][0]["id"], options)
 
     def test_extracted_row_carries_property_type_without_a_type_select(self):
         workspace = workspace_payload()

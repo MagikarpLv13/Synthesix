@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import json
+import re
+import unicodedata
 from html import escape
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -389,6 +391,9 @@ _ACTION_ICON_PATHS = {
         '<line x1="5" y1="12" x2="19" y2="12"/>'
     ),
     "check": '<polyline points="20 6 9 17 4 12"/>',
+    "edit": (
+        '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>'
+    ),
     "x": (
         '<line x1="18" y1="6" x2="6" y2="18"/>'
         '<line x1="6" y1="6" x2="18" y2="18"/>'
@@ -670,6 +675,27 @@ def _entity_property_type(entity: Mapping) -> str:
     )
 
 
+def _graph_entity_attach_options(
+    graph_entities: list[Mapping],
+    *,
+    selected_id: str = "",
+    placeholder: str = "Lier à une entité…",
+) -> list[str]:
+    options = [f'<option value="">{_html(placeholder)}</option>']
+    for graph_entity in graph_entities:
+        gid = str(graph_entity.get("id", "") or "")
+        selected = " selected" if gid and gid == selected_id else ""
+        properties = graph_entity.get("properties", {})
+        if not isinstance(properties, Mapping):
+            properties = {}
+        options.append(
+            f'<option value="{_html(gid)}"{selected} '
+            f"data-properties='{_html(json.dumps(properties, ensure_ascii=False))}'>"
+            f'{_html(graph_entity.get("label", ""))}</option>'
+        )
+    return options
+
+
 def _extracted_entity_row(
     entity: Mapping,
     *,
@@ -712,18 +738,10 @@ def _extracted_entity_row(
         value,
     )
     if graph_entities:
-        options = ['<option value="">Lier à une entité…</option>']
-        for graph_entity in graph_entities:
-            gid = str(graph_entity.get("id", "") or "")
-            selected = " selected" if gid and gid == parent_id else ""
-            properties = graph_entity.get("properties", {})
-            if not isinstance(properties, Mapping):
-                properties = {}
-            options.append(
-                f'<option value="{_html(gid)}"{selected} '
-                f"data-properties='{_html(json.dumps(properties, ensure_ascii=False))}'>"
-                f'{_html(graph_entity.get("label", ""))}</option>'
-            )
+        options = _graph_entity_attach_options(
+            graph_entities,
+            selected_id=parent_id,
+        )
         attach_control = (
             '<select class="entity-chip-row__link" '
             f'data-extracted-attach{disabled}>{"".join(options)}</select>'
@@ -1763,12 +1781,19 @@ def _protected_capture_ids(
     return {capture_id for capture_id in protected if capture_id}
 
 
+_EVIDENCE_DEFAULT_PROPERTY_KEY = {
+    "page_archive": "Archive HTML",
+    "imported": "Pièce jointe",
+}
+
+
 def _evidence_markup(
     captures: list[Mapping],
     *,
     output_dir: Path,
     base_dir: Path,
     protected_capture_ids: set[str] | None = None,
+    graph_entities: list[Mapping] = (),
     read_only: bool,
 ) -> str:
     if not captures:
@@ -1871,6 +1896,30 @@ def _evidence_markup(
                 f'{disabled}>{_icon("trash")}</button>'
             )
         )
+        rename_control = (
+            '<button type="button" '
+            'class="icon-action icon-action--frame rename-evidence" '
+            'title="Renommer cette preuve" '
+            'aria-label="Renommer cette preuve" '
+            f'{disabled}>{_icon("edit")}</button>'
+        )
+        if graph_entities and not read_only:
+            default_property_key = _EVIDENCE_DEFAULT_PROPERTY_KEY.get(
+                capture_kind,
+                "Capture écran",
+            )
+            attach_options = _graph_entity_attach_options(
+                graph_entities,
+                placeholder="Rattacher à une entité…",
+            )
+            attach_control = (
+                '<select class="entity-chip-row__link" '
+                f'data-evidence-attach '
+                f'data-default-key="{_html(default_property_key)}">'
+                f'{"".join(attach_options)}</select>'
+            )
+        else:
+            attach_control = ""
         if thumb_img_href:
             thumbnail = (
                 f'<a class="evidence-thumbnail" href="{_html(thumb_img_href)}" '
@@ -1919,6 +1968,7 @@ def _evidence_markup(
                     {scope_detail}
                     {status_detail}
                     <span>{_local_datetime(capture.get("captured_at"))}</span>
+                    {attach_control}
                 </div>
                 <div class="evidence-links">
                     {artifact_links}
@@ -1940,6 +1990,7 @@ def _evidence_markup(
                         title="{verify_title}"
                         aria-label="{verify_title}"
                     >{_icon("check")}</button>
+                    {rename_control}
                     {delete_control}
                 </div>
                 <span
@@ -2266,11 +2317,19 @@ def _search_rows(
     return "".join(rows)
 
 
+def _slugify(text: str, *, fallback: str = "export", max_length: int = 60) -> str:
+    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_only).strip("-").lower()
+    return slug[:max_length].strip("-") or fallback
+
+
 def _export_cards(
     exports: list[Mapping],
     *,
     output_dir: Path,
     base_dir: Path,
+    investigation_title: str = "",
     read_only: bool,
 ) -> str:
     if not exports:
@@ -2282,16 +2341,17 @@ def _export_cards(
 
     cards = []
     disabled = " disabled" if read_only else ""
+    report_slug = _slugify(investigation_title)
     for export in exports:
         links = []
-        for key, label in (
-            ("archive_path", "ZeroNeurone ZIP"),
-            ("dossier_path", "Dossier JSON"),
-            ("graphml_path", "GraphML"),
-            ("csv_path", "ZeroNeurone CSV"),
-            ("nodes_csv_path", "Nodes CSV"),
-            ("edges_csv_path", "Edges CSV"),
-            ("manifest_path", "Manifest"),
+        for key, label, extension in (
+            ("archive_path", "ZeroNeurone ZIP", "zip"),
+            ("dossier_path", "Dossier JSON", "json"),
+            ("graphml_path", "GraphML", "graphml"),
+            ("csv_path", "ZeroNeurone CSV", "csv"),
+            ("nodes_csv_path", "Nodes CSV", "nodes.csv"),
+            ("edges_csv_path", "Edges CSV", "edges.csv"),
+            ("manifest_path", "Manifest", "manifest.json"),
         ):
             path = _resolve_runtime_path(export.get(key), base_dir)
             if path is None:
@@ -2299,6 +2359,7 @@ def _export_cards(
             links.append(
                 f'<a class="secondary-link" '
                 f'href="{_html(_relative_href(path, output_dir))}" '
+                f'download="{_html(report_slug)}.{_html(extension)}" '
                 'target="_blank" rel="noopener noreferrer">'
                 f"{_html(label)}</a>"
             )
@@ -2569,6 +2630,7 @@ def generate_investigation_page(
                         output_dir=output_dir,
                         base_dir=base_dir,
                         protected_capture_ids=protected_capture_ids,
+                        graph_entities=graph_entities,
                         read_only=read_only,
                     )
                 ),
@@ -2919,6 +2981,7 @@ def generate_investigation_page(
                     exports,
                     output_dir=output_dir,
                     base_dir=base_dir,
+                    investigation_title=investigation.get("title", ""),
                     read_only=read_only,
                 )}
             </div>
@@ -3816,7 +3879,73 @@ def generate_investigation_page(
                     queueAction("verify_evidence_capture", {{
                         captureId: item.dataset.evidenceId
                     }});
+                    return;
                 }}
+                const renameEvidence = event.target.closest(".rename-evidence");
+                if (renameEvidence) {{
+                    const item = renameEvidence.closest("[data-evidence-id]");
+                    if (!item) {{
+                        return;
+                    }}
+                    const current = item.querySelector(
+                        ".evidence-name"
+                    )?.textContent.trim() || "";
+                    const name = window.prompt(
+                        "Renommer cette preuve :",
+                        current
+                    );
+                    if (name === null) {{
+                        return;
+                    }}
+                    const trimmed = name.trim();
+                    if (!trimmed || trimmed === current) {{
+                        return;
+                    }}
+                    queueAction("rename_evidence_capture", {{
+                        captureId: item.dataset.evidenceId,
+                        name: trimmed
+                    }});
+                    window.synthesixPage.setStatus("Renaming evidence...");
+                }}
+            }});
+
+            document.addEventListener("change", (event) => {{
+                const select = event.target.closest("[data-evidence-attach]");
+                if (!select || !select.closest(".inspector-panel")) {{
+                    return;
+                }}
+                const item = select.closest("[data-evidence-id]");
+                const graphEntityId = select.value;
+                if (!item || !graphEntityId) {{
+                    return;
+                }}
+                const label = (
+                    select.selectedOptions[0]?.textContent.trim()
+                    || "cette entité"
+                );
+                const propertyKey = window.prompt(
+                    `Nom de la propriété pour ${{label}} :`,
+                    select.dataset.defaultKey || "Capture écran"
+                );
+                select.value = "";
+                if (propertyKey === null) {{
+                    return;
+                }}
+                const trimmedKey = propertyKey.trim();
+                if (!trimmedKey) {{
+                    return;
+                }}
+                queueAction("attach_evidence_capture_to_entity", {{
+                    captureId: item.dataset.evidenceId,
+                    property: {{
+                        graph_entity_id: graphEntityId,
+                        property_key: trimmedKey,
+                        property_type: ""
+                    }}
+                }});
+                window.synthesixPage.setStatus(
+                    "Attaching evidence to entity..."
+                );
             }});
 
             const updateMonitorCount = () => {{

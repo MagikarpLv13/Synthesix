@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import re
+import unicodedata
 import importlib.metadata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -91,6 +92,13 @@ def _stored_path(path: Path, base_dir: Path) -> str:
         return path.relative_to(base_dir.resolve()).as_posix()
     except ValueError:
         return str(path)
+
+
+def _slugify(text: str, *, fallback: str = "export", max_length: int = 60) -> str:
+    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_only).strip("-").lower()
+    return slug[:max_length].strip("-") or fallback
 
 
 def _default_capture_name(captured_at: str) -> str:
@@ -621,6 +629,7 @@ async def _install_and_consume_save_overlay(
                             const detail = event.detail || {{}};
                             const scope = detail.scope || "";
                             const captureName = detail.captureName || "";
+                            const attach = detail.attach || null;
                             if (!host.dataset.investigationId) {{
                                 window.__synthesixSavePageAction = {{
                                     action: "focus_home"
@@ -633,10 +642,11 @@ async def _install_and_consume_save_overlay(
                                     y: window.scrollY,
                                     width: window.innerWidth,
                                     height: window.innerHeight
-                                }}, captureName);
+                                }}, captureName, attach);
                             }} else if (scope === "region") {{
                                 host.__synthesixStartRegionSelection(
-                                    captureName
+                                    captureName,
+                                    attach
                                 );
                             }}
                         }}
@@ -653,7 +663,8 @@ async def _install_and_consume_save_overlay(
                     host.__synthesixQueueCapture = (
                         scope,
                         selection,
-                        captureName
+                        captureName,
+                        attach
                     ) => {{
                         host.__synthesixSetCaptureState(
                             "capturing",
@@ -668,6 +679,7 @@ async def _install_and_consume_save_overlay(
                                     captureScope: scope,
                                     captureName: String(captureName || "").trim(),
                                     selection,
+                                    attach: attach || null,
                                     page: host.__synthesixPagePayload()
                                 }};
                                 if (
@@ -678,7 +690,10 @@ async def _install_and_consume_save_overlay(
                             }});
                         }});
                     }};
-                    host.__synthesixStartRegionSelection = (captureName) => {{
+                    host.__synthesixStartRegionSelection = (
+                        captureName,
+                        attach
+                    ) => {{
                         host.style.display = "none";
                         const existing = document.getElementById(
                             "__synthesix-evidence-selection"
@@ -703,7 +718,8 @@ async def _install_and_consume_save_overlay(
                                         width: region.width,
                                         height: region.height
                                     }},
-                                    captureName
+                                    captureName,
+                                    attach
                                 );
                             }}
                         );
@@ -745,9 +761,11 @@ async def _install_and_consume_save_overlay(
                         entityMenu.existingTags = Array.isArray(tags) ? tags : [];
                     }};
                     host.__synthesixSetGraphEntities = (graphEntities) => {{
-                        entityMenu.graphEntities = (
+                        const entities = (
                             Array.isArray(graphEntities) ? graphEntities : []
                         );
+                        entityMenu.graphEntities = entities;
+                        captureMenu.graphEntities = entities;
                     }};
                     entityMenu.addEventListener(
                         "synthesix-entity-create",
@@ -1148,6 +1166,35 @@ async def _capture_evidence(
             artifacts=artifacts,
             capture_kind="screenshot",
         )
+        attach_payload = payload.get("attach")
+        if isinstance(attach_payload, Mapping):
+            attach_entity_id = str(
+                attach_payload.get("entityId", "") or ""
+            ).strip()
+            if attach_entity_id:
+                try:
+                    service.attach_evidence_capture_to_entity(
+                        investigation_id,
+                        capture.id,
+                        {
+                            "graph_entity_id": attach_entity_id,
+                            "property_key": str(
+                                attach_payload.get("propertyKey", "") or ""
+                            ),
+                            "property_type": str(
+                                attach_payload.get("propertyType", "") or ""
+                            ),
+                        },
+                    )
+                except InvestigationError:
+                    # Best-effort: the capture itself succeeded, so keep it
+                    # even if the immediate attach failed (e.g. stale entity
+                    # id). The analyst can still attach it from the
+                    # investigation page.
+                    logger.warning(
+                        "Unable to attach capture to entity at capture time.",
+                        exc_info=True,
+                    )
     except Exception as exc:
         await asyncio.to_thread(shutil.rmtree, capture_dir, True)
         if isinstance(exc, InvestigationError):
@@ -2994,6 +3041,8 @@ async def main():
                 "add_graph_entity_relation",
                 "update_graph_entity_relation",
                 "delete_graph_entity_relation",
+                "rename_evidence_capture",
+                "attach_evidence_capture_to_entity",
             }:
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -3133,6 +3182,18 @@ async def main():
                                     "Batch attach skipped one entity",
                                     exc_info=True,
                                 )
+                    elif action == "rename_evidence_capture":
+                        investigation_service.rename_evidence_capture(
+                            investigation_id,
+                            str(result.get("captureId", "") or "").strip(),
+                            str(result.get("name", "") or ""),
+                        )
+                    elif action == "attach_evidence_capture_to_entity":
+                        investigation_service.attach_evidence_capture_to_entity(
+                            investigation_id,
+                            str(result.get("captureId", "") or "").strip(),
+                            result.get("property", {}),
+                        )
                     else:
                         investigation_service.detach_extracted_property(
                             investigation_id,
@@ -3317,10 +3378,13 @@ async def main():
                         .replace("T", "_")
                         .replace(".", "_")
                     )
+                    report_slug = _slugify(
+                        workspace.get("investigation", {}).get("title", "")
+                    )
                     output_dir = (
                         settings.exports_dir
                         / investigation_id
-                        / f"zeroneurone_{timestamp}"
+                        / f"{report_slug}_{timestamp}"
                     )
                     exported = await asyncio.to_thread(
                         export_zeroneurone_bundle,

@@ -19,6 +19,7 @@ from main import (
     _consume_settings_change,
     _create_graph_entity_from_selection,
     _default_capture_name,
+    _slugify,
     _delete_evidence_capture,
     _delete_investigation_export,
     _install_and_consume_save_overlay,
@@ -35,6 +36,7 @@ from main import (
     parse_cli_args,
     wait_for_home_action,
 )
+from exceptions import InvestigationValidationError
 from settings import get_settings
 
 
@@ -112,6 +114,19 @@ class MainCliTestCase(unittest.TestCase):
         self.assertEqual(
             _default_capture_name("2026-06-10T12:34:56.123456+00:00"),
             "screenshot_2026-06-10_12-34-56",
+        )
+
+    def test_slugify_normalizes_accents_and_punctuation(self):
+        self.assertEqual(
+            _slugify("Enquête Société Générale — Volet 1 !"),
+            "enquete-societe-generale-volet-1",
+        )
+        self.assertEqual(_slugify(""), "export")
+        self.assertEqual(_slugify("   "), "export")
+        self.assertEqual(_slugify("调查报告"), "export")
+        self.assertEqual(
+            len(_slugify("a" * 200)),
+            60,
         )
 
     def test_cli_log_levels(self):
@@ -312,6 +327,126 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         )
         capture_html_mock.assert_not_awaited()
         capture_mhtml_mock.assert_not_awaited()
+
+    async def test_capture_evidence_attaches_to_entity_when_requested(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            service = SimpleNamespace(
+                get=Mock(return_value=SimpleNamespace(status="active")),
+                save_page=Mock(
+                    return_value=SimpleNamespace(
+                        id="result-1",
+                        url="https://example.com/",
+                        title="Example",
+                    )
+                ),
+                record_evidence_capture=Mock(
+                    return_value=SimpleNamespace(
+                        id="capture-1",
+                        capture_scope="viewport",
+                    )
+                ),
+                attach_evidence_capture_to_entity=Mock(),
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                evidence_dir=base_dir / "data" / "evidence",
+            )
+            png = SimpleNamespace(
+                sha256="a" * 64,
+                byte_size=100,
+                width=800,
+                height=600,
+            )
+
+            with patch("main.capture_png", AsyncMock(return_value=png)):
+                await _capture_evidence(
+                    service,
+                    settings,
+                    object(),
+                    "case-1",
+                    {
+                        "captureScope": "viewport",
+                        "captureName": "Homepage",
+                        "selection": {
+                            "x": 0,
+                            "y": 0,
+                            "width": 800,
+                            "height": 600,
+                        },
+                        "page": {"browserContext": {}},
+                        "attach": {
+                            "entityId": "entity-1",
+                            "propertyKey": "Capture écran",
+                        },
+                    },
+                )
+
+            service.attach_evidence_capture_to_entity.assert_called_once_with(
+                "case-1",
+                "capture-1",
+                {
+                    "graph_entity_id": "entity-1",
+                    "property_key": "Capture écran",
+                    "property_type": "",
+                },
+            )
+
+    async def test_capture_evidence_ignores_attach_failure(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            service = SimpleNamespace(
+                get=Mock(return_value=SimpleNamespace(status="active")),
+                save_page=Mock(
+                    return_value=SimpleNamespace(
+                        id="result-1",
+                        url="https://example.com/",
+                        title="Example",
+                    )
+                ),
+                record_evidence_capture=Mock(
+                    return_value=SimpleNamespace(
+                        id="capture-1",
+                        capture_scope="viewport",
+                    )
+                ),
+                attach_evidence_capture_to_entity=Mock(
+                    side_effect=InvestigationValidationError("stale entity")
+                ),
+            )
+            settings = SimpleNamespace(
+                base_dir=base_dir,
+                evidence_dir=base_dir / "data" / "evidence",
+            )
+            png = SimpleNamespace(
+                sha256="a" * 64,
+                byte_size=100,
+                width=800,
+                height=600,
+            )
+
+            with patch("main.capture_png", AsyncMock(return_value=png)):
+                investigation, saved, capture = await _capture_evidence(
+                    service,
+                    settings,
+                    object(),
+                    "case-1",
+                    {
+                        "captureScope": "viewport",
+                        "captureName": "Homepage",
+                        "selection": {
+                            "x": 0,
+                            "y": 0,
+                            "width": 800,
+                            "height": 600,
+                        },
+                        "page": {"browserContext": {}},
+                        "attach": {"entityId": "entity-1", "propertyKey": "X"},
+                    },
+                )
+
+            # The capture itself still succeeds even if the attach failed.
+            self.assertEqual(capture.id, "capture-1")
 
     async def test_archive_page_records_html_text_and_partial_mhtml(self):
         with TemporaryDirectory() as temp_dir:

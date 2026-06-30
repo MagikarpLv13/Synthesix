@@ -1194,6 +1194,74 @@ class InvestigationService:
             capture_id,
         )
 
+    def rename_evidence_capture(
+        self,
+        investigation_id: str,
+        capture_id: str,
+        name: str,
+    ) -> dict:
+        cleaned = _clean_text(name, max_length=MAX_EVIDENCE_NAME_LENGTH)
+        if not cleaned:
+            raise InvestigationValidationError("Capture name is required.")
+        return self.repository.rename_evidence_capture(
+            investigation_id,
+            capture_id,
+            cleaned,
+        ).to_payload()
+
+    def attach_evidence_capture_to_entity(
+        self,
+        investigation_id: str,
+        capture_id: str,
+        payload: Mapping,
+    ) -> dict | None:
+        graph_entity_id = _clean_text(
+            payload.get("graph_entity_id"),
+            max_length=100,
+        )
+        if not graph_entity_id:
+            raise InvestigationValidationError(
+                "Select an investigation entity."
+            )
+        capture = self.repository.get_evidence_capture(
+            investigation_id,
+            capture_id,
+        )
+        default_key = {
+            "page_archive": "Archive HTML",
+            "imported": "Pièce jointe",
+        }.get(capture.capture_kind, "Capture écran")
+        property_key = _clean_text(
+            payload.get("property_key") or default_key,
+            max_length=MAX_ENTITY_PROPERTY_KEY_LENGTH,
+        )
+        property_type = str(payload.get("property_type", "") or "").strip()
+        value = capture.name or default_key
+        extracted = self.record_selection_entity(
+            investigation_id,
+            capture.result_id,
+            value=value,
+            property_key=property_key,
+            property_type=property_type,
+            entity_type="other",
+        )
+        if extracted is None:
+            return None
+        self.set_extracted_entity_source_capture(
+            investigation_id,
+            extracted.id,
+            capture_id,
+        )
+        return self.attach_extracted_property(
+            investigation_id,
+            extracted.id,
+            {
+                "graph_entity_id": graph_entity_id,
+                "property_key": property_key,
+                "property_type": property_type,
+            },
+        )
+
     def latest_page_archive_for_result(
         self,
         investigation_id: str,
