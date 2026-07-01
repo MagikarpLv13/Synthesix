@@ -36,8 +36,22 @@ _IMAGE_EXTENSIONS = {
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
     "avif", "tiff", "tif", "ico", "heic", "heif",
 }
+_DOCUMENT_EXTENSIONS = {
+    "pdf", "doc", "docx", "odt", "rtf", "csv", "xls", "xlsx",
+    "ppt", "pptx", "txt",
+}
+_AUDIO_EXTENSIONS = {"mp3", "wav", "ogg", "oga", "m4a", "flac", "aac"}
+_VIDEO_EXTENSIONS = {"mp4", "webm", "mov", "avi", "mkv", "m4v"}
 # Synthetic URL prefix used for imported files without an external source URL.
 _LOCAL_FILE_URL_PREFIX = "https://files.synthesix.local/"
+_DOC_KIND_LABELS = {
+    "image": "Image",
+    "pdf": "PDF",
+    "audio": "Audio",
+    "video": "Vidéo",
+    "document": "Document",
+    "file": "Fichier",
+}
 
 
 def _is_source_property(entity: Mapping) -> bool:
@@ -95,6 +109,37 @@ def _imported_artifact_view(
             "is_image": mime.startswith("image/") or ext in _IMAGE_EXTENSIONS,
         }
     return None
+
+
+def _imported_doc_kind(capture: Mapping) -> str:
+    """Coarse file-type key (image/pdf/audio/video/document/file) for an
+    imported evidence capture, used to badge it in the entity panel."""
+    if str(capture.get("capture_kind", "") or "") != "imported":
+        return ""
+    for artifact in capture.get("artifacts", []) or []:
+        if not isinstance(artifact, Mapping):
+            continue
+        mime = str(artifact.get("mime_type", "") or "").casefold()
+        ext = str(artifact.get("artifact_type", "") or "").casefold()
+        if mime.startswith("image/") or ext in _IMAGE_EXTENSIONS:
+            return "image"
+        if mime == "application/pdf" or ext == "pdf":
+            return "pdf"
+        if mime.startswith("audio/") or ext in _AUDIO_EXTENSIONS:
+            return "audio"
+        if mime.startswith("video/") or ext in _VIDEO_EXTENSIONS:
+            return "video"
+        if mime.startswith("text/") or ext in _DOCUMENT_EXTENSIONS:
+            return "document"
+        return "file"
+    return ""
+
+
+def _doc_kind_badge(doc_kind: str) -> str:
+    if not doc_kind:
+        return ""
+    label = _DOC_KIND_LABELS.get(doc_kind, doc_kind)
+    return f'<span class="prop-type prop-type--doc">{_html(label)}</span>'
 
 
 def _archive_artifact(capture: Mapping) -> Mapping | None:
@@ -432,6 +477,10 @@ _ACTION_ICON_PATHS = {
         '<path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/>'
         '<path d="M10 12h4"/>'
     ),
+    "file": (
+        '<path d="M14 3v4a1 1 0 0 0 1 1h4"/>'
+        '<path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/>'
+    ),
     "chevron-up": '<polyline points="18 15 12 9 6 15"/>',
     "external": (
         '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'
@@ -508,6 +557,17 @@ def _local_datetime(value: str | None) -> str:
         return "Unknown"
     return (
         f'<time datetime="{_html(text)}" data-local-datetime>'
+        f"{_html(_display_datetime(text))}</time>"
+    )
+
+
+def _local_date_compact(value: str | None) -> str:
+    """Short date (e.g. "22 juin"), full datetime shown as a hover title."""
+    text = str(value or "").strip()
+    if not text:
+        return "Unknown"
+    return (
+        f'<time datetime="{_html(text)}" data-local-date-compact>'
         f"{_html(_display_datetime(text))}</time>"
     )
 
@@ -1076,7 +1136,7 @@ def _graph_entities_markup(
             capture = latest_archive_by_result.get(
                 str(extracted.get("result_id", "") or "")
             )
-        archive_href = _archive_href(
+        archive_href = _capture_open_href(
             capture,
             output_dir=output_dir,
             base_dir=base_dir,
@@ -1086,7 +1146,7 @@ def _graph_entities_markup(
             "url": url,
             "href": archive_href or url,
             "source_href": (
-                _archive_href(
+                _capture_open_href(
                     capture,
                     output_dir=output_dir,
                     base_dir=base_dir,
@@ -1094,6 +1154,8 @@ def _graph_entities_markup(
                 or url
             ),
             "title": str(result.get("title") or url) if result else url,
+            "result_id": str(extracted.get("result_id", "") or ""),
+            "doc_kind": _imported_doc_kind(capture) if capture else "",
         }
         keys = set()
         resolved = _entity_property_key(extracted)
@@ -1116,29 +1178,8 @@ def _graph_entities_markup(
         if not isinstance(properties, Mapping):
             properties = {}
         property_sources = sources_by_parent.get(entity_id, {})
-        source_entries: list[tuple[int, str, str, str]] = []
+        source_entries: list[tuple[int, str, str, str, str, str]] = []
         seen_source_urls: set[str] = set()
-        for result_id in entity.get("linked_result_ids", []):
-            result = results_by_id.get(str(result_id))
-            if not result:
-                continue
-            url = str(result.get("url", "") or "")
-            if not url or url in seen_source_urls:
-                continue
-            seen_source_urls.add(url)
-            capture = latest_archive_by_result.get(str(result_id))
-            source_href = (
-                _archive_href(capture, output_dir=output_dir, base_dir=base_dir)
-                or url
-            )
-            source_entries.append(
-                (
-                    len(source_entries) + 1,
-                    url,
-                    source_href,
-                    str(result.get("title") or url),
-                )
-            )
         for sources in property_sources.values():
             for source in sources:
                 url = source.get("url", "")
@@ -1151,10 +1192,53 @@ def _graph_entities_markup(
                         url,
                         source.get("source_href", "") or url,
                         source.get("title", "") or url,
+                        source.get("result_id", "") or "",
+                        source.get("doc_kind", "") or "",
                     )
                 )
+        for result_id in entity.get("linked_result_ids", []):
+            result = results_by_id.get(str(result_id))
+            if not result:
+                continue
+            url = str(result.get("url", "") or "")
+            if not url or url in seen_source_urls:
+                continue
+            seen_source_urls.add(url)
+            capture = latest_archive_by_result.get(str(result_id))
+            if capture is None:
+                result_captures = evidence_by_result.get(str(result_id), [])
+                capture = next(
+                    (
+                        item
+                        for item in result_captures
+                        if str(item.get("capture_kind", "") or "") == "imported"
+                    ),
+                    None,
+                ) or next(
+                    (
+                        item
+                        for item in result_captures
+                        if _has_archive_artifact(item)
+                    ),
+                    None,
+                )
+            source_href = (
+                _capture_open_href(capture, output_dir=output_dir, base_dir=base_dir)
+                or url
+            )
+            source_entries.append(
+                (
+                    len(source_entries) + 1,
+                    url,
+                    source_href,
+                    str(result.get("title") or url),
+                    str(result_id),
+                    _imported_doc_kind(capture) if capture else "",
+                )
+            )
         source_index_by_url = {
-            url: index for index, url, _href, _title in source_entries
+            url: index
+            for index, url, _href, _title, _rid, _kind in source_entries
         }
 
         def _property_source_link(key: str) -> str:
@@ -1191,13 +1275,29 @@ def _graph_entities_markup(
                     return _entity_property_type(extracted)
             return ""
 
-        def _source_row(entry: tuple[int, str, str, str]) -> str:
-            index, _url, href, title = entry
+        def _property_doc_kind_for_key(key: object) -> str:
+            for source in property_sources.get(str(key).casefold(), []):
+                doc_kind = source.get("doc_kind", "")
+                if doc_kind:
+                    return doc_kind
+            return ""
+
+        def _source_row(entry: tuple[int, str, str, str, str, str]) -> str:
+            index, _url, href, title, result_id, doc_kind = entry
+            doc_tag = _doc_kind_badge(doc_kind)
+            card_attrs = (
+                f' data-inspector-goto="{_html(result_id)}" '
+                "title=\"Voir la sélection de l'analyste\""
+                if result_id
+                else ""
+            )
+            card_class = "entity-source-card" if result_id else ""
             return (
-                '<li>'
+                f'<li class="{card_class}"{card_attrs}>'
                 f'<span class="source-ref source-ref--list">{index}</span>'
                 f'<a href="{_html(href)}" target="_blank" '
                 f'rel="noopener noreferrer">{_html(title)}</a>'
+                f'{doc_tag}'
                 '</li>'
             )
 
@@ -1208,6 +1308,7 @@ def _graph_entities_markup(
                     <span class="graph-property-key">
                         <strong>{_html(key)}</strong>
                         {_property_type_badge(key, _property_type_for_key(key), value)}
+                        {_doc_kind_badge(_property_doc_kind_for_key(key))}
                     </span>
                     <span class="graph-property-actions">
                         {_property_source_link(key)}
@@ -1753,6 +1854,28 @@ def _archive_href(
     return href + fragment
 
 
+def _capture_open_href(
+    capture: Mapping | None,
+    *,
+    output_dir: Path,
+    base_dir: Path,
+    fragment_text: object = "",
+) -> str:
+    """Href to open a capture: the local file for imports (no text-fragment
+    highlighting on non-HTML files), the archived page copy otherwise."""
+    if not capture:
+        return ""
+    if str(capture.get("capture_kind", "") or "") == "imported":
+        imported_view = _imported_artifact_view(capture, output_dir, base_dir)
+        return imported_view["href"] if imported_view else ""
+    return _archive_href(
+        capture,
+        output_dir=output_dir,
+        base_dir=base_dir,
+        fragment_text=fragment_text,
+    )
+
+
 def _protected_capture_ids(
     graph_entities: Sequence[Mapping],
     entities: Sequence[Mapping],
@@ -1794,6 +1917,7 @@ def _evidence_markup(
     base_dir: Path,
     protected_capture_ids: set[str] | None = None,
     graph_entities: list[Mapping] = (),
+    result_entities: list[Mapping] = (),
     read_only: bool,
 ) -> str:
     if not captures:
@@ -1801,6 +1925,17 @@ def _evidence_markup(
 
     items = []
     protected_capture_ids = protected_capture_ids or set()
+    attached_entity_by_capture: dict[str, str] = {}
+    for extracted in result_entities:
+        if extracted.get("status") == "rejected":
+            continue
+        attributes = extracted.get("attributes", {})
+        if not isinstance(attributes, Mapping):
+            continue
+        source_capture_id = str(attributes.get("source_capture_id", "") or "")
+        parent_id = str(extracted.get("investigation_entity_id", "") or "")
+        if source_capture_id and parent_id:
+            attached_entity_by_capture[source_capture_id] = parent_id
     for capture in captures:
         artifact_hrefs = {}
         for artifact in capture.get("artifacts", []):
@@ -1855,7 +1990,6 @@ def _evidence_markup(
         thumb_img_href = png_href or (
             imported_href if imported_view and imported_view["is_image"] else ""
         )
-        view_href = png_href or imported_href
         can_extract_properties = _has_extractable_archive([capture])
         if capture_kind == "page_archive":
             scope = "Page archive"
@@ -1867,11 +2001,6 @@ def _evidence_markup(
             )
         capture_name = str(capture.get("name", "") or "").strip()
         display_name = capture_name or scope
-        scope_detail = (
-            f'<span class="evidence-scope">{_html(scope)}</span>'
-            if capture_name
-            else ""
-        )
         status_detail = (
             '<span class="evidence-scope">Partial capture</span>'
             if capture.get("status") == "partial"
@@ -1910,10 +2039,11 @@ def _evidence_markup(
             )
             attach_options = _graph_entity_attach_options(
                 graph_entities,
+                selected_id=attached_entity_by_capture.get(capture_id, ""),
                 placeholder="Rattacher à une entité…",
             )
             attach_control = (
-                '<select class="entity-chip-row__link" '
+                '<select class="entity-chip-row__link evidence-attach-select" '
                 f'data-evidence-attach '
                 f'data-default-key="{_html(default_property_key)}">'
                 f'{"".join(attach_options)}</select>'
@@ -1945,53 +2075,50 @@ def _evidence_markup(
             thumbnail = (
                 '<div class="evidence-thumbnail evidence-thumbnail--empty"></div>'
             )
-        name_markup = (
-            f'<a class="evidence-name" href="{_html(view_href)}" '
-            'target="_blank" rel="noopener noreferrer">'
-            f"{_html(display_name)}</a>"
-            if view_href
-            else f'<strong class="evidence-name">{_html(display_name)}</strong>'
-        )
         verify_title = (
             "Recalculate every artifact hash and compare it with the "
             "recorded SHA-256"
+        )
+        extract_control = (
+            '<button type="button" '
+            'class="icon-action icon-action--frame '
+            'extract-result-entities evidence-extract-properties" '
+            'title="Extraire les propriétés depuis cette archive" '
+            'aria-label="Extraire les propriétés depuis cette archive" '
+            f'{disabled}>{_icon("scan")}</button>'
+            if can_extract_properties
+            else ""
         )
         items.append(
             f"""
             <li
                 class="evidence-item"
                 data-evidence-id="{_html(capture_id)}"
+                title="{_html(display_name)}"
             >
                 {thumbnail}
-                <div class="evidence-copy">
-                    {name_markup}
-                    {scope_detail}
-                    {status_detail}
-                    <span>{_local_datetime(capture.get("captured_at"))}</span>
-                    {attach_control}
-                </div>
-                <div class="evidence-links">
-                    {artifact_links}
-                    {
-                        (
-                            '<button type="button" '
-                            'class="icon-action icon-action--frame '
-                            'extract-result-entities evidence-extract-properties" '
-                            'title="Extraire les propriétés depuis cette archive" '
-                            'aria-label="Extraire les propriétés depuis cette archive" '
-                            f'{disabled}>{_icon("scan")}</button>'
-                        )
-                        if can_extract_properties
-                        else ""
-                    }
-                    <button
-                        type="button"
-                        class="icon-action icon-action--frame verify-evidence"
-                        title="{verify_title}"
-                        aria-label="{verify_title}"
-                    >{_icon("check")}</button>
-                    {rename_control}
-                    {delete_control}
+                <div class="evidence-body">
+                    <div class="evidence-row">
+                        {status_detail}
+                        <span class="evidence-date">
+                            {_local_date_compact(capture.get("captured_at"))}
+                        </span>
+                    </div>
+                    <div class="evidence-row">
+                        {attach_control}
+                    </div>
+                    <div class="evidence-row">
+                        {artifact_links}
+                        {extract_control}
+                        <button
+                            type="button"
+                            class="icon-action icon-action--frame verify-evidence"
+                            title="{verify_title}"
+                            aria-label="{verify_title}"
+                        >{_icon("check")}</button>
+                        {rename_control}
+                        {delete_control}
+                    </div>
                 </div>
                 <span
                     class="evidence-verification"
@@ -2344,24 +2471,29 @@ def _export_cards(
     report_slug = _slugify(investigation_title)
     for export in exports:
         links = []
-        for key, label, extension in (
-            ("archive_path", "ZeroNeurone ZIP", "zip"),
-            ("dossier_path", "Dossier JSON", "json"),
-            ("graphml_path", "GraphML", "graphml"),
-            ("csv_path", "ZeroNeurone CSV", "csv"),
-            ("nodes_csv_path", "Nodes CSV", "nodes.csv"),
-            ("edges_csv_path", "Edges CSV", "edges.csv"),
-            ("manifest_path", "Manifest", "manifest.json"),
+        for key, label, icon, extension in (
+            ("archive_path", "ZeroNeurone ZIP", "archive", "zip"),
+            ("dossier_path", "Dossier JSON", "file", "-dossier.json"),
+            ("graphml_path", "GraphML", "graph", "graphml"),
+            ("csv_path", "ZeroNeurone CSV", "list", "csv"),
+            ("nodes_csv_path", "Nodes CSV", "list", "-nodes.csv"),
+            ("edges_csv_path", "Edges CSV", "swap", "-edges.csv"),
+            ("manifest_path", "Manifest", "info", "-manifest.json"),
         ):
             path = _resolve_runtime_path(export.get(key), base_dir)
             if path is None:
                 continue
+            download_name = (
+                f"{report_slug}{extension}"
+                if extension.startswith("-")
+                else f"{report_slug}.{extension}"
+            )
             links.append(
-                f'<a class="secondary-link" '
+                f'<a slot="link" '
                 f'href="{_html(_relative_href(path, output_dir))}" '
-                f'download="{_html(report_slug)}.{_html(extension)}" '
+                f'download="{_html(download_name)}" '
                 'target="_blank" rel="noopener noreferrer">'
-                f"{_html(label)}</a>"
+                f"{_icon(icon)}<span>{_html(label)}</span></a>"
             )
         options = ["curated entities or validated candidates"]
         if export.get("include_unreviewed"):
@@ -2370,29 +2502,23 @@ def _export_cards(
             options.append("evidence assets")
         cards.append(
             f"""
-            <article
-                class="investigation-export-card"
+            <sx-export-card
                 data-export-id="{_html(export.get("id", ""))}"
             >
-                <div>
-                    <strong>ZeroNeurone export</strong>
-                    <span>{_local_datetime(export.get("generated_at"))}</span>
-                </div>
-                <div class="export-summary">
-                    <span>{int(export.get("node_count", 0) or 0)} nodes</span>
-                    <span>{int(export.get("edge_count", 0) or 0)} links</span>
-                    <span>{int(export.get("asset_count", 0) or 0)} assets</span>
-                    <span>{_html(", ".join(options))}</span>
-                </div>
-                <div class="export-links">
-                    {"".join(links)}
-                    <button
-                        type="button"
-                        class="danger-link delete-export"
-                        {disabled}
-                    >Delete export</button>
-                </div>
-            </article>
+                <strong slot="title">ZeroNeurone export</strong>
+                <span slot="timestamp">{_local_datetime(export.get("generated_at"))}</span>
+                <span slot="stat">{int(export.get("node_count", 0) or 0)} nodes</span>
+                <span slot="stat">{int(export.get("edge_count", 0) or 0)} links</span>
+                <span slot="stat">{int(export.get("asset_count", 0) or 0)} assets</span>
+                <span slot="description">{_html(", ".join(options))}</span>
+                {"".join(links)}
+                <button
+                    type="button"
+                    class="delete-export"
+                    slot="delete"
+                    {disabled}
+                >{_icon("trash")}<span>Delete export</span></button>
+            </sx-export-card>
             """
         )
     return "".join(cards)
@@ -2631,6 +2757,7 @@ def generate_investigation_page(
                         base_dir=base_dir,
                         protected_capture_ids=protected_capture_ids,
                         graph_entities=graph_entities,
+                        result_entities=result_entities,
                         read_only=read_only,
                     )
                 ),
@@ -3234,26 +3361,47 @@ def generate_investigation_page(
                 }}
             }};
 
+            const parseLocalTimestamp = (rawValue) => {{
+                const normalizedValue = rawValue.replace(
+                    /(\\.\\d{{3}})\\d+(?=(?:Z|[+-]\\d{{2}}:\\d{{2}})$)/,
+                    "$1"
+                );
+                const parsed = new Date(normalizedValue);
+                return Number.isNaN(parsed.getTime()) ? null : parsed;
+            }};
+
             const formatLocalDatetimes = () => {{
                 const formatter = new Intl.DateTimeFormat(undefined, {{
                     dateStyle: "medium",
                     timeStyle: "medium"
                 }});
+                const shortFormatter = new Intl.DateTimeFormat(undefined, {{
+                    day: "numeric",
+                    month: "short"
+                }});
                 document.querySelectorAll("time[data-local-datetime]").forEach(
                     (element) => {{
                         const rawValue = element.getAttribute("datetime") || "";
-                        const normalizedValue = rawValue.replace(
-                            /(\\.\\d{{3}})\\d+(?=(?:Z|[+-]\\d{{2}}:\\d{{2}})$)/,
-                            "$1"
-                        );
-                        const parsed = new Date(normalizedValue);
-                        if (Number.isNaN(parsed.getTime())) {{
+                        const parsed = parseLocalTimestamp(rawValue);
+                        if (!parsed) {{
                             return;
                         }}
                         element.textContent = formatter.format(parsed);
                         element.title = rawValue;
                     }}
                 );
+                document.querySelectorAll(
+                    "time[data-local-date-compact]"
+                ).forEach((element) => {{
+                    const parsed = parseLocalTimestamp(
+                        element.getAttribute("datetime") || ""
+                    );
+                    if (!parsed) {{
+                        return;
+                    }}
+                    element.textContent = shortFormatter.format(parsed);
+                    element.title = formatter.format(parsed);
+                }});
             }};
 
             window.synthesixPage = {{
@@ -3887,9 +4035,7 @@ def generate_investigation_page(
                     if (!item) {{
                         return;
                     }}
-                    const current = item.querySelector(
-                        ".evidence-name"
-                    )?.textContent.trim() || "";
+                    const current = item.getAttribute("title") || "";
                     const name = window.prompt(
                         "Renommer cette preuve :",
                         current
@@ -4935,19 +5081,14 @@ def generate_investigation_page(
             }});
             if (inspectorDetail) {{
                 inspectorDetail.addEventListener("click", (event) => {{
+                    if (event.target.closest("a")) {{
+                        return;
+                    }}
                     const goto = event.target.closest("[data-inspector-goto]");
                     if (!goto) {{
                         return;
                     }}
-                    const card = document.getElementById(
-                        "result-" + goto.dataset.inspectorGoto
-                    );
-                    if (card) {{
-                        card.scrollIntoView({{
-                            behavior: "smooth",
-                            block: "center"
-                        }});
-                    }}
+                    selectInspectorPage(goto.dataset.inspectorGoto);
                 }});
             }}
 

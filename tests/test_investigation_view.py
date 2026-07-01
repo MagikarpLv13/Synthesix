@@ -473,17 +473,17 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertNotIn("SHA-256 " + ("d" * 64), content)
         self.assertIn("ZeroNeurone export", content)
         self.assertIn("Export GraphML and CSV", content)
-        self.assertIn(">GraphML</a>", content)
-        self.assertIn(">ZeroNeurone ZIP</a>", content)
+        self.assertIn("<span>GraphML</span>", content)
+        self.assertIn("<span>ZeroNeurone ZIP</span>", content)
         zip_links = tree.xpath(
-            "//a[text()='ZeroNeurone ZIP']/@download"
+            "//a[.//span[text()='ZeroNeurone ZIP']]/@download"
         )
         self.assertEqual(zip_links, ["case-alpha-test.zip"])
-        self.assertIn(">Dossier JSON</a>", content)
-        self.assertIn(">ZeroNeurone CSV</a>", content)
-        self.assertIn(">Manifest</a>", content)
+        self.assertIn("<span>Dossier JSON</span>", content)
+        self.assertIn("<span>ZeroNeurone CSV</span>", content)
+        self.assertIn("<span>Manifest</span>", content)
         self.assertIn("2 assets", content)
-        self.assertIn("Delete export</button>", content)
+        self.assertIn("<span>Delete export</span></button>", content)
         self.assertEqual(tree.xpath("//select[@data-entity-status]"), [])
         self.assertTrue(
             tree.xpath(
@@ -491,10 +491,9 @@ class InvestigationViewTestCase(unittest.TestCase):
                 "[contains(@class, 'entity-item--proposed')]"
             )
         )
-        self.assertIn("Registry header", content)
-        self.assertIn("Selected area", content)
+        self.assertIn('title="Registry header"', content)
+        self.assertNotIn("Selected area", content)
         self.assertIn('class="evidence-thumbnail"', content)
-        self.assertIn('class="evidence-name"', content)
         self.assertIn('loading="lazy"', content)
         self.assertNotIn("Open PNG", content)
         self.assertIn('queueAction("delete_evidence_capture"', content)
@@ -1022,6 +1021,87 @@ class InvestigationViewTestCase(unittest.TestCase):
             protected_delete[0].get("title"),
             "Archive utilisée comme preuve de provenance",
         )
+        goto = card.xpath(
+            ".//ul[contains(@class, 'entity-source-list')]"
+            "//li[contains(@class, 'entity-source-card')]"
+        )
+        self.assertEqual(len(goto), 1)
+        self.assertEqual(goto[0].get("data-inspector-goto"), "result-123")
+
+    def test_imported_source_links_to_the_local_file_with_a_doc_badge(self):
+        workspace = workspace_payload()
+        entity = workspace["graph_entities"][0]
+        entity["properties"] = {"Export portail data": "rapport.pdf"}
+        extracted = workspace["entities"][0]
+        extracted["investigation_entity_id"] = entity["id"]
+        extracted["property_key"] = "Export portail data"
+        extracted["status"] = "validated"
+        extracted["result_id"] = workspace["results"][0]["id"]
+        extracted["attributes"] = {
+            **extracted.get("attributes", {}),
+            "source_capture_id": "capture-import-1",
+        }
+        workspace["evidence"][0]["result_id"] = workspace["results"][0]["id"]
+        workspace["evidence"].append(
+            {
+                "id": "capture-import-1",
+                "investigation_id": "case-123",
+                "result_id": workspace["results"][0]["id"],
+                "name": "Export portail data",
+                "source_url": "https://files.synthesix.local/rapport.pdf",
+                "page_title": "",
+                "capture_scope": "full",
+                "selection": {},
+                "manifest_path": "",
+                "captured_at": "2026-06-10T10:00:00+00:00",
+                "status": "completed",
+                "error": "",
+                "tool_version": "test",
+                "capture_kind": "imported",
+                "artifacts": [
+                    {
+                        "id": "artifact-import-1",
+                        "artifact_type": "pdf",
+                        "file_path": "data/evidence/capture-import-1/rapport.pdf",
+                        "mime_type": "application/pdf",
+                        "sha256": "e" * 64,
+                        "byte_size": 999,
+                        "created_at": "2026-06-10T10:00:00+00:00",
+                    },
+                ],
+            }
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        card = tree.xpath(
+            "//article[@data-inspector-entity='graph-entity-123']"
+        )[0]
+        links = card.xpath(
+            ".//a[contains(@class, 'graph-property-source')]/@href"
+        )
+        self.assertEqual(len(links), 1)
+        self.assertIn("data/evidence/capture-import-1/rapport.pdf", links[0])
+        self.assertNotIn("files.synthesix.local", links[0])
+        doc_badges = card.xpath(
+            ".//span[contains(@class, 'graph-property-key')]"
+            "//span[contains(@class, 'prop-type--doc')]/text()"
+        )
+        self.assertEqual([text.strip() for text in doc_badges], ["PDF"])
+        source_doc_badges = card.xpath(
+            ".//ul[contains(@class, 'entity-source-list')]"
+            "//span[contains(@class, 'prop-type--doc')]/text()"
+        )
+        self.assertEqual([text.strip() for text in source_doc_badges], ["PDF"])
 
     def test_evidence_item_offers_rename_and_attach_to_entity(self):
         workspace = workspace_payload()
@@ -1050,6 +1130,45 @@ class InvestigationViewTestCase(unittest.TestCase):
         )
         options = attach_select[0].xpath(".//option/@value")
         self.assertIn(workspace["graph_entities"][0]["id"], options)
+        self.assertEqual(item.get("title"), "Registry header")
+        self.assertFalse(item.xpath(".//*[contains(@class, 'evidence-name')]"))
+        rows = item.xpath(".//div[contains(@class, 'evidence-body')]"
+                           "/div[contains(@class, 'evidence-row')]")
+        self.assertEqual(len(rows), 3)
+        self.assertIn(
+            attach_select[0],
+            rows[1].xpath(".//select"),
+        )
+        delete_button = rows[2].xpath(
+            ".//button[contains(@class, 'delete-evidence')]"
+        )
+        self.assertEqual(len(delete_button), 1)
+
+    def test_evidence_attach_select_preselects_the_already_attached_entity(self):
+        workspace = workspace_payload()
+        extracted = workspace["entities"][0]
+        extracted["investigation_entity_id"] = "graph-entity-123"
+        extracted["status"] = "validated"
+        extracted["attributes"] = {
+            **extracted.get("attributes", {}),
+            "source_capture_id": "capture-123",
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        item = tree.xpath("//*[@data-evidence-id='capture-123']")[0]
+        attach_select = item.xpath(".//select[@data-evidence-attach]")[0]
+        selected = attach_select.xpath(".//option[@selected]/@value")
+        self.assertEqual(selected, ["graph-entity-123"])
 
     def test_extracted_row_carries_property_type_without_a_type_select(self):
         workspace = workspace_payload()

@@ -1252,6 +1252,19 @@ a:focus-visible {
     margin-bottom: 4px;
 }
 
+.entity-source-card {
+    padding: 4px 6px;
+    margin-left: -6px;
+    margin-right: -6px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.entity-source-card:hover {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .tag-editor {
     display: flex;
     flex-wrap: wrap;
@@ -1382,27 +1395,6 @@ a:focus-visible {
 
 .inspector-panel__details .evidence-list {
     gap: 6px;
-}
-
-.inspector-panel__details .evidence-item {
-    grid-template-columns: 56px minmax(0, 1fr);
-    align-items: start;
-    gap: 6px 8px;
-}
-
-.inspector-panel__details .evidence-thumbnail {
-    width: 56px;
-    height: 42px;
-}
-
-.inspector-panel__details .evidence-links {
-    grid-column: 1 / -1;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.inspector-panel__details .evidence-verification {
-    grid-column: 1 / -1;
 }
 
 .inspector-panel__details .url-analysis-summary,
@@ -2950,32 +2942,41 @@ sx-entity-graph {
 }
 
 .evidence-item {
-    display: grid;
-    grid-template-columns: 96px minmax(150px, 1fr) auto;
-    gap: 12px;
-    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--line);
     color: var(--muted);
     font-size: 12px;
 }
 
-.evidence-copy {
-    display: grid;
-    gap: 3px;
+.evidence-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.evidence-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
 }
 
-.evidence-name {
-    overflow-wrap: anywhere;
-    color: var(--text);
-    font-weight: 700;
+.evidence-date {
+    white-space: nowrap;
 }
 
 .evidence-thumbnail {
     display: block;
-    width: 96px;
-    height: 64px;
+    flex: 0 0 auto;
+    width: 64px;
+    min-height: 64px;
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: 4px;
@@ -3025,10 +3026,9 @@ sx-entity-graph {
     color: var(--muted);
 }
 
-.evidence-links {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+.evidence-attach-select {
+    flex: 0 1 200px;
+    min-width: 0;
 }
 
 .secondary-link {
@@ -3042,7 +3042,7 @@ sx-entity-graph {
 }
 
 .evidence-verification {
-    grid-column: 2 / -1;
+    flex-basis: 100%;
     min-height: 14px;
     color: var(--muted);
     font-weight: 700;
@@ -3088,39 +3088,6 @@ sx-entity-graph {
     margin-top: 16px;
 }
 
-.investigation-export-card {
-    display: grid;
-    grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto;
-    gap: 16px;
-    align-items: center;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--surface);
-}
-
-.investigation-export-card > div:first-child {
-    display: grid;
-    gap: 4px;
-}
-
-.investigation-export-card > div:first-child span,
-.export-summary {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.export-summary,
-.export-links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-}
-
-.export-links {
-    justify-content: flex-end;
-}
-
 .page-monitor-card {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -3144,21 +3111,6 @@ sx-entity-graph {
 
 .page-monitor-summary strong {
     color: var(--text);
-}
-
-.danger-link {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--danger);
-    font: inherit;
-    cursor: pointer;
-    text-decoration: underline;
-}
-
-.danger-link:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
 }
 
 .provenance-label {
@@ -3270,24 +3222,6 @@ sx-entity-graph {
 
     .page-monitor-summary {
         justify-content: flex-start;
-    }
-
-    .evidence-item {
-        grid-template-columns: 80px minmax(0, 1fr);
-        gap: 6px;
-    }
-
-    .evidence-thumbnail {
-        width: 72px;
-        height: 52px;
-    }
-
-    .evidence-links {
-        grid-column: 2;
-    }
-
-    .evidence-verification {
-        grid-column: 2;
     }
 }
 
@@ -3634,14 +3568,6 @@ table.dataTable.no-footer {
 
     .entity-source {
         grid-column: auto;
-    }
-
-    .investigation-export-card {
-        grid-template-columns: 1fr;
-    }
-
-    .export-links {
-        justify-content: flex-start;
     }
 
     .analyst-fields,

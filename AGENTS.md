@@ -1,5 +1,14 @@
 # AGENTS.md — Règles communes pour les agents IA
 
+## Langue de communication
+
+- Répondre en français par défaut, y compris lorsque Caveman est actif.
+- Ne passer à une autre langue que sur demande explicite de l’utilisateur.
+- Conserver tels quels le code, les commandes CLI, les noms d’API,
+  les identifiants techniques et les messages d’erreur.
+- Le style peut être condensé, mais la réponse doit rester claire et
+  grammaticalement correcte en français.
+
 ## 1. Portée et sources de vérité
 
 Ce fichier s’applique à tout agent IA qui lit, modifie, teste ou documente Synthesix.

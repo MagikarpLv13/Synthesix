@@ -1668,6 +1668,296 @@ Ajouter les nouveaux comptes rendus à la fin de cette section. Ne pas supprimer
   lot — c'est le deuxième tour où un bug n'a été détecté que par
   l'utilisateur en usage réel.
 
+### AI-20260630-013 — Sources : lien vers la sélection de l'analyste + fix href fichier importé + badge type de doc
+
+- **Agent :** Claude
+- **Période UTC :** 2026-06-30
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** suite à retour utilisateur sur capture d'écran du panneau
+  entité : (1) la liste « Sources » en bas de carte entité doit pouvoir
+  renvoyer vers la capture/sélection de l'analyste correspondante (pas le
+  chiffre inline, qui pointe déjà vers la copie archivée avec
+  surlignage text-fragment) ; (2) pour un fichier importé manuellement, le
+  lien « Open source » pointait vers l'URL synthétique
+  `https://files.synthesix.local/...` au lieu du fichier réel ; (3) ajouter
+  un badge de type de document (Image/PDF/Document/Audio/Vidéo/Fichier)
+  quand la source d'une propriété est un import.
+- **Changements (`investigations/view.py`) :**
+  - nouvelle fonction `_capture_open_href()` : résout le href d'ouverture
+    d'une capture — fichier local réel (`_imported_artifact_view`) pour les
+    imports, archive HTML (+ text-fragment) sinon. Remplace les appels
+    directs à `_archive_href()` dans la construction des sources de
+    propriété et des sources liées par résultat (boucle
+    `linked_result_ids`, qui ne considérait auparavant que `page_archive` —
+    un résultat purement importé retombait aussi sur l'URL synthétique).
+  - nouvelle fonction `_imported_doc_kind()` (+ `_DOC_KIND_LABELS`,
+    `_doc_kind_badge()`) : déduit image/pdf/audio/video/document/file
+    depuis le mime/extension de l'artefact importé ; badge rendu à côté du
+    type de propriété (`_property_type_badge`) et dans chaque ligne de la
+    liste Sources.
+  - `source_entries` (tuple 4 → 7 champs : + `result_id`, `capture_id`,
+    `doc_kind`) ; `_source_row()` ajoute un bouton « Voir la sélection de
+    l'analyste » (`data-inspector-goto` + `data-evidence-goto`, icône
+    `archive`).
+  - `_evidence_markup()` : ajout d'un `id="evidence-{capture_id}"` sur
+    chaque `<li class="evidence-item">` pour permettre le ciblage direct.
+  - listener JS délégué existant sur `data-inspector-goto` (jusqu'ici mort
+    code — l'attribut n'était jamais posé dans le markup) réutilisé et
+    étendu : scroll vers la carte `#result-{id}`, puis vers
+    `#evidence-{capture_id}` avec un flash visuel temporaire
+    (`.evidence-item--flash`, `theme.css`).
+- **Bug additionnel trouvé en écrivant le test :** la liste fusionnée
+  « Sources » dédoublonnait par URL en donnant priorité à l'entrée issue de
+  `linked_result_ids` (capture résolue uniquement via `page_archive`), donc
+  une capture `screenshot`/`region` (= la sélection réelle de l'analyste,
+  qui embarque pourtant un artefact HTML exploitable) perdait son
+  `capture_id`/href corrects au profit d'une entrée vide dès qu'elle était
+  aussi le résultat lié de l'entité. Corrigé en (1) traitant
+  `property_sources` avant `linked_result_ids` dans la fusion, et (2) en
+  élargissant le fallback de résolution de capture à tout capture du
+  résultat possédant un artefact archive exploitable
+  (`_has_archive_artifact`), pas seulement `page_archive`/`imported`.
+- **Tests ajoutés (`tests/test_investigation_view.py`) :**
+  - `test_property_links_back_to_its_extracted_source` étendu : vérifie
+    `id="evidence-capture-123"` et le bouton `.source-goto-evidence`
+    (`data-inspector-goto`/`data-evidence-goto`).
+  - `test_imported_source_links_to_the_local_file_with_a_doc_badge` (nouveau) :
+    capture `capture_kind="imported"` (artefact PDF) référencée par une
+    propriété → vérifie que le lien `graph-property-source` pointe sur le
+    fichier local réel (pas `files.synthesix.local`) et que le badge
+    `prop-type--doc` affiche « PDF » à la fois sur la propriété et sur la
+    ligne Sources correspondante.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile investigations/view.py` — OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` —
+    OK, 28 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 275 tests
+  - `git diff --check` — propre
+- **Vérifications non exécutées :** pas de smoke CDP live / capture
+  d'écran réelle dans cette session. À valider en usage réel : clic sur le
+  bouton « Voir la sélection » scrolle bien jusqu'à la bonne carte de
+  preuve, et l'ouverture d'une source importée (PDF/image) pointe bien sur
+  le fichier et plus sur `files.synthesix.local`.
+- **Risques / reste à faire :** aucun.
+- **Ajustement (même session, retour utilisateur) :** le bouton dédié
+  « Voir la sélection » faisait doublon avec le lien externe déjà présent
+  par pastille. Remplacé par une carte cliquable : le `<li>` de la liste
+  Sources porte lui-même `data-inspector-goto`/`data-evidence-goto`
+  (classe `.entity-source-card`, `theme.css`) ; le listener JS ignore les
+  clics sur `<a>` pour laisser le lien externe s'ouvrir normalement sans
+  déclencher le scroll. Test `test_property_links_back_to_its_extracted_source`
+  ajusté (cible `li.entity-source-card` au lieu de
+  `button.source-goto-evidence`). `unittest tests.test_investigation_view`
+  (28) et `unittest discover` (275) — OK ; `git diff --check` propre.
+- **Correction (même session, retour utilisateur) :** le clic devait ouvrir
+  le panneau de la page dans le rail de droite (`#inspector-detail` →
+  `[data-inspector-panel="{result_id}"]`), pas juste scroller la carte dans
+  la grille principale. Bug latent découvert au passage : les items de
+  preuve (`#evidence-{capture_id}`) vivent *dans* ce panneau de page
+  (`_evidence_markup` fait partie de `details_markup` de `_inspector_panel`),
+  donc tant que le panneau restait masqué (`hidden`), le flash/scroll vers
+  l'evidence ne pouvait jamais être visible. Remplacé le `scrollIntoView`
+  de la carte de résultat par un appel à la fonction déjà existante
+  `selectInspectorPage(resultId)` (même mécanisme que le clic sur une
+  `sx-saved-page-card` ou sur `data-relation-goto` → `selectInspectorEntity`),
+  qui affiche le panneau, puis le scroll/flash de l'évidence s'exécute une
+  fois le panneau visible. `unittest tests.test_investigation_view` (28) et
+  `unittest discover` (275) — OK ; `git diff --check` propre.
+- **Nettoyage (même session, retour utilisateur) :** ouvrir le panneau
+  suffit, mécanisme de scroll/flash vers l'item de preuve superflu.
+  Supprimé : bloc JS `evidenceId` (le clic n'appelle plus que
+  `selectInspectorPage`), attribut `data-evidence-goto` et champ
+  `capture_id` du tuple `source_entries` (7 → 6 champs), `id="evidence-…"`
+  sur `<li class="evidence-item">` (`_evidence_markup`), règle CSS
+  `.evidence-item--flash` (`theme.css`). Tests ajustés en conséquence.
+  `unittest tests.test_investigation_view` (28) et `unittest discover`
+  (275) — OK ; `git diff --check` propre.
+- **Suite (même session, retour utilisateur) sur les blocs Evidence
+  (`_evidence_markup`) :**
+  1. Le `<select>` « Rattacher à une entité… » ne présélectionnait jamais
+     l'entité déjà rattachée. `_evidence_markup` reçoit maintenant
+     `result_entities` (les entités extraites du même résultat, déjà
+     disponibles à l'appel) ; une entrée dont `attributes.source_capture_id`
+     correspond à la capture (et `status != rejected`) fixe
+     `selected_id` sur `_graph_entity_attach_options` (ce paramètre
+     existait déjà, jamais branché ici).
+  2. Le select prenait toute la largeur de sa colonne, au-dessus de la
+     ligne Manifeste/vérifier/renommer/supprimer. Déplacé dans
+     `.evidence-links` (même conteneur flex que ces boutons) avec une
+     classe dédiée `.evidence-attach-select` (`flex: 1 1 180px; max-width:
+     260px`, `theme.css`) ; le retour à la ligne sur écran étroit reste géré
+     par la règle `.inspector-panel__details .evidence-links {{
+     flex-wrap: wrap }}` déjà existante.
+  - **Test ajouté :** `test_evidence_attach_select_preselects_the_already_attached_entity`.
+  - **Tests exécutés :** `unittest tests.test_investigation_view` (29) et
+    `unittest discover` (276) — OK ; `git diff --check` propre.
+  - **Non exécuté :** smoke visuel réel (mise en page finale du partage de
+    ligne à confirmer dans le navigateur, notamment à largeur de rail
+    intermédiaire).
+- **Suite (même session, retour utilisateur) — refonte layout bloc Evidence :**
+  1. Passage de `.evidence-item` (et son override
+     `.inspector-panel__details .evidence-item`, seul contexte d'usage réel
+     — la règle grid de base 3 colonnes était morte) d'une grille à un flex
+     `flex-wrap: wrap` : nom, date, select et boutons tiennent sur une
+     seule ligne quand le rail est assez large, et l'ensemble
+     select+Manifeste+boutons (`.evidence-links`) retombe sur sa propre
+     ligne sinon — sans media query dédiée, le wrap gère nativement le cas
+     étroit.
+  2. Vignette agrandie : 56×42px (taille réellement appliquée via l'override
+     scoped, supprimé) → 64×64px unifié (`.evidence-thumbnail`, `theme.css`).
+  3. Ligne « Zone sélectionnée »/« Zone visible » supprimée
+     (`scope_detail` retiré de `_evidence_markup`) — jugée sans valeur
+     ajoutée.
+  4. Date compactée façon `sx-saved-page-card` (jour + mois court, ex.
+     « 22 juin », date complète en tooltip au survol) : nouvelle fonction
+     `_local_date_compact()` + attribut `data-local-date-compact`, JS
+     `formatLocalDatetimes()` étendu avec une branche dédiée (parsing
+     factorisé dans `parseLocalTimestamp()` partagé avec le format complet
+     existant).
+  - **CSS nettoyé :** overrides grid devenus morts supprimés
+    (`.inspector-panel__details .evidence-item/.evidence-thumbnail`,
+    `.evidence-verification { grid-column }`, bloc `@media (max-width:
+    720px)` pour evidence-item/thumbnail/links/verification).
+  - **Test ajusté :** `test_generates_filterable_analyst_workspace` —
+    assertion `assertIn("Selected area", …)` devenue `assertNotIn`
+    (suppression volontaire du libellé de zone).
+  - **Tests exécutés :** `unittest tests.test_investigation_view` (29) et
+    `unittest discover` (276) — OK ; `git diff --check` propre.
+  - **Non exécuté :** smoke visuel réel (rendu à largeur de rail variable,
+    apparence de la vignette agrandie sur les captures existantes).
+- **Suite (même session, spécification détaillée de l'utilisateur) — bloc
+  Evidence, itération 2 :**
+  1. Nom de la capture retiré de l'affichage, déplacé en `title="{nom}"`
+     sur le `<li class="evidence-item">` (tooltip natif au survol). La
+     classe `.evidence-name` disparaît donc de la sortie ; **piège
+     détecté et corrigé** : le JS de renommage lisait le nom courant via
+     `item.querySelector(".evidence-name").textContent` pour préremplir le
+     prompt — sans ce fix il serait devenu silencieusement vide. Remplacé
+     par `item.getAttribute("title")`.
+  2. Bloc restructuré en 3 lignes (`.evidence-body` > 3×`.evidence-row`) :
+     (1) statut + date compacte, (2) select de rattachement seul (largeur
+     libre, `.evidence-attach-select` recalé en `flex:1 1 auto` — n'a plus
+     à partager sa ligne avec les boutons), (3) Manifeste/extraire/
+     vérifier/renommer.
+  3. Bouton supprimer sorti du groupe de boutons, enfant direct de `.evidence-item`
+     avec `margin-left: auto` pour rester seul, collé à droite, aligné
+     avec la vignette et le bloc de contenu.
+  - **Nettoyage :** `view_href` (variable devenue inutile), classes/règles
+    CSS `.evidence-name`, `.evidence-links`/`.inspector-panel__details
+    .evidence-links` (remplacées par `.evidence-row`, plus aucun
+    consommateur JS/test ne dépendait de `.evidence-links`).
+  - **Tests :** `test_generates_filterable_analyst_workspace` ajusté
+    (`title="Registry header"` au lieu de `class="evidence-name"`) ;
+    `test_evidence_item_offers_rename_and_attach_to_entity` étendu (title,
+    3 lignes, select en ligne 2, bouton supprimer en enfant direct).
+  - **Tests exécutés :** `unittest tests.test_investigation_view` (29) et
+    `unittest discover` (276) — OK ; `git diff --check` propre.
+  - **Non exécuté :** smoke visuel réel (rendu final des 3 lignes + tooltip
+    de nom au survol, alignement du bouton supprimer sur les différentes
+    tailles de vignette/placeholder).
+- **Suite (même session, retour utilisateur) — ajustements fins :**
+  1. Bouton supprimer replacé dans le groupe de boutons (ligne 3 :
+     Manifeste/extraire/vérifier/renommer/supprimer) — la règle
+     `.evidence-item > .delete-evidence { margin-left: auto }` retirée.
+  2. Select de rattachement recalé en largeur fixe compacte
+     (`flex: 0 1 200px` au lieu de `1 1 auto`) : ne prend plus toute la
+     largeur de sa ligne.
+  3. Vignette étirée à 100% de la hauteur du bloc : `.evidence-item`
+     passe de `align-items: center` à `align-items: stretch`,
+     `.evidence-thumbnail` perd sa `height: 64px` fixe au profit de
+     `min-height: 64px` (l'étirement flex fait le reste, plus d'espace
+     mort au-dessus/en dessous de l'image).
+  - **Test ajusté :** `test_evidence_item_offers_rename_and_attach_to_entity`
+    — le bouton supprimer est cherché dans la 3ᵉ `evidence-row` au lieu
+    d'être un enfant direct de `.evidence-item`.
+  - **Tests exécutés :** `unittest tests.test_investigation_view` (29) et
+    `unittest discover` (276) — OK ; `git diff --check` propre.
+  - **Non exécuté :** smoke visuel réel.
+
+### AI-20260701-001 — Export ZeroNeurone : carte Lit + noms de fichiers repris de l'enquête
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** retour utilisateur sur capture d'écran du bloc « Export
+  ZeroNeurone » (`investigations/view.py`) : (1) rendre la carte plus belle,
+  cohérente avec les autres blocs déjà migrés (`sx-saved-page-card`,
+  `sx-entity-graph`) ; (2) la passer en composant Lit ; (3) faire reprendre
+  le nom de l'enquête par les fichiers générés sur disque, pas seulement par
+  l'attribut `download` du HTML.
+- **Changements :**
+  - **`frontend/src/components/sx-export-card.ts` (nouveau)** : composant
+    Lit `sx-export-card`, même pattern shell + slots light-DOM que
+    `sx-saved-page-card` — titre, timestamp, 3 pastilles de compte
+    (nœuds/liens/assets), description, liens de téléchargement et bouton
+    supprimer restent des enfants light-DOM slottés (texte traduisible par
+    `i18n.js`, qui ne parcourt pas les Shadow DOM ; classe `.delete-export`
+    conservée pour le JS délégué existant). Le composant n'ajoute que le
+    chrome : avatar icône, pastilles arrondies pour les stats, liens en
+    forme de puce avec icône, bouton supprimer en puce rouge alignée à
+    droite (`margin-left: auto`, wrap correct en largeur étroite — vérifié
+    à 600px).
+  - **`frontend/src/index.ts`** : enregistrement du composant.
+  - **`investigations/view.py`** : `_export_cards()` émet désormais
+    `<sx-export-card>` (les classes `investigation-export-card`,
+    `secondary-link`, `danger-link` disparaissent — plus aucun
+    consommateur CSS/JS après migration, cascade évitée en ne les
+    dupliquant pas dans le light-DOM slotté). Ajout de l'icône `file`
+    (`_ACTION_ICON_PATHS`) pour le lien Dossier JSON ; chaque lien
+    artefact a maintenant une icône dédiée (archive/file/graph/list/swap/
+    info) + le bouton supprimer une icône `trash`.
+  - **`theme.css`** : suppression des règles devenues mortes
+    (`.investigation-export-card`, `.export-summary`, `.export-links`,
+    `.danger-link`, y compris leurs variantes en media query) — la mise en
+    page est désormais entièrement portée par le Shadow DOM du composant.
+  - **`exports/zeroneurone.py`** : les artefacts générés sur disque
+    reprennent le titre de l'enquête (nouvelle fonction privée
+    `_filename_stem()`, slug ASCII, même logique que `_slugify()` déjà
+    dupliquée entre `main.py`/`investigations/view.py`) — `{stem}.zip`,
+    `{stem}-dossier.json`, `{stem}.graphml`, `{stem}.csv`,
+    `{stem}-nodes.csv`, `{stem}-edges.csv`, `{stem}-manifest.json`. Le nom
+    d'entrée interne au zip (`dossier.json`) est inchangé — c'est un
+    contrat avec le format d'import ZeroNeurone, indépendant du nom du
+    fichier zip lui-même. `_write_csv_files()` et `_write_native_dossier()`
+    prennent un paramètre `stem` ; `export_zeroneurone_bundle()` le calcule
+    une fois depuis `workspace["investigation"]`.
+  - **`investigations/view.py`** : l'attribut `download` des liens est
+    aligné sur cette même convention (`{report_slug}-nodes.csv`, etc. au
+    lieu de `{report_slug}.nodes.csv`).
+- **Contrats vérifiés avant modification :** `main.py` et
+  `investigations/repository.py`/`models.py` ne lisent jamais ces noms de
+  fichiers en dur (uniquement via les chemins stockés en base) ; les tests
+  réels (`tests/test_zeroneurone_export.py`) référencent les artefacts via
+  `exported.xxx_path`, jamais par nom littéral (sauf l'entrée interne
+  `dossier.json` du zip, non touchée) — renommage sans risque de
+  régression.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK, bundle
+    `assets/synthesix-ui.js` régénéré (overlay inchangé)
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 21 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` —
+    OK, 29 tests (2 assertions adaptées au nouveau markup : les libellés de
+    lien/bouton sont maintenant dans un `<span>` enfant plutôt que texte
+    direct du `<a>`/`<button>`)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre
+- **Vérifications effectuées :** smoke visuel réel via Chrome headless
+  (rendu de la fixture `workspace_payload()` dans `tmp_ui_render/`,
+  gabarits 1440×1600 et 600×2500) — carte conforme au goût visuel du
+  projet (icônes, pastilles arrondies, wrap propre en largeur étroite).
+  Thème sombre confirmé visuellement ; le thème clair n'a pas pu être forcé
+  dans ce rendu headless isolé (le script de theme applique probablement
+  une préférence système/stockée avant peinture), mais le composant ne
+  code aucune couleur en dur — tout passe par les tokens CSS déjà
+  partagés (`--accent`, `--line`, `--surface`, `--surface-2`, `--muted`,
+  `--danger`), donc pas de risque de régression spécifique au thème clair.
+- **Risques / reste à faire :** aucun bloquant. À confirmer en usage réel :
+  téléchargement effectif d'un export et lecture du nom de fichier obtenu
+  (le comportement de l'attribut `download` sur `file://` reste
+  dépendant du navigateur, mais les fichiers sur disque portent
+  maintenant le bon nom dans tous les cas).
+
 ## Modèle de compte rendu terminé
 
 ```markdown

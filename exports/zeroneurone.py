@@ -4,7 +4,9 @@ import csv
 import hashlib
 import json
 import math
+import re
 import shutil
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -30,6 +32,20 @@ ZERONEURONE_IMPORT_DOCUMENTATION = (
     "https://doc.zeroneurone.com/fr/import-export/import/"
 )
 GRAPHML_NAMESPACE = "http://graphml.graphdrawing.org/xmlns"
+
+
+def _filename_stem(investigation: Mapping, *, fallback: str = "export") -> str:
+    """Slug used for on-disk artifact names, so exports read the case title."""
+    text = str(
+        investigation.get("title")
+        or investigation.get("reference")
+        or investigation.get("id")
+        or ""
+    )
+    normalized = unicodedata.normalize("NFKD", text)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_only).strip("-").lower()
+    return slug[:60].strip("-") or fallback
 
 
 @dataclass(frozen=True)
@@ -1089,10 +1105,12 @@ def _write_csv_files(
     output_dir: Path,
     nodes: tuple[GraphNode, ...],
     edges: tuple[GraphEdge, ...],
+    *,
+    stem: str,
 ) -> tuple[Path, Path, Path]:
-    nodes_path = output_dir / "nodes.csv"
-    edges_path = output_dir / "edges.csv"
-    import_path = output_dir / "zeroneurone.csv"
+    nodes_path = output_dir / f"{stem}-nodes.csv"
+    edges_path = output_dir / f"{stem}-edges.csv"
+    import_path = output_dir / f"{stem}.csv"
 
     with nodes_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(
@@ -1708,6 +1726,7 @@ def _write_native_dossier(
     include_evidence: bool,
     base_dir: Path | None,
     asset_root: Path | None,
+    stem: str,
 ) -> tuple[Path, Path, int]:
     investigation = workspace.get("investigation", {})
     investigation_id = str(investigation.get("id", "") or "")
@@ -1813,7 +1832,7 @@ def _write_native_dossier(
     suggested_properties, tag_property_associations = (
         _native_suggested_property_settings(all_tags)
     )
-    dossier_path = staging_dir / "dossier.json"
+    dossier_path = staging_dir / f"{stem}-dossier.json"
     dossier = {
         "version": ZERONEURONE_DOSSIER_VERSION,
         "exportedAt": generated_at,
@@ -1877,7 +1896,7 @@ def _write_native_dossier(
         encoding="utf-8",
     )
 
-    archive_path = staging_dir / "zeroneurone.zip"
+    archive_path = staging_dir / f"{stem}.zip"
     with zipfile.ZipFile(
         archive_path,
         "w",
@@ -1931,18 +1950,20 @@ def export_zeroneurone_bundle(
     staging_dir = output_dir.parent / f".{output_dir.name}-{uuid4().hex}.tmp"
     staging_dir.mkdir(parents=True, exist_ok=False)
     generated_at = _utc_now()
+    stem = _filename_stem(workspace.get("investigation", {}))
     try:
         nodes, edges = build_export_graph(
             workspace,
             include_evidence=include_evidence,
             include_unreviewed=include_unreviewed,
         )
-        graphml_path = staging_dir / "investigation.graphml"
+        graphml_path = staging_dir / f"{stem}.graphml"
         _write_graphml(graphml_path, nodes, edges)
         csv_path, nodes_csv_path, edges_csv_path = _write_csv_files(
             staging_dir,
             nodes,
             edges,
+            stem=stem,
         )
         dossier_path, archive_path, asset_count = _write_native_dossier(
             staging_dir,
@@ -1953,6 +1974,7 @@ def export_zeroneurone_bundle(
             include_evidence=include_evidence,
             base_dir=base_dir,
             asset_root=asset_root,
+            stem=stem,
         )
         artifact_paths = (
             archive_path,
@@ -2003,7 +2025,7 @@ def export_zeroneurone_bundle(
                 for path in artifact_paths
             ],
         }
-        manifest_path = staging_dir / "manifest.json"
+        manifest_path = staging_dir / f"{stem}-manifest.json"
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
