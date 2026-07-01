@@ -93,15 +93,13 @@ def _result_card(
         href = _relative_href(
             investigation_pages_dir / f"{investigation_id}.html", output_dir
         ) + f"#result-{result_id}"
-        detail = (
-            f'<a class="provenance__detail" href="{ui.esc(href)}">'
-            f"{ui.esc(investigation_title)}</a>"
-        )
+        detail = f'<a href="{ui.esc(href)}">{ui.esc(investigation_title)}</a>'
     else:
-        detail = f'<span class="provenance__detail">{ui.esc(investigation_title)}</span>'
+        detail = ui.esc(investigation_title)
+    folder_icon = ui.icon("folder").replace("<svg", '<svg slot="icon"', 1)
     context = (
-        f'<span class="provenance">{ui.icon("folder")}'
-        f'<span class="provenance__label">Investigation</span>{detail}</span>'
+        f"<sx-provenance>{folder_icon}"
+        f'<span slot="label">Investigation</span>{detail}</sx-provenance>'
     )
 
     seen = ""

@@ -30,12 +30,14 @@
       <sx-score level="good">7.80</sx-score>
       <sx-score level="moderate">3.40</sx-score>
       <sx-score level="weak">1.10</sx-score>
-      <sx-score level="good" expandable>
+      <sx-score level="good" tip>
         7.80
-        <li slot="breakdown">Exact phrase match (+4.0)</li>
-        <li slot="breakdown">Trusted domain (+2.0)</li>
-        <li slot="breakdown">Multiple engines (+1.8)</li>
-        <span slot="note">Ouvre le détail du score</span>
+        <ul class="score__list" slot="breakdown">
+          <li><span class="score__pts score__pts--strong">+4.0</span> Exact phrase match</li>
+          <li><span class="score__pts score__pts--good">+2.0</span> Trusted domain</li>
+          <li><span class="score__pts score__pts--low">+1.8</span> Multiple engines</li>
+        </ul>
+        <small class="score-note" slot="note">Survol ou focus pour voir le détail</small>
       </sx-score>
     </div>
   </body>

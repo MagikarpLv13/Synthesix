@@ -752,7 +752,7 @@ class InvestigationViewTestCase(unittest.TestCase):
         # Full management card lives (hidden) in the rail inspector.
         cards = tree.xpath(
             "//aside[contains(@class, 'workspace__rail')]"
-            "//article[@data-inspector-entity='graph-entity-123']"
+            "//sx-entity-panel[@data-inspector-entity='graph-entity-123']"
         )
         self.assertEqual(len(cards), 1)
         self.assertIsNotNone(cards[0].get("hidden"))
@@ -952,7 +952,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(output_path.read_text(encoding="utf-8"))
 
         card = tree.xpath(
-            "//article[@data-inspector-entity='graph-entity-123']"
+            "//sx-entity-panel[@data-inspector-entity='graph-entity-123']"
         )[0]
         # Known property keys carry a small zeroneurone-style type chip.
         badges = card.xpath(".//*[contains(@class, 'prop-type')]/text()")
@@ -992,7 +992,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(output_path.read_text(encoding="utf-8"))
 
         card = tree.xpath(
-            "//article[@data-inspector-entity='graph-entity-123']"
+            "//sx-entity-panel[@data-inspector-entity='graph-entity-123']"
         )[0]
         links = card.xpath(
             ".//a[contains(@class, 'graph-property-source')]/@href"
@@ -1084,7 +1084,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(output_path.read_text(encoding="utf-8"))
 
         card = tree.xpath(
-            "//article[@data-inspector-entity='graph-entity-123']"
+            "//sx-entity-panel[@data-inspector-entity='graph-entity-123']"
         )[0]
         links = card.xpath(
             ".//a[contains(@class, 'graph-property-source')]/@href"
@@ -1452,7 +1452,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(content)
 
         card = tree.xpath(
-            "//article[@data-graph-entity-id='graph-entity-123']"
+            "//sx-entity-panel[@data-graph-entity-id='graph-entity-123']"
         )[0]
         keys = card.xpath(
             ".//span[contains(@class, 'graph-property-key')]/strong/text()"
@@ -1487,7 +1487,7 @@ class InvestigationViewTestCase(unittest.TestCase):
             tree = html.fromstring(output_path.read_text(encoding="utf-8"))
 
         card = tree.xpath(
-            "//article[@data-inspector-entity='graph-entity-123']"
+            "//sx-entity-panel[@data-inspector-entity='graph-entity-123']"
         )[0]
         # No tags -> no chips, but the add input (with tagset suggestions) stays.
         self.assertFalse(card.xpath(".//*[contains(@class, 'tag-chip')]"))

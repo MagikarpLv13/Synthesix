@@ -285,7 +285,6 @@ def generate_history_html():
                     snippet=snippet,
                     meta_html=meta,
                     actions_html=view_button,
-                    component=True,
                 )
             )
         results_html = (
@@ -619,7 +618,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                     snippet=str(row["description"]),
                     meta_html=meta_card,
                     accent_level=ui.score_level(numeric_score),
-                    component=True,
                     highlight=search_term,
                 )
             )

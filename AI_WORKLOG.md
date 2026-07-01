@@ -2042,3 +2042,395 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - [ ] Verrous retirés.
 - [ ] Tâche retirée de **Travaux actifs**.
 - [ ] Compte rendu ajouté à **Travaux terminés**.
+
+### AI-20260701-002 — Lot 17 : primitives Lit orphelines + retrait sx-inspector
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** suite à une demande utilisateur sur l'état de la migration
+  Lit, inventaire complet (2 agents Explore en parallèle) puis traitement du
+  lot à faible risque identifié.
+- **Constat de l'inventaire :** la moitié du catalogue `sx-*` livré au
+  Palier 1 (`sx-chip`, `sx-score`, `sx-tag`, `sx-provenance`,
+  `sx-evidence-badge`, `sx-inspector`, `sx-entity`, `sx-property`) n'était
+  jamais instanciée côté Python — composants construits tôt, avant que
+  l'UI réelle n'évolue via les retours utilisateur itératifs (Lots 7-16).
+- **Changements :**
+  - `ui.py` : `chip()` émet `<sx-chip tone="...">` (au lieu de
+    `<span class="chip chip--...">`) ; `provenance()` émet
+    `<sx-provenance>` avec icône/label slottés (au lieu de
+    `<span class="provenance">`). Signatures Python inchangées.
+  - `investigations/search_view.py` : la pastille provenance
+    "Investigation" (dupliquée en HTML brut avec un lien conditionnel dans
+    le détail — donc pas remplaçable par un simple appel à
+    `ui.provenance()`, qui échappe son paramètre `detail`) est réécrite
+    directement en `<sx-provenance>` avec le même contenu (lien préservé).
+  - `theme.css` : suppression des règles mortes `.chip`, `.chip--*`,
+    `.provenance`, `.provenance__detail` (vérifié : plus aucun émetteur
+    brut de ces classes dans le dépôt ; `.provenance-label`, classe
+    distincte utilisée ailleurs dans `view.py`, non touchée). `.score*`
+    conservé (inchangé).
+  - **Retrait de `sx-inspector`** : `frontend/src/components/sx-inspector.ts`
+    et sa démo `frontend/demo/sx-inspector.html` supprimés, import retiré
+    de `frontend/src/index.ts`. Composant orphelin dont le modèle (1 liste
+    + 1 détail, sélection unique, gestion clavier interne) ne correspond
+    pas au rail investigation réel : 3 sources sélectionnables (pages,
+    entités-graphe, entités extraites), orchestration manuelle
+    `hideInspectorPanels`/`revealInspector` dans l'IIFE, rail
+    redimensionnable, navigation clavier volontairement abandonnée sur
+    demande utilisateur, et plus de 30 actions CDP branchées dessus.
+    Aucune perte fonctionnelle : le composant n'était référencé par aucun
+    code Python ni test.
+- **Hors périmètre, volontairement non traité (documenté en backlog
+  `frontend/TASKS.md`)** :
+  - `sx-score` est stale : conçu en mode `<details>` cliquable (Tâche 3),
+    alors que `score_badge()` est passé au Lot 7 à une infobulle
+    hover/focus toujours présente dans le DOM. Le brancher demanderait de
+    réécrire le composant.
+  - `sx-entity`/`sx-property` sont des composants d'affichage seul : pas de
+    slot pour éditeur de tags, notes, relations, formulaires, indicateur de
+    sauvegarde. Le panneau entité-graphe réel (`view.py` ~l.1370-1483) est
+    bien plus riche ; les adapter est un lot à part (conception de nouveaux
+    slots/propriétés).
+  - Lots 18-23 listés dans `frontend/TASKS.md` (réécriture `sx-score`,
+    extension `sx-entity`/`sx-property` + migration panneau entité-graphe,
+    entités extraites, preuves/analyse URL, `search_view.py`, `index.html`).
+- **Contrats vérifiés avant modification :** `ui.chip()`/`ui.provenance()`
+  sont bien les seuls émetteurs des classes CSS retirées côté `ui.py`
+  (grep sur tout le dépôt hors `.venv`/`node_modules`/`data/`) ; les
+  valeurs de `tone` passées à `chip()` (neutral/info/success/engine/muted)
+  correspondent toutes à l'enum `SxChip.tone` ; aucune assertion de test
+  existante ne dépend de `class="chip"`/`class="provenance"` bruts.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK, bundles
+    `assets/synthesix-ui.js`/`synthesix-overlay.js` régénérés (overlay
+    inchangé en contenu, juste rebuild)
+  - `.venv\Scripts\python.exe -m unittest tests.test_utils tests.test_investigation_view tests.test_investigations` —
+    OK, 87 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre (seuls avertissements LF/CRLF attendus sur
+    les bundles, neutralisés par `.gitattributes`)
+- **Vérifications effectuées :** smoke visuel réel via Chrome headless —
+  page investigation (fixture `workspace_payload()`) : chip "priority" et
+  tag "registry" bien rendus ; page rapport de recherche (fixture ad hoc
+  avec `query_variants` multiples) : chips moteurs, score badge, et
+  pastille "Trouvé via" (provenance) imbriqués dans `<sx-result-card>`
+  correctement affichés, thème sombre. Thème clair non vérifié
+  spécifiquement (même limite déjà notée dans le compte-rendu précédent —
+  script de thème applique une préférence avant peinture en rendu headless
+  isolé), mais les composants ne codent aucune couleur en dur (tokens CSS
+  partagés uniquement) donc pas de risque spécifique identifié.
+- **Risques / reste à faire :** aucun bloquant. Backlog Lots 18-23 consigné
+  dans `frontend/TASKS.md` pour ne pas reperdre l'inventaire lors d'une
+  future reprise de la migration Lit.
+- **Relais :** prochaine action possible = Lot 18 (réécriture `sx-score`
+  en mode infobulle) ou Lot 19 (extension `sx-entity`/`sx-property`) selon
+  priorité utilisateur — aucun n'est urgent, `aucun` verrou/blocage restant.
+
+### AI-20260701-003 — Lot 18 : sx-score réécrit en infobulle + branché
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** suite du backlog de migration Lit consigné au Lot 17.
+  `sx-score` était stale (mode `<details>` cliquable, Tâche 3) alors que
+  `score_badge()` (`ui.py`) était passé au Lot 7 à une infobulle
+  hover/focus toujours présente dans le DOM. Réécrire le composant pour
+  qu'il corresponde au comportement réel, puis le brancher.
+- **Changements :**
+  - **`frontend/src/components/sx-score.ts`** : remplacement de la
+    propriété `expandable`/rendu `<details>` par une propriété `tip`
+    (booléenne, réfléchie) qui bascule le composant en mode infobulle —
+    `:host([tip])` devient focusable (`tabIndex` géré dans `updated()`),
+    positionné en `relative`, `cursor: help` ; un `.tooltip` (`role="tooltip"`,
+    `position: absolute`) est révélé via `:host([tip]:hover/:focus/
+    :focus-within)`. Slots `breakdown`/`note` inchangés dans leur nom mais
+    attendent désormais un **conteneur unique** slotté (le `<ul>`/`<small>`
+    complet avec sa classe), pas des `<li>` individuels — aligné sur la
+    façon dont `ui.py` construit déjà ce HTML.
+  - **`ui.py`** : `score_badge()` émet `<sx-score level="..." tip>` avec le
+    `<ul class="score__list" slot="breakdown">` et le
+    `<small class="score-note" slot="note">` existants inchangés en light-DOM
+    (mêmes classes, donc `.score__list`/`.score__list li`/`.score__pts*`/
+    `.score-note` restent valides sans modification). Signature Python
+    inchangée.
+  - **`theme.css`** : retrait des règles devenues mortes `.score`,
+    `.score--tip`, `.score__value`, `.score--strong/good/moderate
+    .score__value`, `.score--tip:focus-visible .score__value`, `.score__tip`,
+    `.score--tip:hover/:focus/:focus-within .score__tip` (le chrome de la
+    pastille est désormais dans le Shadow DOM du composant). Les règles
+    encore consommées par le contenu slotté (`.score__list*`, `.score__pts*`,
+    `.score-note`) sont conservées à l'identique.
+  - **`frontend/demo/sx-score.html`** : démo mise à jour sur la nouvelle API
+    (`tip` au lieu de `expandable`, `<ul slot="breakdown">` au lieu de `<li
+    slot="breakdown">` isolés).
+- **Contrats vérifiés avant modification :** un seul appelant de
+  `score_badge()` dans tout le dépôt (`utils.py`) ; un seul test dépendant
+  du markup (`class="score__pts score__pts--strong"`, non touché) ; aucun
+  autre émetteur brut de `.score`/`.score--*`/`.score__value`/`.score__tip`
+  trouvé par grep.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_utils tests.test_investigation_view tests.test_investigations` —
+    OK, 87 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre (avertissements LF/CRLF attendus)
+- **Vérifications effectuées :** smoke visuel headless (fixture
+  `generate_html_report` avec breakdown) — pastille de score colorée
+  (vert/bleu selon niveau) rendue correctement, markup `<sx-score tip>`
+  avec `<ul slot="breakdown">`/`<li><span class="score__pts...">` conforme
+  à ce qu'émet `score_badge()`.
+- **Vérifications non exécutées :** l'apparition réelle de l'infobulle au
+  survol/focus n'a **pas** été capturée visuellement — une capture d'écran
+  headless statique ne déclenche pas `:hover`/`:focus`. Le mécanisme CSS
+  (`:host([tip]:hover/:focus/:focus-within) .tooltip`) reproduit à
+  l'identique la règle précédente (`.score--tip:hover .score__tip`, etc.),
+  donc risque jugé faible, mais non vérifié en interaction réelle.
+- **Risques / reste à faire :** aucun bloquant. Vérification recommandée
+  avant de considérer le lot pleinement clos : ouvrir
+  `frontend/demo/sx-score.html` dans un navigateur interactif et confirmer
+  au survol/focus clavier que l'infobulle s'affiche et reste lisible.
+- **Relais :** Lot 19 suivant (extension `sx-entity`/`sx-property` +
+  migration du panneau entité-graphe) reste le plus gros morceau du
+  backlog — non démarré, `aucun` blocage.
+
+### AI-20260701-004 — Lot 19 : panneau entité-graphe en composant Lit `sx-entity-panel`
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** suite du backlog de migration Lit (Lots 17-18). Migrer le
+  plus gros bloc de HTML brut restant dans la vue investigation — le
+  panneau de gestion d'une entité-graphe (`investigations/view.py`,
+  `_graph_entities_markup`) — vers un composant Lit, en préservant à
+  l'identique tout le JS et les contrats CDP existants.
+- **Changements :**
+  - **`frontend/src/components/sx-entity-panel.ts` (nouveau)** : composant
+    Lit shell + slots (`identity`/`properties`/`relations`/`sources`), même
+    méthode que `sx-saved-page-card`/`sx-export-card`. `:host` est
+    `display:none` par défaut, seul `:host(:not([hidden]))` bascule en
+    `display:flex` — garde-fou explicite contre le piège `[hidden]` déjà
+    rencontré 3 fois dans ce projet (Lots 9/12).
+  - **`frontend/src/index.ts`** : enregistrement du composant.
+  - **`investigations/view.py`** : le tag racine
+    `<article class="graph-entity-card inspector-entity" data-graph-entity-id="..." data-inspector-entity="..." hidden>`
+    devient `<sx-entity-panel>` avec **exactement les mêmes classes et
+    attributs**. Les 4 `<div class="entity-section...">` qui enveloppaient
+    chaque section sont retirés ; leurs enfants (identiques à avant :
+    champs identité, liste+formulaire propriétés, liste+formulaire
+    relations, liste sources) reçoivent chacun l'attribut `slot`
+    correspondant. Aucun autre changement de markup (mêmes `data-*`, mêmes
+    classes, mêmes textes) — donc **aucun changement JS nécessaire**.
+  - **`frontend/demo/sx-entity-panel.html` (nouveau)** : démo statique
+    (identité, 1 propriété, 1 relation, 1 source).
+  - **`tests/test_investigation_view.py`** : 6 assertions XPath codant en
+    dur `//article[@data-inspector-entity=...]`/`//article[@data-graph-entity-id=...]`
+    renommées en `//sx-entity-panel[...]`.
+- **Écart au plan approuvé :** le plan prévoyait de retirer deux règles
+  CSS `.entity-section`/`.entity-section:not(.entity-identity)` devenues
+  soi-disant mortes. Vérification avant modification (grep direct) : la
+  classe `.entity-section` est **aussi utilisée** par le formulaire de
+  création rapide d'entité (`investigations/view.py` ~l.3201,
+  `#graph-entity-create-form`), hors périmètre de ce lot. **`theme.css`
+  n'a donc pas été modifié** — aucune règle retirée, tout reste valide
+  pour les deux consommateurs.
+- **Contrats vérifiés avant modification :** un agent Explore a confirmé
+  que tous les sélecteurs JS du panneau (`querySelectorAll(".graph-entity-card")`,
+  `card.querySelector("[data-...]")`, `closest("[data-relation-id]")`,
+  `querySelectorAll("[data-inspector-entity]")`, etc.) visent des classes
+  ou attributs `data-*`, jamais le tag `article` — donc aucun impact sur
+  les actions CDP (`update_graph_entity`, `set_graph_entity_property`,
+  `delete_graph_entity_property`, add/update/delete relation,
+  `delete_graph_entity`) ni sur `hideInspectorPanels`/`revealInspector`.
+  `.graph-entity-card`/`.inspector-entity` confirmées non réutilisées
+  ailleurs dans le dépôt.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK, bundle
+    `assets/synthesix-ui.js` régénéré
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` —
+    OK, 29 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre (avertissements LF/CRLF attendus)
+- **Vérifications effectuées :** smoke visuel headless réel (fixture
+  `workspace_payload()`) : (1) état par défaut — capture identique en
+  taille/contenu à celle du Lot 17, confirmant le panneau reste bien caché
+  par défaut ; (2) état sélectionné (clic simulé sur la ligne d'entité via
+  script injecté dans une copie de la fixture) — le panneau
+  `sx-entity-panel` s'affiche correctement dans le rail : identité
+  (nom/notes/tags éditables + bouton supprimer), propriétés (SIREN, Forme
+  juridique avec badges de type + suppression + formulaire d'ajout),
+  relations (formulaire vide + bouton Lier), sources (lien numéroté vers
+  la page). Séparateurs entre sections corrects. Confirme que le JS
+  existant (`selectInspectorEntity`/`hideInspectorPanels`/`revealInspector`)
+  fonctionne sans modification avec le nouveau tag.
+- **Vérifications non exécutées :** pas de smoke CDP live (édition réelle
+  nom/tags/propriété/relation via `python main.py` contre une page réelle)
+  dans cette session — comportement JS non modifié (mêmes sélecteurs),
+  risque jugé faible mais non confirmé en interaction serveur réelle.
+- **Risques / reste à faire :** aucun bloquant.
+- **Relais :** backlog restant inchangé — Lot 20 (entités extraites,
+  `_extracted_entity_row` ~l.759-927), Lot 21 (preuves/analyse URL/
+  page-monitor-card), Lot 22 (`search_view.py`), Lot 23 (`index.html`).
+
+### AI-20260701-005 — Lot 20 : tags Lit minimaux (couverture complète, sans gain fonctionnel)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** suite du backlog Lots 17-19. Avant de coder, j'ai vérifié
+  les 4 blocs restants prévus aux Lots 20/21 (`_extracted_entity_row`,
+  `_evidence_markup`, `_page_monitor_cards`, `_url_analysis_markup`,
+  `investigations/view.py`) et constaté qu'ils sont **déjà plats** (un seul
+  élément racine, classes déjà bien factorisées, aucun wrapper générique à
+  absorber en Shadow DOM comme au Lot 19) — un composant Lit ici n'ajoute
+  ni chrome, ni réduction de CSS/JS/duplication. Signalé explicitement à
+  l'utilisateur ; décision : **migrer quand même**, pour une couverture Lit
+  complète plutôt que de s'arrêter à la valeur fonctionnelle.
+- **Changements :** 4 nouveaux composants Lit minimaux (un seul
+  `<slot></slot>` par défaut, aucun style propre — la classe déjà présente
+  sur l'hôte porte tout le layout, comme `.graph-entity-card` au Lot 19) :
+  - **`frontend/src/components/sx-extracted-entity-row.ts`** —
+    `investigations/view.py` (`_extracted_entity_row`) :
+    `<div class="entity-chip-row entity-item--{status}">` →
+    `<sx-extracted-entity-row class="entity-chip-row entity-item--{status}">`.
+  - **`frontend/src/components/sx-evidence-item.ts`** —
+    `_evidence_markup` : `<li class="evidence-item">` →
+    `<sx-evidence-item class="evidence-item">` (reste enfant de
+    `<ul class="evidence-list">`, `list-style:none` déjà sur le parent).
+  - **`frontend/src/components/sx-page-monitor-card.ts`** —
+    `_page_monitor_cards` : `<article class="page-monitor-card">` →
+    `<sx-page-monitor-card class="page-monitor-card">`.
+  - **`frontend/src/components/sx-url-analysis.ts`** —
+    `_url_analysis_markup` (2 branches : état vide + analyse complète) :
+    `<div class="result-url-analysis">` →
+    `<sx-url-analysis class="result-url-analysis">` dans les deux cas.
+  - **`frontend/src/index.ts`** : 4 nouveaux imports.
+  - **4 démos** (`frontend/demo/sx-extracted-entity-row.html`,
+    `sx-evidence-item.html`, `sx-page-monitor-card.html`,
+    `sx-url-analysis.html`).
+  - Aucun changement CSS (rien de mort à retirer — les classes restent
+    portées par l'hôte, exactement comme au Lot 19).
+- **Contrats vérifiés avant modification :** tous les sélecteurs JS
+  concernés (`.stop-page-monitor`, `[data-page-monitor-id]`,
+  `[data-entity-id]`, `data-evidence-id`, `.analyze-result-url`, etc.)
+  visent des classes/`data-*`, jamais le tag racine. `tests/test_investigation_view.py`
+  n'a aucune assertion codant le nom de balise en dur pour ces 4 blocs
+  (soit XPath `//*[contains(@class, ...)]` déjà insensible au tag, soit
+  aucune assertion du tout) → **zéro modification de test nécessaire**.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK, bundle
+    `assets/synthesix-ui.js` régénéré
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` —
+    OK, 29 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre (avertissements LF/CRLF attendus)
+- **Vérifications effectuées :** smoke visuel headless — capture de l'état
+  par défaut de la fixture `workspace_payload()` : **taille en octets
+  identique** à celle des Lots 17/19 (238770 octets), confirmant une
+  absence totale de régression visuelle (carte de monitoring `Example
+  page` rendue correctement via `sx-page-monitor-card`). Présence
+  confirmée par grep des tags `sx-extracted-entity-row` (×1),
+  `sx-evidence-item` (×1) et `sx-page-monitor-card` (×1) dans le HTML
+  généré ; `sx-url-analysis` absent de cette fixture (aucune analyse URL
+  dans les données de test — comportement attendu, pas un défaut). Les
+  tests XPath passants confirment la structure DOM correcte pour
+  `entity-chip-row`.
+- **Vérifications non exécutées :** pas de capture interactive (clic pour
+  révéler le panneau contenant `sx-evidence-item`/`sx-url-analysis` dans le
+  rail) cette fois — jugé redondant : composants encore plus simples que
+  `sx-entity-panel` (aucune logique interne, aucun style propre), et le
+  mécanisme d'affichage (`hidden` natif + sélecteurs JS par classe/`data-*`)
+  déjà prouvé au Lot 19 avec un composant plus complexe.
+- **Risques / reste à faire :** aucun bloquant.
+- **Relais :** reste au backlog — Lot 22 (`investigations/search_view.py`,
+  0% Lit, incohérence `result_card(component=True)` à corriger), Lot 23
+  (`index.html`, jamais investigué).
+
+### AI-20260701-006 — Lot 22 : `search_view.py` sur `sx-result-card` + retrait du fallback mort
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger l'incohérence trouvée au Lot 17 —
+  `investigations/search_view.py` était le seul appelant de
+  `ui.result_card()` sans `component=True`, retombant sur un fallback HTML
+  brut au lieu de `<sx-result-card>`.
+- **Changements :**
+  - **`ui.py`** (`result_card`) : retrait du paramètre `component: bool =
+    False` et de la branche `else` (HTML brut `<article class="result-card">`,
+    ~90 lignes) — la fonction ne fait plus que construire
+    `<sx-result-card>` (c'était déjà le seul chemin utilisé par les 2
+    appelants restants). Docstring mise à jour.
+  - **`investigations/search_view.py`** (`_result_card`) : l'appel à
+    `ui.result_card(...)` reste inchangé (n'avait jamais besoin de l'
+    argument `component`, retiré de la signature elle-même) — bascule
+    automatiquement sur `<sx-result-card>`.
+  - **`utils.py`** (2 sites, l.~281 et l.~613) : retrait de l'argument
+    `component=True`, devenu redondant.
+  - **`theme.css`** : suppression des règles mortes `.result-card`,
+    `.result-card:hover`, `.result-card:focus-visible`, `.result-card:focus`,
+    `.result-card--strong/good/moderate/weak`, `.result-card__body`,
+    `.result-card__head`, `.result-card__title`, `.result-card__title:hover`,
+    `.result-card__domain`, `.result-card__snippet`, `.result-card__meta`,
+    `.result-card__actions`. Conservées (contenu slotté toujours utilisé) :
+    `.result-card__notes`, `.result-card__notes strong`,
+    `.result-card__tags`.
+- **Contrats vérifiés avant modification :** grep exhaustif — seuls 2
+  appelants de `ui.result_card()` dans tout le dépôt (`utils.py` ×2,
+  `investigations/search_view.py` ×1), tous passaient déjà ou passent
+  désormais par le chemin composant ; aucun test n'appelle
+  `ui.result_card()` directement ni n'asserte sur les classes retirées
+  (0 résultat grep dans `tests/`).
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK (aucun
+    changement TS, bundle régénéré à l'identique)
+  - `.venv\Scripts\python.exe -m unittest tests.test_utils tests.test_investigations tests.test_investigation_view` —
+    OK, 87 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 276 tests
+  - `git diff --check` — propre (avertissements LF/CRLF attendus)
+- **Vérifications effectuées :** smoke visuel headless — page d'archive
+  locale générée (fixture ad hoc avec notes/tags/sources/enquête liée) :
+  `<sx-result-card>` confirmé par grep (1 occurrence, 0 fallback brut),
+  rendu correct (chips, provenance "Enquête → Case Alpha" cliquable,
+  "Première/Dernière observation", notes en gras, tags en chips mutées) —
+  identique au style SERP déjà validé au Lot 7/17.
+- **Risques / reste à faire :** aucun bloquant.
+- **Relais :** reste au backlog — Lot 23 (`index.html`, cockpit principal,
+  jamais investigué pour la migration Lit).
+
+### AI-20260701-007 — Smoke CDP live du Lot 19 (rattrapage)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Contexte :** l'utilisateur avait `python main.py` déjà lancé avec une
+  vraie enquête ouverte (« OSINTOPIA », playground personnel — autorisation
+  explicite de tester dedans). Ferme le ⚠️ laissé ouvert au Lot 19
+  (AI-20260701-004) : « smoke CDP live non exécuté ».
+- **Méthode :** connexion directe au websocket CDP de l'onglet ouvert
+  (`ws://127.0.0.1:52999/devtools/page/...`, port trouvé via la ligne de
+  commande Chrome lancée par Zendriver) et pilotage via `Runtime.evaluate`
+  — clic réel sur une ligne d'entité, édition réelle du champ nom,
+  déclenchement de l'auto-save au `blur` (comportement du Lot 13/14),
+  restauration de la valeur d'origine ensuite (aucune donnée laissée
+  modifiée).
+- **Résultat :** confirmé sur l'application réelle (pas une fixture) —
+  (1) `<sx-entity-panel>` bien présent dans la page réellement servie ;
+  (2) clic sur la ligne d'entité → panneau révélé (`hidden` retiré) ;
+  (3) édition du nom → `blur` → indicateur « Enregistré » affiché ;
+  (4) **aucun rechargement de page** pendant toute l'opération (marqueur
+  JS injecté avant le test resté intact après) ; (5) la ligne compacte
+  dans le corps de page reflète le changement sans reload (mise à jour
+  optimiste) ; (6) valeur restaurée à l'original avec succès, toujours
+  sans reload.
+- **Conclusion :** le renommage du tag racine (`article` → `sx-entity-panel`,
+  Lot 19) et les composants tag-only du Lot 20 ne cassent aucun contrat
+  CDP/JS en usage réel — confirmé au-delà des tests structurels
+  (`unittest`) et du smoke visuel headless déjà faits.
+- **Limites :** seul le flux « édition nom + auto-save » a été vérifié en
+  live (le plus représentatif du risque signalé). Propriétés/tags/relations
+  n'ont pas été testés individuellement en live cette fois — mais partagent
+  le même mécanisme (`card.querySelector` + `data-*`, non affecté par le
+  renommage de tag), donc risque résiduel jugé négligeable.
+- **Fichiers modifiés :** aucun (vérification pure, aucun fichier du dépôt
+  touché).

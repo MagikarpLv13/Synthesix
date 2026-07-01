@@ -858,7 +858,7 @@ def _extracted_entity_row(
         </div>
     """
     return f"""
-        <div
+        <sx-extracted-entity-row
             class="entity-chip-row entity-item--{_html(status)}"
             data-entity-id="{_html(entity_id)}"
             data-entity-type="{_html(entity_type)}"
@@ -923,7 +923,7 @@ def _extracted_entity_row(
                 {attach_control}
             </div>
             {promote_form}
-        </div>
+        </sx-extracted-entity-row>
     """
 
 
@@ -1375,108 +1375,100 @@ def _graph_entities_markup(
         )
         cards.append(
             f"""
-            <article class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
-                <div class="entity-section entity-identity">
-                    <div class="entity-section__head">
-                        <span class="entity-section__title">Identité</span>
-                        <button
-                            type="button"
-                            class="icon-action icon-action--danger delete-graph-entity"
-                            title="Delete entity"
-                            aria-label="Delete entity"
-                            {disabled}
-                        >{_icon("trash")}</button>
-                    </div>
-                    <label class="entity-field">
-                        <span class="entity-field__label">Nom</span>
+            <sx-entity-panel class="graph-entity-card inspector-entity" data-graph-entity-id="{_html(entity_id)}" data-inspector-entity="{_html(entity_id)}" hidden>
+                <div class="entity-section__head" slot="identity">
+                    <span class="entity-section__title">Identité</span>
+                    <button
+                        type="button"
+                        class="icon-action icon-action--danger delete-graph-entity"
+                        title="Delete entity"
+                        aria-label="Delete entity"
+                        {disabled}
+                    >{_icon("trash")}</button>
+                </div>
+                <label class="entity-field" slot="identity">
+                    <span class="entity-field__label">Nom</span>
+                    <input
+                        type="text"
+                        data-graph-entity-label
+                        maxlength="200"
+                        value="{_html(entity.get("label", ""))}"
+                        {disabled}
+                    >
+                </label>
+                <label class="entity-field" slot="identity">
+                    <span class="entity-field__label">Notes</span>
+                    <textarea
+                        rows="3"
+                        data-graph-entity-notes
+                        placeholder="Notes…"
+                        {disabled}
+                    >{_html(entity.get("notes", ""))}</textarea>
+                </label>
+                <div class="entity-field" slot="identity">
+                    <span class="entity-field__label">Tags</span>
+                    <div class="tag-editor" data-tags-editor>
+                        <div class="tag-editor__chips" data-tags-chips>{tag_chips}</div>
                         <input
                             type="text"
-                            data-graph-entity-label
-                            maxlength="200"
-                            value="{_html(entity.get("label", ""))}"
+                            class="tag-editor__input"
+                            data-tag-input
+                            list="entity-tagsets"
+                            placeholder="Nouveau tag…"
                             {disabled}
                         >
-                    </label>
-                    <label class="entity-field">
-                        <span class="entity-field__label">Notes</span>
-                        <textarea
-                            rows="3"
-                            data-graph-entity-notes
-                            placeholder="Notes…"
-                            {disabled}
-                        >{_html(entity.get("notes", ""))}</textarea>
-                    </label>
-                    <div class="entity-field">
-                        <span class="entity-field__label">Tags</span>
-                        <div class="tag-editor" data-tags-editor>
-                            <div class="tag-editor__chips" data-tags-chips>{tag_chips}</div>
-                            <input
-                                type="text"
-                                class="tag-editor__input"
-                                data-tag-input
-                                list="entity-tagsets"
-                                placeholder="Nouveau tag…"
-                                {disabled}
-                            >
-                        </div>
                     </div>
                 </div>
-                <div class="entity-section">
-                    <span class="entity-section__title">Propriétés</span>
-                    <ul class="graph-property-list">
-                        {property_rows or '<li class="entity-empty">Aucune propriété.</li>'}
-                    </ul>
-                    <form class="graph-property-add" data-add-property>
-                        <input
-                            type="text"
-                            class="graph-property-add__key"
-                            data-add-property-key
-                            list="property-suggestions"
-                            maxlength="80"
-                            placeholder="Propriété"
-                            aria-label="Nom de la propriété"
-                            {disabled}
-                        >
-                        <input
-                            type="text"
-                            class="graph-property-add__value"
-                            data-add-property-value
-                            maxlength="500"
-                            placeholder="Valeur"
-                            aria-label="Valeur de la propriété"
-                            {disabled}
-                        >
-                        <button
-                            type="submit"
-                            class="secondary-button graph-property-add__submit"
-                            {disabled}
-                        >Ajouter</button>
-                    </form>
-                </div>
-                <div class="entity-section">
-                    <span class="entity-section__title">Relations</span>
-                    <ul class="entity-relation-list">{relation_rows}</ul>
-                    <form class="entity-relation-add" data-add-relation>
-                        <input
-                            type="text"
-                            class="entity-relation-add__label"
-                            data-relation-add-label
-                            maxlength="120"
-                            placeholder="Mot clé (ex. PDG de)"
-                            {disabled}
-                        >
-                        <select class="entity-relation-add__target" data-relation-add-target{disabled}>
-                            <option value="">Entité…</option>
-                            {relation_options}
-                        </select>
-                        <button type="submit" class="secondary-button"{disabled}>Lier</button>
-                    </form>
-                </div>
-                <div class="entity-section">
-                    <span class="entity-section__title">Sources</span>
-                    <ul class="entity-source-list">{source_rows or '<li class="entity-empty">Aucune source liée.</li>'}</ul>
-                </div>
-            </article>
+                <span class="entity-section__title" slot="properties">Propriétés</span>
+                <ul class="graph-property-list" slot="properties">
+                    {property_rows or '<li class="entity-empty">Aucune propriété.</li>'}
+                </ul>
+                <form class="graph-property-add" data-add-property slot="properties">
+                    <input
+                        type="text"
+                        class="graph-property-add__key"
+                        data-add-property-key
+                        list="property-suggestions"
+                        maxlength="80"
+                        placeholder="Propriété"
+                        aria-label="Nom de la propriété"
+                        {disabled}
+                    >
+                    <input
+                        type="text"
+                        class="graph-property-add__value"
+                        data-add-property-value
+                        maxlength="500"
+                        placeholder="Valeur"
+                        aria-label="Valeur de la propriété"
+                        {disabled}
+                    >
+                    <button
+                        type="submit"
+                        class="secondary-button graph-property-add__submit"
+                        {disabled}
+                    >Ajouter</button>
+                </form>
+                <span class="entity-section__title" slot="relations">Relations</span>
+                <ul class="entity-relation-list" slot="relations">{relation_rows}</ul>
+                <form class="entity-relation-add" data-add-relation slot="relations">
+                    <input
+                        type="text"
+                        class="entity-relation-add__label"
+                        data-relation-add-label
+                        maxlength="120"
+                        placeholder="Mot clé (ex. PDG de)"
+                        {disabled}
+                    >
+                    <select class="entity-relation-add__target" data-relation-add-target{disabled}>
+                        <option value="">Entité…</option>
+                        {relation_options}
+                    </select>
+                    <button type="submit" class="secondary-button"{disabled}>Lier</button>
+                </form>
+                <span class="entity-section__title" slot="sources">Sources</span>
+                <ul class="entity-source-list" slot="sources">{source_rows or '<li class="entity-empty">Aucune source liée.</li>'}</ul>
+            </sx-entity-panel>
             """
         )
     return "".join(cards)
@@ -1602,7 +1594,7 @@ def _url_analysis_markup(
     disabled = " disabled" if read_only else ""
     if not analyses:
         return f"""
-            <div class="result-url-analysis">
+            <sx-url-analysis class="result-url-analysis">
                 <div class="entity-heading">
                     <span class="provenance-label">Technical URL analysis</span>
                     <button
@@ -1616,7 +1608,7 @@ def _url_analysis_markup(
                 <p class="session-note">
                     No explicit network analysis has been run.
                 </p>
-            </div>
+            </sx-url-analysis>
         """
 
     latest = analyses[0]
@@ -1703,7 +1695,7 @@ def _url_analysis_markup(
                 <ul>{redirect_items or "<li>No redirect.</li>"}</ul>
                 <ul>{header_items or "<li>No retained header.</li>"}</ul>
             </details>
-        </div>
+        </sx-url-analysis>
     """
 
 
@@ -2091,7 +2083,7 @@ def _evidence_markup(
         )
         items.append(
             f"""
-            <li
+            <sx-evidence-item
                 class="evidence-item"
                 data-evidence-id="{_html(capture_id)}"
                 title="{_html(display_name)}"
@@ -2125,7 +2117,7 @@ def _evidence_markup(
                     data-evidence-verification
                     aria-live="polite"
                 ></span>
-            </li>
+            </sx-evidence-item>
             """
         )
     return (
@@ -2369,7 +2361,7 @@ def _page_monitor_cards(
         )
         cards.append(
             f"""
-            <article
+            <sx-page-monitor-card
                 class="page-monitor-card"
                 data-page-monitor-id="{_html(monitor.get("id", ""))}"
             >
@@ -2396,7 +2388,7 @@ def _page_monitor_cards(
                     data-monitor-id="{_html(monitor.get("id", ""))}"
                     {disabled}
                 >Stop monitoring</button>
-            </article>
+            </sx-page-monitor-card>
             """
         )
     return "".join(cards)

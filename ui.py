@@ -112,8 +112,8 @@ def chip(label: str, *, tone: str = "neutral", icon_name: str | None = None,
     glyph = icon(icon_name) if icon_name else ""
     title_attr = f' title="{esc(title)}"' if title else ""
     return (
-        f'<span class="chip chip--{esc(tone)}"{title_attr}>'
-        f'{glyph}<span>{esc(label)}</span></span>'
+        f'<sx-chip tone="{esc(tone)}"{title_attr}>'
+        f'{glyph}<span>{esc(label)}</span></sx-chip>'
     )
 
 
@@ -121,24 +121,24 @@ def score_badge(score_text: str, level: str, breakdown_html: str = "",
                 note: str = "") -> str:
     """A compact score pill; reveals its breakdown in a hover/focus tooltip."""
     if breakdown_html:
-        note_html = f'<small class="score-note">{esc(note)}</small>' if note else ""
-        return (
-            f'<span class="score score--{esc(level)} score--tip" tabindex="0">'
-            f'<span class="score__value">{esc(score_text)}</span>'
-            f'<span class="score__tip" role="tooltip">'
-            f'<ul class="score__list">{breakdown_html}</ul>{note_html}</span></span>'
+        note_html = (
+            f'<small class="score-note" slot="note">{esc(note)}</small>'
+            if note else ""
         )
-    return (
-        f'<span class="score score--{esc(level)}">'
-        f'<span class="score__value">{esc(score_text)}</span></span>'
-    )
+        return (
+            f'<sx-score level="{esc(level)}" tip>{esc(score_text)}'
+            f'<ul class="score__list" slot="breakdown">{breakdown_html}</ul>'
+            f"{note_html}</sx-score>"
+        )
+    return f'<sx-score level="{esc(level)}">{esc(score_text)}</sx-score>'
 
 
 def provenance(label: str, detail: str, *, icon_name: str = "route") -> str:
+    icon_slot = icon(icon_name).replace("<svg", '<svg slot="icon"', 1)
     return (
-        f'<span class="provenance">{icon(icon_name)}'
-        f'<span class="provenance__label">{esc(label)}</span>'
-        f'<span class="provenance__detail">{esc(detail)}</span></span>'
+        f"<sx-provenance>{icon_slot}"
+        f'<span slot="label">{esc(label)}</span>'
+        f"{esc(detail)}</sx-provenance>"
     )
 
 
@@ -162,93 +162,61 @@ def _highlight(text: str, term: str) -> str:
 def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
                 meta_html: str = "", actions_html: str = "", extra_html: str = "",
                 accent_level: str = "", triage: bool = True,
-                safe_url: str | None = None, component: bool = False,
-                highlight: str = "") -> str:
+                safe_url: str | None = None, highlight: str = "") -> str:
     """A scannable result row used by reports and the local archive.
 
     ``url`` is the display/link target; pass ``safe_url`` when the caller has
-    validated it (otherwise the link is rendered inert). With ``component=True``
-    the row is rendered as the ``<sx-result-card>`` Web Component (requires the
-    page to load ``assets/synthesix-ui.js``); links/actions stay in light-DOM
-    slots so the triage scripts keep working.
+    validated it (otherwise the link is rendered inert). Renders as the
+    ``<sx-result-card>`` Web Component (requires the page to load
+    ``assets/synthesix-ui.js``); links/actions stay in light-DOM slots so the
+    triage scripts keep working.
     """
     href = safe_url if safe_url is not None else url
-    if component:
-        triage_attrs = ' data-triage-item tabindex="0"' if triage else ""
-        if href and href != "#":
-            title_slot = (
-                f'<a slot="title" data-triage-link href="{esc(href)}" '
-                f'target="_blank" rel="noopener noreferrer">'
-                f"{_highlight(title, highlight)}</a>"
-            )
-        else:
-            title_slot = f'<span slot="title">{_highlight(title, highlight)}</span>'
-        favicon_slot = ""
-        source_slot = ""
-        breadcrumb_slot = ""
-        if domain:
-            favicon_slot = f'<span slot="favicon">{esc(domain[:1].upper())}</span>'
-            source_slot = f'<span slot="source">{esc(domain)}</span>'
-            try:
-                segments = [
-                    segment for segment in urlsplit(url).path.split("/") if segment
-                ][:3]
-            except (ValueError, TypeError):
-                segments = []
-            crumb = f"{domain} › " + " › ".join(segments) if segments else domain
-            breadcrumb_slot = f'<span slot="domain">{esc(crumb)}</span>'
-        snippet_slot = (
-            f'<p slot="snippet">{_highlight(snippet, highlight)}</p>'
-            if snippet
-            else ""
+    triage_attrs = ' data-triage-item tabindex="0"' if triage else ""
+    if href and href != "#":
+        title_slot = (
+            f'<a slot="title" data-triage-link href="{esc(href)}" '
+            f'target="_blank" rel="noopener noreferrer">'
+            f"{_highlight(title, highlight)}</a>"
         )
-        extra_slot = f'<div slot="extra">{extra_html}</div>' if extra_html else ""
-        meta_slot = (
-            f'<div slot="meta" style="display:contents">{meta_html}</div>'
-            if meta_html
-            else ""
-        )
-        actions_slot = (
-            f'<div slot="actions" style="display:contents">{actions_html}</div>'
-            if actions_html
-            else ""
-        )
-        accent = esc(accent_level) if accent_level else "none"
-        return (
-            f'<sx-result-card accent="{accent}"{triage_attrs}>'
-            f"{favicon_slot}{source_slot}{title_slot}{breadcrumb_slot}"
-            f"{snippet_slot}{extra_slot}{meta_slot}{actions_slot}"
-            "</sx-result-card>"
-        )
-    link_open = (
-        f'<a class="result-card__title" data-triage-link href="{esc(href)}" '
-        'target="_blank" rel="noopener noreferrer">'
-        if href and href != "#"
-        else '<span class="result-card__title">'
-    )
-    link_close = "</a>" if href and href != "#" else "</span>"
-    domain_html = (
-        f'<span class="result-card__domain">{icon("globe")}{esc(domain)}</span>'
-        if domain
+    else:
+        title_slot = f'<span slot="title">{_highlight(title, highlight)}</span>'
+    favicon_slot = ""
+    source_slot = ""
+    breadcrumb_slot = ""
+    if domain:
+        favicon_slot = f'<span slot="favicon">{esc(domain[:1].upper())}</span>'
+        source_slot = f'<span slot="source">{esc(domain)}</span>'
+        try:
+            segments = [
+                segment for segment in urlsplit(url).path.split("/") if segment
+            ][:3]
+        except (ValueError, TypeError):
+            segments = []
+        crumb = f"{domain} › " + " › ".join(segments) if segments else domain
+        breadcrumb_slot = f'<span slot="domain">{esc(crumb)}</span>'
+    snippet_slot = (
+        f'<p slot="snippet">{_highlight(snippet, highlight)}</p>'
+        if snippet
         else ""
     )
-    snippet_html = (
-        f'<p class="result-card__snippet">{esc(snippet)}</p>' if snippet else ""
+    extra_slot = f'<div slot="extra">{extra_html}</div>' if extra_html else ""
+    meta_slot = (
+        f'<div slot="meta" style="display:contents">{meta_html}</div>'
+        if meta_html
+        else ""
     )
-    classes = "result-card"
-    if accent_level:
-        classes += f" result-card--{esc(accent_level)}"
-    triage_attrs = ' data-triage-item tabindex="0"' if triage else ""
+    actions_slot = (
+        f'<div slot="actions" style="display:contents">{actions_html}</div>'
+        if actions_html
+        else ""
+    )
+    accent = esc(accent_level) if accent_level else "none"
     return (
-        f'<article class="{classes}"{triage_attrs}>'
-        '<div class="result-card__body">'
-        f'<div class="result-card__head">{link_open}{esc(title)}{link_close}{domain_html}</div>'
-        f"{snippet_html}"
-        f"{extra_html}"
-        f'<div class="result-card__meta">{meta_html}</div>'
-        "</div>"
-        f'<div class="result-card__actions">{actions_html}</div>'
-        "</article>"
+        f'<sx-result-card accent="{accent}"{triage_attrs}>'
+        f"{favicon_slot}{source_slot}{title_slot}{breadcrumb_slot}"
+        f"{snippet_slot}{extra_slot}{meta_slot}{actions_slot}"
+        "</sx-result-card>"
     )
 
 

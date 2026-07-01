@@ -201,6 +201,11 @@ Détails dans `../COLLAB.md`.
 |---|---|---|---|---|
 | 7 | Intégrer `sx-result-card` dans les pages résultats + densifier la liste | `utils.py`, `ui.py`, `frontend/src/components/sx-result-card.ts`, `assets/synthesix-ui.js` | Claude | done |
 | 8 | Workspace investigation 2 zones + panel droit rétractable + clic→détail | `investigations/view.py`, `theme.css` | Claude | done |
+| 17 | Brancher `sx-chip`/`sx-provenance` orphelins dans `ui.py`, retirer `sx-inspector` (composant mort) | `ui.py`, `investigations/search_view.py`, `theme.css`, `frontend/src/index.ts` | Claude | done |
+| 18 | Réécrire `sx-score` en mode infobulle hover/focus (aligné sur `score_badge()`) puis le brancher | `frontend/src/components/sx-score.ts`, `ui.py`, `theme.css`, `frontend/demo/sx-score.html` | Claude | done |
+| 19 | Panneau entité-graphe en composant Lit `sx-entity-panel` (shell + slots, JS/contrats CDP inchangés) | `frontend/src/components/sx-entity-panel.ts`, `investigations/view.py`, `tests/test_investigation_view.py` | Claude | done |
+| 20 | Tags Lit minimaux : entité extraite, preuve, page-monitor, analyse URL (couverture complète, pas de gain fonctionnel — décision explicite) | `frontend/src/components/sx-extracted-entity-row.ts`, `sx-evidence-item.ts`, `sx-page-monitor-card.ts`, `sx-url-analysis.ts`, `investigations/view.py` | Claude | done |
+| 22 | `search_view.py` sur `sx-result-card` + retrait du fallback HTML brut mort de `ui.result_card()` | `investigations/search_view.py`, `ui.py`, `utils.py`, `theme.css` | Claude | done |
 
 ## Fichiers chauds (annoncer ici avant de modifier)
 
@@ -409,3 +414,116 @@ Détails dans `../COLLAB.md`.
   nowrap`, puces retirées). `test_utils` mis à jour (assert points colorés +
   absence de la note). Validé : `unittest discover` (221), `git diff --check`,
   rendu réel 8 cartes (16 strong / 5 good / 15 low, 0 note).
+- (Claude) Lot 17 — **audit + branchement des primitives Lit orphelines**.
+  Constat (2 agents Explore) : la moitié du catalogue `sx-*` livré au Palier 1
+  (`sx-chip`, `sx-score`, `sx-tag`, `sx-provenance`, `sx-evidence-badge`,
+  `sx-inspector`, `sx-entity`, `sx-property`) n'était jamais instanciée côté
+  Python — construits avant que l'UI réelle n'évolue via les Lots 7-16.
+  Traité ce tour : (1) `ui.chip()`/`ui.provenance()` émettent désormais
+  `<sx-chip>`/`<sx-provenance>` (compatibles tels quels, vérifié callers +
+  tests) ; (2) `investigations/search_view.py` (pastille provenance
+  "Investigation" dupliquée en HTML brut) réécrite en `<sx-provenance>` —
+  nécessaire pour retirer sans risque les CSS `.chip`/`.provenance*`
+  (c'était un second émetteur non prévu au départ) ; (3) `theme.css` :
+  suppression des règles mortes `.chip`, `.chip--*`, `.provenance`,
+  `.provenance__detail` ; (4) **`sx-inspector` retiré** (fichier +
+  démo + import `index.ts`) : composant orphelin dont le modèle
+  (1 liste + 1 détail, sélection unique) ne correspond pas au rail réel
+  (3 sources sélectionnables — pages/entités-graphe/entités-extraites,
+  orchestration `hideInspectorPanels`/`revealInspector`, 30+ actions CDP).
+  **Non traité, hors périmètre volontaire** : `sx-score` est stale (conçu en
+  `<details>` cliquable, alors que `score_badge()` est passé au Lot 7 en
+  infobulle hover/focus) ; `sx-entity`/`sx-property` sont display-only (pas
+  de slot édition/tags/relations/save-indicator) face au panneau entité-graphe
+  réel bien plus riche — les adapter est un lot à part. Validé : typecheck,
+  build, `unittest discover` (276), `git diff --check`, smoke headless
+  (rendu réel via fixtures `workspace_payload()` + `generate_html_report`,
+  chips/score/provenance imbriqués dans `sx-result-card` OK).
+  **Backlog identifié pour la suite** (non traité) :
+  - Lot 18 : réécrire `sx-score` en mode infobulle puis le brancher.
+  - Lot 19 : nouveaux slots `sx-entity`/`sx-property` (identité éditable,
+    éditeur de tags, relations, indicateur de sauvegarde) puis migrer le
+    panneau entité-graphe (`investigations/view.py` ~l.1370-1483).
+  - Lot 20 : migrer les entités extraites (`_extracted_entity_row`,
+    ~l.759-927).
+  - Lot 21 : bloc preuves (`evidence-item`), analyse URL, `page-monitor-card`.
+  - Lot 22 : `investigations/search_view.py` — aligner `ui.result_card()` sur
+    `component=True` (seul appelant qui ne le passe pas) puis migrer le reste
+    de la page (0% Lit).
+  - Lot 23 : `index.html` (cockpit, jamais touché, ~450 lignes statiques).
+- (Claude) Lot 18 — **réécriture `sx-score` en infobulle + branchement**.
+  Le composant était stale depuis le Lot 7 (conçu en `<details>` cliquable
+  à la Tâche 3, alors que `score_badge()` était passé entre-temps à une
+  infobulle hover/focus toujours présente dans le DOM, plus accessible).
+  `sx-score` remplace `expandable`/`<details>` par une propriété `tip`
+  (mode infobulle `:host([tip]:hover/:focus/:focus-within)`, `tabIndex`
+  géré au changement de propriété). `ui.py` : `score_badge()` émet
+  `<sx-score level="..." tip>` avec les mêmes `<ul class="score__list"
+  slot="breakdown">`/`<small class="score-note" slot="note">` qu'avant
+  (light-DOM inchangé, donc `.score__list*`/`.score__pts*`/`.score-note`
+  restent valides sans modification). `theme.css` : retrait des règles
+  mortes du chrome (`.score`, `.score--tip`, `.score__value`,
+  `.score__tip`, etc. — désormais dans le Shadow DOM). Démo mise à jour.
+  Un seul appelant (`utils.py`), un seul test lié au markup (non touché).
+  Validé : typecheck, build, `unittest discover` (276), `git diff --check`,
+  smoke headless (pastille colorée conforme). ⚠️ **Non vérifié** :
+  apparition réelle de l'infobulle au survol/focus (capture headless
+  statique ne déclenche pas `:hover`) — mécanisme CSS reproduit à
+  l'identique l'ancien sélecteur, risque jugé faible mais à confirmer en
+  navigateur interactif si besoin.
+- (Claude) Lot 19 — **panneau entité-graphe en composant Lit
+  `sx-entity-panel`**. Le plus gros bloc de HTML brut restant dans la vue
+  investigation. Méthode : shell + slots (comme `sx-saved-page-card`/
+  `sx-export-card`) — le tag racine `<article class="graph-entity-card
+  inspector-entity" data-graph-entity-id="..." data-inspector-entity="..."
+  hidden>` devient `<sx-entity-panel>` avec les **mêmes classes/attributs
+  strictement inchangés**, seuls les 4 `<div class="entity-section...">`
+  d'enveloppe disparaissent (contenu interne — champs, listes, formulaires
+  — identique, déplacé en `slot="identity"/"properties"/"relations"/
+  "sources"`). Un agent Explore a confirmé qu'aucun JS ne dépend du tag
+  `article` (tout vise des classes/`data-*`) → **zéro changement JS**,
+  contrats CDP intacts (`update_graph_entity`, `set/delete_graph_entity_property`,
+  add/update/delete relation, `delete_graph_entity`). `:host` du composant
+  est `display:none` par défaut, `:not([hidden])` seul bascule en flex —
+  garde-fou explicite contre le piège `[hidden]` déjà vu 3 fois (Lots 9/12).
+  **Écart au plan** : le retrait prévu des règles CSS `.entity-section`
+  a été annulé après vérification — cette classe sert aussi au formulaire
+  de création rapide d'entité (`#graph-entity-create-form`, hors périmètre) ;
+  `theme.css` non modifié. Tests : 6 XPath `//article[...]` → `//sx-entity-panel[...]`.
+  Validé : typecheck, build, `unittest discover` (276), `git diff --check`,
+  smoke headless (défaut caché confirmé identique au Lot 17 ; clic simulé
+  sur une ligne d'entité → panneau affiché correctement, identité/propriétés/
+  relations/sources + séparateurs OK). ⚠️ Smoke CDP live (édition réelle)
+  non fait cette session.
+- (Claude) Lot 20 — **tags Lit minimaux, couverture complète**. Avant de
+  coder, constat que les 4 blocs prévus (entité extraite, preuve,
+  page-monitor, analyse URL) sont **déjà plats** (contrairement au
+  panneau entité-graphe du Lot 19) — pas de wrapper générique à absorber
+  en Shadow DOM, donc pas de gain fonctionnel à les passer en Lit.
+  Signalé à l'utilisateur ; décision explicite : **migrer quand même**
+  pour la couverture. 4 nouveaux composants ultra-minimaux (un seul
+  `<slot></slot>`, aucun style — la classe déjà sur l'hôte porte tout le
+  layout, même principe que `.graph-entity-card` au Lot 19) :
+  `sx-extracted-entity-row`, `sx-evidence-item` (reste enfant de
+  `<ul class="evidence-list">`, `list-style:none` déjà sur le parent),
+  `sx-page-monitor-card`, `sx-url-analysis` (2 branches : vide + complète).
+  Zéro changement CSS/test (XPath déjà insensibles au tag ou aucune
+  assertion sur ces blocs). Validé : typecheck, build, `unittest discover`
+  (276), `git diff --check`, smoke headless (capture par défaut identique
+  en taille aux Lots 17/19 — zéro régression visuelle ; 3/4 tags confirmés
+  présents dans le HTML généré, le 4e absent car pas d'analyse URL dans
+  les données de test).
+- (Claude) Lot 22 — **`search_view.py` sur `sx-result-card` + code mort
+  retiré**. Corrige l'incohérence du Lot 17 : `search_view.py` était le
+  seul appelant de `ui.result_card()` sans `component=True`. Puisque les 2
+  autres appelants (`utils.py` ×2) le passaient déjà, plus aucun appelant
+  n'utilise le fallback HTML brut après correction → **`component`
+  retiré de la signature** et branche `else` (~90 lignes,
+  `<article class="result-card">`) supprimée de `ui.py`. CSS mort retiré
+  (`.result-card`, `.result-card__body/head/title/domain/snippet/meta/
+  actions`, `.result-card--*`) — `.result-card__notes`/`.result-card__tags`
+  conservées (contenu slotté toujours utilisé). Zéro test cassé (aucune
+  assertion sur ces classes). Validé : typecheck, build, `unittest
+  discover` (276), `git diff --check`, smoke headless (page archive locale,
+  `<sx-result-card>` confirmé par grep, rendu conforme au style SERP
+  du Lot 7/17 : chips, provenance enquête, notes, tags).

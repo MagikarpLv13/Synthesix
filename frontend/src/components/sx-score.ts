@@ -1,14 +1,16 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 /**
  * <sx-score level="good">7.80</sx-score>
  *
- * Compact relevance-score pill, ported from `score_badge()` (ui.py). The value
- * comes from the default slot (tabular figures); pass `expandable` plus a
- * `breakdown` slot (`<li>` items) and optional `note` slot to make it an
- * inline <details> that reveals the reasoning — mirroring the Python two-path
- * behaviour. Theming via inherited tokens, value text stays in light DOM.
+ * Compact relevance-score pill, ported from `score_badge()` (ui.py). The
+ * value comes from the default slot (tabular figures). Pass `tip` plus a
+ * `breakdown` slot (a light-DOM `<ul>`) and optional `note` slot to reveal
+ * the scoring reasoning in a hover/focus tooltip — mirrors the Python
+ * two-path behaviour after the Lot 7 UX change from a clickable `<details>`
+ * to an always-in-DOM tooltip (screen-reader readable without interaction).
+ * Theming via inherited tokens, slotted content stays in light DOM for i18n.
  */
 @customElement("sx-score")
 export class SxScore extends LitElement {
@@ -16,11 +18,18 @@ export class SxScore extends LitElement {
   level: "none" | "strong" | "good" | "moderate" | "weak" = "none";
 
   @property({ type: Boolean, reflect: true })
-  expandable = false;
+  tip = false;
 
   static styles = css`
     :host {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    :host([tip]) {
+      position: relative;
+      cursor: help;
+      outline: none;
     }
 
     .value {
@@ -53,57 +62,55 @@ export class SxScore extends LitElement {
       border-color: transparent;
     }
 
-    details.score {
-      display: inline-block;
-    }
-
-    summary {
-      list-style: none;
-      cursor: pointer;
-    }
-
-    summary::-webkit-details-marker {
-      display: none;
-    }
-
-    summary:focus-visible .value {
+    :host([tip]:focus-visible) .value {
       outline: none;
       box-shadow: var(--focus, 0 0 0 3px rgba(37, 99, 235, 0.24));
     }
 
-    .list {
-      margin: 8px 0 4px;
-      padding-left: 18px;
-      font-size: 12px;
-      color: var(--muted, #64748b);
+    .tooltip {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 6px);
+      right: 0;
+      width: max-content;
+      max-width: 380px;
+      padding: 8px 10px;
+      text-align: left;
+      background: var(--surface, #ffffff);
+      border: 1px solid var(--line, #cbd5e1);
+      border-radius: var(--radius-sm, 6px);
+      box-shadow: var(--shadow-soft, 0 8px 24px rgba(15, 23, 42, 0.12));
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-3px);
+      transition: opacity 120ms ease, transform 120ms ease,
+        visibility 0s linear 120ms;
+      pointer-events: none;
     }
 
-    .note {
-      display: block;
-      font-size: 11px;
-      color: var(--muted, #64748b);
-    }
-
-    ::slotted([slot="note"]) {
-      color: var(--muted, #64748b);
+    :host([tip]:hover) .tooltip,
+    :host([tip]:focus) .tooltip,
+    :host([tip]:focus-within) .tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition: opacity 120ms ease, transform 120ms ease;
     }
   `;
 
+  protected updated(changed: PropertyValues) {
+    if (changed.has("tip")) this.tabIndex = this.tip ? 0 : -1;
+  }
+
   render() {
     const value = html`<span class="value" part="value"><slot></slot></span>`;
-    if (!this.expandable) {
-      return html`<span class="score" part="score">${value}</span>`;
-    }
+    if (!this.tip) return value;
     return html`
-      <details class="score" part="score">
-        <summary part="summary">${value}</summary>
-        <ul class="list" part="breakdown">
-          <slot name="breakdown"></slot>
-        </ul>
-        <small class="note" part="note">
-          <slot name="note"></slot>
-        </small>
-      </details>
+      ${value}
+      <span class="tooltip" part="tooltip" role="tooltip">
+        <slot name="breakdown"></slot>
+        <slot name="note"></slot>
+      </span>
     `;
   }
 }
