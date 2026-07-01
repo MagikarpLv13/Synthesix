@@ -2098,7 +2098,7 @@ a:focus-visible {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
     gap: 12px;
-    align-items: start;
+    align-items: stretch;
 }
 
 /* The box chrome (border, padding, hover, inspected ring) is owned by the

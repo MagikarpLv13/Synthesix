@@ -13,6 +13,7 @@ import { customElement, property, state } from "lit/decorators.js";
  *   <button slot="menu" class="saved-card__menu-item saved-card__menu-item--danger remove-saved-page">…</button>
  *   <div slot="tags" data-result-tags-display>…</div>
  *   <textarea data-result-notes hidden></textarea><input type="hidden" data-result-tags>
+ *   <div slot="group-items">…other <sx-saved-page-card> elements sharing a domain/path grouping rule…</div>
  * </sx-saved-page-card>
  *
  * Compact, grid-friendly saved-page card. Two tight rows: (1) a brand-coloured
@@ -23,6 +24,13 @@ import { customElement, property, state } from "lit/decorators.js";
  * The Lit element owns the chrome and the "⋯" overflow menu; everything that
  * carries translatable words or is wired by the generated-page inline JS stays in
  * light-DOM slots, so i18n and the existing CDP dispatch keep working untouched.
+ *
+ * When `group-count` > 0, this card is the representative of several saved
+ * pages matching the same domain + leading URL path segments under an
+ * analyst-configured grouping rule (see `_result_cards()` in
+ * `investigations/view.py`); the "+N autres pages" toggle shows/hides the
+ * `group-items` slot, which holds full nested `<sx-saved-page-card>` elements
+ * for the other pages in the group.
  */
 
 interface Brand {
@@ -118,8 +126,19 @@ export class SxSavedPageCard extends LitElement {
   @property({ type: Boolean })
   imported = false;
 
+  /** Number of other saved pages grouped under this card by a domain/path grouping rule. 0 = ungrouped, renders as before. */
+  @property({ type: Number, attribute: "group-count" })
+  groupCount = 0;
+
+  /** Domain + path prefix the group was matched on, shown in the toggle's tooltip. */
+  @property({ attribute: "group-label" })
+  groupLabel = "";
+
   @state()
   private _menuOpen = false;
+
+  @state()
+  private _groupOpen = false;
 
   static styles = css`
     :host {
@@ -146,6 +165,11 @@ export class SxSavedPageCard extends LitElement {
        open, so the popover is not clipped behind the next card. */
     :host([menu-open]) {
       z-index: 20;
+    }
+    /* Same idea for the collapsed-group panel, one layer below the overflow
+       menu so both can coexist without the menu getting hidden underneath. */
+    :host([group-open]) {
+      z-index: 15;
     }
     .card {
       display: grid;
@@ -257,6 +281,55 @@ export class SxSavedPageCard extends LitElement {
     ::slotted([slot="tags"]) {
       min-width: 0;
     }
+    .group-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      align-self: flex-start;
+      padding: 3px 8px;
+      border: 1px solid var(--line, #334155);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted, #94a3b8);
+      font: 600 11px/1 var(--font-ui, system-ui, sans-serif);
+      cursor: pointer;
+      transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+    .group-toggle svg {
+      width: 12px;
+      height: 12px;
+    }
+    .group-toggle:hover,
+    .group-toggle[aria-expanded="true"] {
+      background: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
+      color: var(--text, #e2e8f0);
+      border-color: var(--accent, #6366f1);
+    }
+    .group-toggle:focus-visible {
+      outline: 2px solid var(--accent, #6366f1);
+      outline-offset: 1px;
+    }
+    /* Overlay the collapsed group members instead of pushing this card's grid
+       neighbours down - same technique as .menu above (position: absolute
+       under the card, not extra height added to the grid cell). */
+    .group-panel {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 15;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px;
+      border: 1px solid var(--line, #334155);
+      border-radius: 10px;
+      background: var(--surface, #0b1220);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.38);
+    }
+    .group-panel:not([hidden]) {
+      display: flex;
+    }
   `;
 
   connectedCallback(): void {
@@ -303,6 +376,13 @@ export class SxSavedPageCard extends LitElement {
   /** Close after a menu action runs, but let the action itself proceed. */
   private _onMenuClick = (): void => {
     this._closeMenu();
+  };
+
+  private _toggleGroup = (event: Event): void => {
+    // Keep the whole-card click handler (opens the inspector) from firing.
+    event.stopPropagation();
+    this._groupOpen = !this._groupOpen;
+    this.toggleAttribute("group-open", this._groupOpen);
   };
 
   /** Resolve the platform glyph for this card's site, or null for unknown. */
@@ -444,6 +524,33 @@ export class SxSavedPageCard extends LitElement {
           ${this._renderSeenPill()}
         </div>
         <slot name="tags"></slot>
+        ${this.groupCount > 0
+          ? html`<button
+              type="button"
+              class="group-toggle"
+              aria-expanded=${this._groupOpen ? "true" : "false"}
+              title=${this.groupLabel
+                ? `Regroupé par règle : ${this.groupLabel}`
+                : "Pages regroupées"}
+              @click=${this._toggleGroup}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polyline
+                  points=${this._groupOpen ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}
+                ></polyline>
+              </svg>
+              +${this.groupCount} autres pages
+            </button>`
+          : null}
+        <slot name="group-items" class="group-panel" ?hidden=${!this._groupOpen}></slot>
         <slot></slot>
       </article>
     `;

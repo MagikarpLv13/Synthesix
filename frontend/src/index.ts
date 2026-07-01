@@ -20,3 +20,4 @@ import "./components/sx-extracted-entity-row";
 import "./components/sx-evidence-item";
 import "./components/sx-page-monitor-card";
 import "./components/sx-url-analysis";
+import "./components/sx-grouping-rules";

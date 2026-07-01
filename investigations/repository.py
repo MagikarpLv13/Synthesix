@@ -41,6 +41,19 @@ from investigations.models import (
 LEGACY_IMPORT_KEY = "legacy_history_import_v1"
 LOCAL_SEARCH_SEPARATOR = "\x1f"
 
+URL_GROUPING_RULES_KEY = "url_grouping_rules_v1"
+# Domains with no rule (built-in or user-added) never auto-group: grouping by
+# URL shape is only safe where the path segment reliably identifies an
+# account (social handles), not e.g. registry sites where similarly-shaped
+# paths can refer to different, unrelated entities.
+DEFAULT_URL_GROUPING_RULES: tuple[dict, ...] = (
+    {"domain": "tiktok.com", "path_segments": 1, "enabled": True},
+    {"domain": "instagram.com", "path_segments": 1, "enabled": True},
+    {"domain": "facebook.com", "path_segments": 1, "enabled": True},
+    {"domain": "x.com", "path_segments": 1, "enabled": True},
+    {"domain": "twitter.com", "path_segments": 1, "enabled": True},
+)
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -1322,6 +1335,122 @@ class InvestigationRepository:
                 )
             )
         return entities
+
+    def get_url_grouping_rules(self) -> list[dict]:
+        """Effective per-domain grouping rules (built-in defaults overlaid by
+        any stored user overrides, keyed by domain)."""
+        merged: dict[str, dict] = {
+            rule["domain"]: dict(rule) for rule in DEFAULT_URL_GROUPING_RULES
+        }
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_metadata WHERE key = ?",
+                (URL_GROUPING_RULES_KEY,),
+            ).fetchone()
+        stored = _json_load(row["value"], []) if row is not None else []
+        for rule in stored if isinstance(stored, list) else []:
+            if not isinstance(rule, dict):
+                continue
+            domain = _normalized_domain(str(rule.get("domain", "")))
+            if not domain:
+                continue
+            merged[domain] = {
+                "domain": domain,
+                "path_segments": max(1, int(rule.get("path_segments", 1) or 1)),
+                "enabled": bool(rule.get("enabled", True)),
+            }
+        return sorted(merged.values(), key=lambda rule: rule["domain"])
+
+    def set_url_grouping_rule(
+        self,
+        domain: str,
+        path_segments: int,
+        enabled: bool,
+    ) -> None:
+        normalized_domain = _normalized_domain(domain)
+        if not normalized_domain:
+            raise InvestigationValidationError("A domain is required.")
+
+        now = utc_now()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_metadata WHERE key = ?",
+                (URL_GROUPING_RULES_KEY,),
+            ).fetchone()
+            stored = _json_load(row["value"], []) if row is not None else []
+            if not isinstance(stored, list):
+                stored = []
+            overrides = {
+                str(rule.get("domain", "")): rule
+                for rule in stored
+                if isinstance(rule, dict)
+            }
+            overrides[normalized_domain] = {
+                "domain": normalized_domain,
+                "path_segments": max(1, int(path_segments or 1)),
+                "enabled": bool(enabled),
+            }
+            connection.execute(
+                """
+                INSERT INTO app_metadata(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    URL_GROUPING_RULES_KEY,
+                    _json_dump(list(overrides.values())),
+                    now,
+                ),
+            )
+
+    def get_url_based_result_groups(self, investigation_id: str) -> list[dict]:
+        """Group saved results sharing a domain + leading path segments,
+        for domains with an enabled grouping rule.
+
+        Each result maps to exactly one (domain, path prefix) key, unlike
+        the entity-sharing case, so no transitive merge across overlapping
+        groups is needed here.
+        """
+        self.get_investigation(investigation_id)
+        rules_by_domain = {
+            rule["domain"]: rule
+            for rule in self.get_url_grouping_rules()
+            if rule["enabled"]
+        }
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT ir.result_id, r.url
+                FROM investigation_results ir
+                JOIN results r ON r.id = ir.result_id
+                WHERE ir.investigation_id = ? AND ir.is_saved = 1
+                """,
+                (investigation_id,),
+            ).fetchall()
+
+        per_key: dict[str, dict] = {}
+        for row in rows:
+            url = str(row["url"] or "")
+            domain = _normalized_domain(url)
+            rule = rules_by_domain.get(domain)
+            if not rule:
+                continue
+            segments = [
+                segment for segment in urlsplit(url).path.split("/") if segment
+            ]
+            if len(segments) < rule["path_segments"]:
+                # Fewer segments than the rule requires: don't guess, leave ungrouped.
+                continue
+            prefix = "/".join(segments[: rule["path_segments"]])
+            key = f"{domain}/{prefix}"
+            entry = per_key.setdefault(
+                key, {"group_key": key, "label": key, "result_ids": []}
+            )
+            entry["result_ids"].append(row["result_id"])
+
+        return [group for group in per_key.values() if len(group["result_ids"]) >= 2]
 
     def update_investigation_entity(
         self,

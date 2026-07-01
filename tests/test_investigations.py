@@ -946,6 +946,105 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
                 investigation.id, entity["id"], entity["id"], "x"
             )
 
+    def test_url_grouping_rules_include_built_in_defaults(self):
+        rules = self.service.get_url_grouping_rules()
+
+        domains = {rule["domain"]: rule for rule in rules}
+        self.assertIn("tiktok.com", domains)
+        self.assertTrue(domains["tiktok.com"]["enabled"])
+        self.assertEqual(domains["tiktok.com"]["path_segments"], 1)
+        self.assertNotIn("pappers.fr", domains)
+
+    def test_set_url_grouping_rule_overrides_default_and_persists(self):
+        self.service.set_url_grouping_rule("tiktok.com", 2, False)
+
+        rules = self.service.get_url_grouping_rules()
+
+        rule = next(r for r in rules if r["domain"] == "tiktok.com")
+        self.assertFalse(rule["enabled"])
+        self.assertEqual(rule["path_segments"], 2)
+
+    def test_set_url_grouping_rule_adds_new_domain(self):
+        self.service.set_url_grouping_rule("example.com", 3, True)
+
+        rules = self.service.get_url_grouping_rules()
+
+        rule = next(r for r in rules if r["domain"] == "example.com")
+        self.assertTrue(rule["enabled"])
+        self.assertEqual(rule["path_segments"], 3)
+
+    def test_url_based_result_groups_groups_by_domain_and_path_prefix(self):
+        investigation = self.service.create({"title": "TikTok account"})
+        first = self.service.save_page(
+            investigation.id, {"url": "https://www.tiktok.com/@rayy.loc"}
+        )
+        second = self.service.save_page(
+            investigation.id,
+            {"url": "https://www.tiktok.com/@rayy.loc/video/7441935478263139616"},
+        )
+
+        groups = self.service.get_url_based_result_groups(investigation.id)
+
+        self.assertEqual(len(groups), 1)
+        self.assertCountEqual(groups[0]["result_ids"], [first.id, second.id])
+        self.assertEqual(groups[0]["label"], "tiktok.com/@rayy.loc")
+
+    def test_url_based_result_groups_requires_enough_path_segments(self):
+        investigation = self.service.create({"title": "Bare domain"})
+        self.service.save_page(investigation.id, {"url": "https://www.tiktok.com/"})
+        self.service.save_page(
+            investigation.id, {"url": "https://www.tiktok.com/@rayy.loc"}
+        )
+
+        groups = self.service.get_url_based_result_groups(investigation.id)
+
+        self.assertEqual(groups, [])
+
+    def test_url_based_result_groups_excludes_disabled_rule(self):
+        investigation = self.service.create({"title": "Disabled rule"})
+        self.service.save_page(
+            investigation.id, {"url": "https://www.tiktok.com/@rayy.loc"}
+        )
+        self.service.save_page(
+            investigation.id,
+            {"url": "https://www.tiktok.com/@rayy.loc/video/1"},
+        )
+        self.service.set_url_grouping_rule("tiktok.com", 1, False)
+
+        groups = self.service.get_url_based_result_groups(investigation.id)
+
+        self.assertEqual(groups, [])
+
+    def test_url_based_result_groups_never_groups_ungoverned_domain(self):
+        investigation = self.service.create({"title": "Registry lookalikes"})
+        self.service.save_page(
+            investigation.id,
+            {"url": "https://www.pappers.fr/entreprise/malahi-rayane-908127723"},
+        )
+        self.service.save_page(
+            investigation.id,
+            {"url": "https://www.pappers.fr/entreprise/malahi-yasmine-102820008"},
+        )
+
+        groups = self.service.get_url_based_result_groups(investigation.id)
+
+        self.assertEqual(groups, [])
+
+    def test_url_based_result_groups_ignores_unsaved_results(self):
+        investigation = self.service.create({"title": "Removed page"})
+        self.service.save_page(
+            investigation.id, {"url": "https://www.tiktok.com/@rayy.loc"}
+        )
+        second = self.service.save_page(
+            investigation.id,
+            {"url": "https://www.tiktok.com/@rayy.loc/video/1"},
+        )
+        self.service.remove_saved_page(investigation.id, second.id)
+
+        groups = self.service.get_url_based_result_groups(investigation.id)
+
+        self.assertEqual(groups, [])
+
     def test_creates_graph_entities_directly_from_results_and_properties(self):
         investigation = self.service.create({"title": "Quick entities"})
         saved = self.service.save_page(

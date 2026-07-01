@@ -2130,6 +2130,191 @@ def _evidence_markup(
     )
 
 
+def _single_result_card(
+    result: Mapping,
+    *,
+    evidence_by_result: Mapping[str, list[Mapping]],
+    monitors_by_result: Mapping[str, Mapping],
+    output_dir: Path,
+    base_dir: Path,
+    read_only: bool,
+    group_count: int = 0,
+    group_label: str = "",
+    group_items_markup: str = "",
+) -> str:
+    disabled = " disabled" if read_only else ""
+    result_id = str(result.get("id", ""))
+    title = str(result.get("title") or result.get("url") or "Untitled result")
+    description = str(result.get("description", ""))
+    url = str(result.get("url", ""))
+    result_captures = evidence_by_result.get(result_id, [])
+    is_imported = url.startswith(_LOCAL_FILE_URL_PREFIX) or any(
+        str(capture.get("capture_kind", "") or "") == "imported"
+        for capture in result_captures
+    )
+    # Imported files without a source URL use a synthetic, unreachable URL.
+    # Point the title at the local file instead so it can be opened.
+    title_href = url
+    compact_url = _compact_url(url)
+    if url.startswith(_LOCAL_FILE_URL_PREFIX):
+        imported_view = next(
+            (
+                view
+                for capture in result_captures
+                if (view := _imported_artifact_view(
+                    capture, output_dir, base_dir
+                ))
+            ),
+            None,
+        )
+        if imported_view and imported_view["href"]:
+            title_href = imported_view["href"]
+            compact_url = "Imported document"
+    wayback_url = (
+        ""
+        if url.startswith(_LOCAL_FILE_URL_PREFIX)
+        else _wayback_url(url)
+    )
+    wayback_control = (
+        '<a class="saved-card__menu-item" role="menuitem" slot="menu" '
+        f'href="{_html(wayback_url)}" target="_blank" rel="noopener noreferrer" '
+        'title="Open Wayback Machine">'
+        f'{_icon("archive")}<span>Open Wayback Machine</span></a>'
+        if wayback_url
+        else ""
+    )
+    sources = [str(item) for item in result.get("sources", []) if str(item).strip()]
+    discovery_sources = [
+        str(item)
+        for item in result.get("discovery_sources", [])
+        if str(item).strip()
+    ]
+    filter_sources = sorted(
+        set([*sources, *discovery_sources]),
+        key=str.casefold,
+    )
+    tags = [str(item) for item in result.get("tags", []) if str(item).strip()]
+    notes = str(result.get("notes", ""))
+    status = str(result.get("analyst_status", "a_verifier"))
+    favorite = bool(result.get("favorite", False))
+    latest_observed = str(result.get("latest_observed_at", ""))
+    search_text = " ".join(
+        [title, description, url, notes, *filter_sources, *tags]
+    ).casefold()
+    source_filter = "|" + "|".join(
+        source.casefold() for source in filter_sources
+    ) + "|"
+    tag_filter = "|" + "|".join(tag.casefold() for tag in tags) + "|"
+    favorite_checked = " checked" if favorite else ""
+    tag_markup = "".join(
+        f'<span class="result-tag">{_html(tag)}</span>' for tag in tags
+    )
+    monitor = monitors_by_result.get(result_id)
+    if monitor:
+        monitor_control = (
+            '<button type="button" '
+            'class="saved-card__menu-item stop-page-monitor" '
+            'role="menuitem" slot="menu" '
+            f'data-monitor-id="{_html(monitor.get("id", ""))}" '
+            f'title="Stop monitoring"{disabled}>'
+            f"{_icon('activity')}<span>Stop monitoring</span></button>"
+        )
+    else:
+        monitor_control = (
+            '<button type="button" '
+            'class="saved-card__menu-item start-page-monitor" '
+            'role="menuitem" slot="menu" '
+            f'title="Monitor changes"{disabled}>'
+            f"{_icon('activity')}<span>Monitor changes</span></button>"
+        )
+    remove_control = (
+        '<button type="button" '
+        'class="saved-card__menu-item saved-card__menu-item--danger '
+        'remove-saved-page" role="menuitem" slot="menu" '
+        'title="Remove this saved page from the investigation"'
+        f"{disabled}>"
+        f'{_icon("trash")}<span>Remove from investigation</span></button>'
+    )
+    # Compact card data: numeric/date pills are rendered by <sx-saved-page-card>.
+    first_observed_iso = str(result.get("first_observed_at", "") or "")
+    observation_count = int(result.get("observation_count", 0) or 0)
+    host_for_initial = url.split("://", 1)[-1].lstrip("/").split("/", 1)[0]
+    if host_for_initial.startswith("www."):
+        host_for_initial = host_for_initial[4:]
+    card_initial = (host_for_initial[:1] or "?").upper()
+    imported_attr = " imported" if is_imported else ""
+    group_count_attr = f' group-count="{group_count}"' if group_count else ""
+    group_label_attr = (
+        f' group-label="{_html(group_label)}"' if group_label else ""
+    )
+    group_items_slot = (
+        f'<div slot="group-items" class="grouped-pages-list">{group_items_markup}</div>'
+        if group_items_markup
+        else ""
+    )
+    return f"""
+        <sx-saved-page-card
+            id="result-{_html(result_id)}"
+            class="investigation-result"
+            data-result-id="{_html(result_id)}"
+            data-search="{_html(search_text)}"
+            data-status="{_html(status)}"
+            data-sources="{_html(source_filter)}"
+            data-tags="{_html(tag_filter)}"
+            data-observed="{_html(latest_observed[:10])}"
+            data-favorite="{"1" if favorite else "0"}"
+            data-imported="{"1" if is_imported else "0"}"
+            observations="{observation_count}"
+            first-seen="{_html(first_observed_iso)}"
+            last-seen="{_html(latest_observed)}"
+            initial="{_html(card_initial)}"
+            site="{_html(host_for_initial)}"{imported_attr}{group_count_attr}{group_label_attr}
+        >
+            <a
+                class="result-title"
+                slot="title"
+                href="{_html(title_href)}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="{_html(title + " — " + (compact_url if is_imported else url))}"
+            >{_html(title)}</a>
+            <label
+                class="favorite-toggle"
+                slot="star"
+                title="Add or remove this page from favorites"
+            >
+                <input
+                    class="sr-only"
+                    type="checkbox"
+                    data-result-favorite
+                    aria-label="Favorite"
+                    {favorite_checked}{disabled}
+                >
+                <span class="favorite-star" aria-hidden="true"></span>
+            </label>
+            <label class="status-control" slot="status">
+                <span class="sr-only">Analyst status</span>
+                <select data-result-status{disabled}>
+                    {_status_options(status)}
+                </select>
+            </label>
+            {wayback_control}
+            {monitor_control}
+            {remove_control}
+            <div class="result-tags" data-result-tags-display slot="tags">
+                {tag_markup}
+            </div>
+            <textarea data-result-notes hidden>{_html(notes)}</textarea>
+            <input
+                type="hidden"
+                data-result-tags
+                value="{_html(", ".join(tags))}"
+            >
+            {group_items_slot}
+        </sx-saved-page-card>
+        """
+
+
 def _result_cards(
     results: list[Mapping],
     *,
@@ -2138,6 +2323,7 @@ def _result_cards(
     graph_entities: list[Mapping],
     url_analyses_by_result: Mapping[str, list[Mapping]],
     monitors_by_result: Mapping[str, Mapping],
+    url_grouping_groups: list[Mapping],
     output_dir: Path,
     base_dir: Path,
     read_only: bool,
@@ -2149,172 +2335,82 @@ def _result_cards(
             </div>
         """
 
+    group_by_result: dict[str, Mapping] = {}
+    for group in url_grouping_groups:
+        for member_id in group.get("result_ids", []):
+            group_by_result[str(member_id)] = group
+
+    results_by_id = {str(result.get("id", "")): result for result in results}
+    card_kwargs = dict(
+        evidence_by_result=evidence_by_result,
+        monitors_by_result=monitors_by_result,
+        output_dir=output_dir,
+        base_dir=base_dir,
+        read_only=read_only,
+    )
+
     cards = []
-    disabled = " disabled" if read_only else ""
+    rendered_group_keys: set[str] = set()
     for result in results:
         result_id = str(result.get("id", ""))
-        title = str(result.get("title") or result.get("url") or "Untitled result")
-        description = str(result.get("description", ""))
-        url = str(result.get("url", ""))
-        result_captures = evidence_by_result.get(result_id, [])
-        is_imported = url.startswith(_LOCAL_FILE_URL_PREFIX) or any(
-            str(capture.get("capture_kind", "") or "") == "imported"
-            for capture in result_captures
-        )
-        # Imported files without a source URL use a synthetic, unreachable URL.
-        # Point the title at the local file instead so it can be opened.
-        title_href = url
-        compact_url = _compact_url(url)
-        if url.startswith(_LOCAL_FILE_URL_PREFIX):
-            imported_view = next(
-                (
-                    view
-                    for capture in result_captures
-                    if (view := _imported_artifact_view(
-                        capture, output_dir, base_dir
-                    ))
-                ),
-                None,
-            )
-            if imported_view and imported_view["href"]:
-                title_href = imported_view["href"]
-                compact_url = "Imported document"
-        wayback_url = (
-            ""
-            if url.startswith(_LOCAL_FILE_URL_PREFIX)
-            else _wayback_url(url)
-        )
-        wayback_control = (
-            '<a class="saved-card__menu-item" role="menuitem" slot="menu" '
-            f'href="{_html(wayback_url)}" target="_blank" rel="noopener noreferrer" '
-            'title="Open Wayback Machine">'
-            f'{_icon("archive")}<span>Open Wayback Machine</span></a>'
-            if wayback_url
-            else ""
-        )
-        sources = [str(item) for item in result.get("sources", []) if str(item).strip()]
-        discovery_sources = [
-            str(item)
-            for item in result.get("discovery_sources", [])
-            if str(item).strip()
+        group = group_by_result.get(result_id)
+        if group is None:
+            cards.append(_single_result_card(result, **card_kwargs))
+            continue
+
+        group_key = str(group.get("group_key", ""))
+        if group_key in rendered_group_keys:
+            # Already rendered as part of an earlier representative card.
+            continue
+        rendered_group_keys.add(group_key)
+
+        member_ids = [str(member_id) for member_id in group.get("result_ids", [])]
+        members = [
+            results_by_id[member_id]
+            for member_id in member_ids
+            if member_id in results_by_id
         ]
-        filter_sources = sorted(
-            set([*sources, *discovery_sources]),
-            key=str.casefold,
+        # Shortest URL first: usually the account/profile page rather than a
+        # specific post, and a stable, deterministic pick either way.
+        representative = min(
+            members, key=lambda member: len(str(member.get("url", "") or ""))
         )
-        tags = [str(item) for item in result.get("tags", []) if str(item).strip()]
-        notes = str(result.get("notes", ""))
-        status = str(result.get("analyst_status", "a_verifier"))
-        favorite = bool(result.get("favorite", False))
-        latest_observed = str(result.get("latest_observed_at", ""))
-        search_text = " ".join(
-            [title, description, url, notes, *filter_sources, *tags]
-        ).casefold()
-        source_filter = "|" + "|".join(
-            source.casefold() for source in filter_sources
-        ) + "|"
-        tag_filter = "|" + "|".join(tag.casefold() for tag in tags) + "|"
-        favorite_checked = " checked" if favorite else ""
-        tag_markup = "".join(
-            f'<span class="result-tag">{_html(tag)}</span>' for tag in tags
+        representative_id = str(representative.get("id", ""))
+        other_ids = [
+            member_id for member_id in member_ids if member_id != representative_id
+        ]
+        other_cards = "".join(
+            _single_result_card(results_by_id[member_id], **card_kwargs)
+            for member_id in other_ids
+            if member_id in results_by_id
         )
-        monitor = monitors_by_result.get(result_id)
-        if monitor:
-            monitor_control = (
-                '<button type="button" '
-                'class="saved-card__menu-item stop-page-monitor" '
-                'role="menuitem" slot="menu" '
-                f'data-monitor-id="{_html(monitor.get("id", ""))}" '
-                f'title="Stop monitoring"{disabled}>'
-                f"{_icon('activity')}<span>Stop monitoring</span></button>"
-            )
-        else:
-            monitor_control = (
-                '<button type="button" '
-                'class="saved-card__menu-item start-page-monitor" '
-                'role="menuitem" slot="menu" '
-                f'title="Monitor changes"{disabled}>'
-                f"{_icon('activity')}<span>Monitor changes</span></button>"
-            )
-        remove_control = (
-            '<button type="button" '
-            'class="saved-card__menu-item saved-card__menu-item--danger '
-            'remove-saved-page" role="menuitem" slot="menu" '
-            'title="Remove this saved page from the investigation"'
-            f"{disabled}>"
-            f'{_icon("trash")}<span>Remove from investigation</span></button>'
-        )
-        # Compact card data: numeric/date pills are rendered by <sx-saved-page-card>.
-        first_observed_iso = str(result.get("first_observed_at", "") or "")
-        observation_count = int(result.get("observation_count", 0) or 0)
-        host_for_initial = url.split("://", 1)[-1].lstrip("/").split("/", 1)[0]
-        if host_for_initial.startswith("www."):
-            host_for_initial = host_for_initial[4:]
-        card_initial = (host_for_initial[:1] or "?").upper()
-        imported_attr = " imported" if is_imported else ""
         cards.append(
-            f"""
-            <sx-saved-page-card
-                id="result-{_html(result_id)}"
-                class="investigation-result"
-                data-result-id="{_html(result_id)}"
-                data-search="{_html(search_text)}"
-                data-status="{_html(status)}"
-                data-sources="{_html(source_filter)}"
-                data-tags="{_html(tag_filter)}"
-                data-observed="{_html(latest_observed[:10])}"
-                data-favorite="{"1" if favorite else "0"}"
-                data-imported="{"1" if is_imported else "0"}"
-                observations="{observation_count}"
-                first-seen="{_html(first_observed_iso)}"
-                last-seen="{_html(latest_observed)}"
-                initial="{_html(card_initial)}"
-                site="{_html(host_for_initial)}"{imported_attr}
-            >
-                <a
-                    class="result-title"
-                    slot="title"
-                    href="{_html(title_href)}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="{_html(title + " — " + (compact_url if is_imported else url))}"
-                >{_html(title)}</a>
-                <label
-                    class="favorite-toggle"
-                    slot="star"
-                    title="Add or remove this page from favorites"
-                >
-                    <input
-                        class="sr-only"
-                        type="checkbox"
-                        data-result-favorite
-                        aria-label="Favorite"
-                        {favorite_checked}{disabled}
-                    >
-                    <span class="favorite-star" aria-hidden="true"></span>
-                </label>
-                <label class="status-control" slot="status">
-                    <span class="sr-only">Analyst status</span>
-                    <select data-result-status{disabled}>
-                        {_status_options(status)}
-                    </select>
-                </label>
-                {wayback_control}
-                {monitor_control}
-                {remove_control}
-                <div class="result-tags" data-result-tags-display slot="tags">
-                    {tag_markup}
-                </div>
-                <textarea data-result-notes hidden>{_html(notes)}</textarea>
-                <input
-                    type="hidden"
-                    data-result-tags
-                    value="{_html(", ".join(tags))}"
-                >
-            </sx-saved-page-card>
-            """
+            _single_result_card(
+                representative,
+                group_count=len(other_ids),
+                group_label=str(group.get("label", "")),
+                group_items_markup=other_cards,
+                **card_kwargs,
+            )
         )
     return "".join(cards)
+
+
+def _url_grouping_rules_payload(rules: list[Mapping]) -> str:
+    """Serialise grouping rules as JSON for the ``<sx-grouping-rules>`` widget."""
+    payload = json.dumps(
+        [
+            {
+                "domain": str(rule.get("domain", "")),
+                "path_segments": int(rule.get("path_segments", 1) or 1),
+                "enabled": bool(rule.get("enabled", True)),
+            }
+            for rule in rules
+        ],
+        ensure_ascii=False,
+    )
+    # Neutralise any "</script>" breakout inside the JSON <script> block.
+    return payload.replace("<", "\\u003c")
 
 
 def _page_monitor_cards(
@@ -2542,6 +2638,8 @@ def generate_investigation_page(
     evidence = list(workspace.get("evidence", []))
     entities = list(workspace.get("entities", []))
     graph_entities = list(workspace.get("graph_entities", []))
+    url_grouping_groups = list(workspace.get("url_grouping_groups", []))
+    url_grouping_rules = list(workspace.get("url_grouping_rules", []))
     exports = list(workspace.get("exports", []))
     url_analyses = list(workspace.get("url_analyses", []))
     searches = list(workspace.get("searches", []))
@@ -3030,11 +3128,37 @@ def generate_investigation_page(
                     graph_entities=graph_entities,
                     url_analyses_by_result=url_analyses_by_result,
                     monitors_by_result=monitors_by_result,
+                    url_grouping_groups=url_grouping_groups,
                     output_dir=output_dir,
                     base_dir=base_dir,
                     read_only=read_only,
                 )}
             </div>
+        </section>
+
+        <section
+            id="url-grouping-rules"
+            class="investigation-section"
+            aria-label="Saved page grouping rules"
+        >
+            <div class="section-header">
+                <div>
+                    <p class="section-eyebrow">Analyst selection</p>
+                    <h3>Grouping rules</h3>
+                </div>
+            </div>
+            <details class="entity-group" open>
+                <summary class="entity-group__label">Group saved pages by domain</summary>
+                <p class="session-note">
+                    Pages sharing a domain and the same leading URL path segments
+                    (e.g. a social account handle) are shown as one card with the
+                    others collapsed underneath. Only domains listed below are
+                    grouped — add or disable rules as needed.
+                </p>
+                <sx-grouping-rules>
+                    <script type="application/json" data-rules>{_url_grouping_rules_payload(url_grouping_rules)}</script>
+                </sx-grouping-rules>
+            </details>
         </section>
 
         <section
@@ -4213,6 +4337,11 @@ def generate_investigation_page(
                 }}
             );
 
+            document.addEventListener("sx-rule-change", (event) => {{
+                queueAction("set_url_grouping_rule", event.detail);
+                flashSaved();
+            }});
+
             document.getElementById(
                 "zeroneurone-export-form"
             )?.addEventListener("submit", (event) => {{
@@ -4446,8 +4575,16 @@ def generate_investigation_page(
             }};
             resultCards.forEach((card) => {{
                 // The whole card opens the detail rail; only the title link
-                // (and explicit controls) keep their own behaviour.
+                // (and explicit controls) keep their own behaviour. Nested
+                // cards inside a group's "group-items" slot are also in
+                // resultCards and have their own listener - without this
+                // guard, a click on a nested card bubbles up through this
+                // representative card's own listener too, re-opening the
+                // representative instead of the nested page.
                 card.addEventListener("click", (event) => {{
+                    if (event.target.closest("sx-saved-page-card") !== card) {{
+                        return;
+                    }}
                     if (event.target.closest(
                         "a, button, input, select, textarea, label"
                     )) {{

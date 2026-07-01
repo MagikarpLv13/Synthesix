@@ -3043,6 +3043,7 @@ async def main():
                 "delete_graph_entity_relation",
                 "rename_evidence_capture",
                 "attach_evidence_capture_to_entity",
+                "set_url_grouping_rule",
             }:
                 investigation_id = str(
                     result.get("investigationId", "") or ""
@@ -3193,6 +3194,12 @@ async def main():
                             investigation_id,
                             str(result.get("captureId", "") or "").strip(),
                             result.get("property", {}),
+                        )
+                    elif action == "set_url_grouping_rule":
+                        investigation_service.set_url_grouping_rule(
+                            str(result.get("domain", "") or "").strip(),
+                            int(result.get("pathSegments", 1) or 1),
+                            bool(result.get("enabled", True)),
                         )
                     else:
                         investigation_service.detach_extracted_property(

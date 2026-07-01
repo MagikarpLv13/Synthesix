@@ -417,6 +417,10 @@ class InvestigationService:
                     investigation_id
                 )
             ],
+            "url_grouping_groups": self.repository.get_url_based_result_groups(
+                investigation_id
+            ),
+            "url_grouping_rules": self.repository.get_url_grouping_rules(),
         }
 
     def create_graph_entity(
@@ -1119,6 +1123,20 @@ class InvestigationService:
 
     def remove_saved_page(self, investigation_id: str, result_id: str) -> None:
         self.repository.remove_saved_page(investigation_id, result_id)
+
+    def get_url_grouping_rules(self) -> list[dict]:
+        return self.repository.get_url_grouping_rules()
+
+    def get_url_based_result_groups(self, investigation_id: str) -> list[dict]:
+        return self.repository.get_url_based_result_groups(investigation_id)
+
+    def set_url_grouping_rule(
+        self,
+        domain: str,
+        path_segments: int,
+        enabled: bool,
+    ) -> None:
+        self.repository.set_url_grouping_rule(domain, path_segments, enabled)
 
     def create_page_monitor(
         self,

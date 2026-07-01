@@ -2434,3 +2434,240 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   renommage de tag), donc risque résiduel jugé négligeable.
 - **Fichiers modifiés :** aucun (vérification pure, aucun fichier du dépôt
   touché).
+
+### AI-20260701-001 — Regroupement des pages enregistrées d'un même compte (entité partagée)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** grouper visuellement, dans « Pages enregistrées », plusieurs
+  URLs distinctes d'un même compte (ex. profil + vidéos TikTok du même
+  `@handle`) qui créaient une carte chacune, sans perdre les pages
+  individuelles (statut, dates, preuves).
+- **Décision :** regroupement par entité partagée (`investigation_entity_sources`),
+  pas par heuristique plateforme/URL — aucune extraction de plateforme
+  n'existe dans le code, et le lien entité↔page est déjà posé par un geste
+  analyste explicite (rattachement d'une propriété extraite), donc fiable
+  sans faux positif automatique.
+- **Changements :**
+  - `investigations/repository.py` : nouvelle méthode
+    `get_shared_entity_result_groups()` (jointure `investigation_entity_sources`
+    → `investigation_entities` → `investigation_results`, `HAVING COUNT >= 2`,
+    filtre `is_saved = 1`) + helper pur `_merge_transitive_result_groups()`
+    (union-find, fusionne deux entités qui partagent un résultat en un seul
+    groupe affiché — comportement documenté en commentaire, pas un bug) ;
+  - `investigations/service.py` : wrapper fin `get_shared_entity_result_groups`
+    + ajout de `shared_entity_groups` dans `workspace_payload()` ;
+  - `investigations/view.py` : `_result_cards()` factorisé en
+    `_single_result_card()` (réutilisable) + orchestration groupe
+    (carte représentative + pages secondaires repliées dans un
+    `slot="group-items"`, attributs `group-count`/`group-entity-labels`,
+    nouveau bouton « Retirer du groupe » sur les cartes secondaires
+    uniquement, relié à l'action existante `unlink_result_from_graph_entity`
+    qui n'avait plus aucun point d'appel côté client depuis le lot
+    AI-20260622-009 — réintroduit ici de façon minimale, pas le bloc
+    manuel générique retiré à l'époque) ;
+  - `frontend/src/components/sx-saved-page-card.ts` : props `groupCount`/
+    `groupEntityLabels`, état `_groupOpen`, bouton pastille « +N autres
+    pages », nouveau slot nommé `group-items` ;
+  - `i18n.js` : clé `"Remove from group"` ajoutée dans les mêmes blocs que
+    sa sœur `"Remove from investigation"` (fr/es/zh + pt/de).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigations` — OK, 46 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 32 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_i18n_coverage` — OK, 3 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 283 tests
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome (`chrome.exe --headless --screenshot`) sur une
+    page d'enquête à 3 pages liées à la même entité (`RAYLOC`) : carte
+    représentative + pastille « +2 autres pages » conformes au design visé.
+- **Limites / non exécuté :** le clic réel d'expansion/repli de la pastille
+  et le clic du bouton « Retirer du groupe » n'ont pas été testés en
+  interaction live (pas de navigateur pilotable interactif dans cette
+  session) — uniquement vérifiés structurellement via les tests `lxml`
+  (présence des attributs, du slot, du bouton et de son
+  `data-unlink-entity-id`) et via le typecheck/build TypeScript. Vérification
+  du thème clair non faite séparément (le smoke a capturé le rendu par
+  défaut de l'app, qui correspond à ce que l'utilisateur voit réellement).
+- **Fichiers modifiés :** `investigations/repository.py`,
+  `investigations/service.py`, `investigations/view.py`,
+  `frontend/src/components/sx-saved-page-card.ts`, `i18n.js`,
+  `tests/test_investigations.py`, `tests/test_investigation_view.py`.
+
+### AI-20260701-002 — Remplacement du regroupement par entité par des règles de domaine/URL
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** après retour utilisateur sur AI-20260701-001 (« je regrouperais
+  plutôt par URL, avec mes propres règles par site »), remplacer entièrement le
+  regroupement par entité par un moteur de règles domaine + segments de chemin,
+  éditable par l'utilisateur, avec défauts sûrs (aucun regroupement hors liste
+  explicite).
+- **Constat d'exploration :** aucune infrastructure de configuration persistée
+  n'existait dans le dépôt (le dialogue « Paramètres » est purement client,
+  `i18n.js`, langue/thème en `localStorage` uniquement). Réutilisation de la
+  table `app_metadata` (clé/valeur, jusque-là un seul indicateur legacy) comme
+  support de stockage global (pas par enquête) des règles.
+- **Changements :**
+  - `investigations/repository.py` : suppression de
+    `get_shared_entity_result_groups`/`_merge_transitive_result_groups` ;
+    ajout de `DEFAULT_URL_GROUPING_RULES` (tiktok.com, instagram.com,
+    facebook.com, x.com, twitter.com — 1 segment, activées ; pappers.fr et
+    tout domaine non listé restent hors regroupement par défaut),
+    `get_url_grouping_rules()`, `set_url_grouping_rule()` (fusion
+    défauts + overrides stockés dans `app_metadata`), et
+    `get_url_based_result_groups()` (groupe par `domaine + N premiers
+    segments de chemin`, sans union-find — un résultat ne produit qu'une
+    seule clé, contrairement au cas entité) ;
+  - `investigations/service.py` : wrappers fins + `workspace_payload()`
+    expose `url_grouping_groups` et `url_grouping_rules` (remplace
+    `shared_entity_groups`) ;
+  - `investigations/view.py` : `_single_result_card`/`_result_cards`
+    adaptés (paramètre `group_label` au lieu de `group_entity_labels`,
+    suppression du bouton « Retirer du groupe » et de son câblage JS à
+    `unlink_result_from_graph_entity` — action laissée intacte, seul ce
+    point d'appel disparaît) ; nouveau panneau repliable « Règles de
+    regroupement » (section `#url-grouping-rules`, aperçu
+    `_url_grouping_rules_panel()`) avec liste des règles effectives
+    (domaine, segments, activé/désactivé, retirer) et formulaire d'ajout,
+    câblés en `queueAction("set_url_grouping_rule", …)` ;
+  - `main.py` : nouvelle action `set_url_grouping_rule` dans la chaîne de
+    dispatch (règles globales, `investigation_id` ignoré côté service mais
+    toujours résolu par la boucle pour régénérer la page courante) ;
+  - `frontend/src/components/sx-saved-page-card.ts` : renommage
+    `groupEntityLabels`/`group-entity-labels` → `groupLabel`/`group-label` ;
+    mécanisme `groupCount`/`_groupOpen`/pastille/`group-items` réutilisé tel
+    quel (seule la source de la donnée change) ;
+  - `i18n.js` : retrait de la clé `"Remove from group"` (plus utilisée) ;
+    ajout de 9 clés courtes pour le panneau de règles (fr/es/zh +
+    pt/de) — le paragraphe explicatif reste non traduit, cohérent avec le
+    précédent existant (ex. le texte de la section surveillance) ;
+  - `theme.css` : styles minimaux `.url-grouping-rule-row`/
+    `.url-grouping-rule-form` (les lignes de règles étaient illisibles sans
+    CSS dédié — vérifié visuellement avant/après).
+- **Compromis assumé :** pas de dérogation par page individuelle — pour
+  sortir une page d'un groupe, l'utilisateur désactive/modifie la règle du
+  domaine (affecte toutes les pages de ce domaine). Cohérent avec le modèle
+  « règles par site » demandé par l'utilisateur.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigations` — OK, 50 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 32 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_i18n_coverage` — OK, 3 tests
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 287 tests
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke headless Chrome (`chrome.exe --headless --screenshot`) : 3 pages
+    TikTok même compte → groupées (carte + « +2 autres pages ») ; 2 pages
+    pappers.fr de personnes différentes → non groupées malgré URLs de forme
+    similaire ; panneau de règles affiche les 5 défauts avec cases à cocher,
+    champs segments et formulaire d'ajout lisibles.
+- **Limites / non exécuté :** interactions live (clic réel toggle/checkbox/
+  formulaire) non testées dans un navigateur piloté interactif — seulement
+  vérifiées via lxml (tests) et capture d'écran statique. Thème clair non
+  vérifié séparément (capture = rendu par défaut réel de l'app).
+- **Fichiers modifiés :** `investigations/repository.py`,
+  `investigations/service.py`, `investigations/view.py`, `main.py`,
+  `frontend/src/components/sx-saved-page-card.ts`, `i18n.js`, `theme.css`,
+  `tests/test_investigations.py`, `tests/test_investigation_view.py`.
+
+### AI-20260701-003 — Retours utilisateur sur le regroupement (représentative, clic, superposition, panneau Lit)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** après usage réel de AI-20260701-002, corriger quatre points
+  remontés par l'utilisateur : carte représentative = URL la plus courte,
+  clic cassé sur les pages repliées, décalage visuel de la grille au dépli,
+  panneau de règles pas en Lit et 1 règle par ligne.
+- **Changements :**
+  - `investigations/view.py` `_result_cards()` : la carte représentative
+    d'un groupe est désormais celle dont l'URL est la plus courte
+    (`min(..., key=len)`), plus le premier résultat rencontré dans l'ordre
+    de la liste ;
+  - `investigations/view.py` (script inline, wiring `resultCards`) : ajout
+    d'une garde `event.target.closest("sx-saved-page-card") !== card` avant
+    le `selectInspectorPage` du clic sur toute la carte — corrige un bug où
+    le clic sur une page repliée (imbriquée dans le `slot="group-items"` de
+    la représentative) remontait et rouvrait à tort le panneau de la
+    représentative (les deux cartes ont chacune leur propre listener, le
+    clic bullait vers l'ancêtre) ;
+  - `frontend/src/components/sx-saved-page-card.ts` : le panneau des pages
+    repliées (`slot="group-items"`) passe en superposition
+    (`position: absolute`, même technique que le menu « ⋯ » existant,
+    `z-index` juste en dessous) au lieu d'un bloc en flux normal — déplier
+    ne pousse plus plus les cartes voisines de la grille ;
+  - nouveau composant `frontend/src/components/sx-grouping-rules.ts` :
+    remplace le HTML brut de `_url_grouping_rules_panel()` (supprimée).
+    Payload JSON via `<script type="application/json" data-rules>` (même
+    pattern que `sx-entity-graph`), un seul `CustomEvent("sx-rule-change",
+    {bubbles, composed, detail:{domain, pathSegments, enabled}})` pour
+    toute édition/retrait/ajout, grille interne `repeat(auto-fill,
+    minmax(200px,1fr))` (4-5 règles par ligne selon largeur), texte en dur
+    en français (cohérent avec `sx-saved-page-card.ts`, hors d'atteinte du
+    balayage DOM de `i18n.js` une fois en Shadow DOM) ;
+  - **bug de timing découvert et corrigé** : `synthesix-ui.js` est chargé en
+    `<script>` classique dans `<head>` (pas de `type=module`, contrainte
+    `file://`), donc tous les `sx-*` sont définis avant que le parseur
+    n'atteigne leur contenu — `connectedCallback()` peut s'exécuter avant
+    que le `<script data-rules>` enfant ne soit encore parsé. Même
+    problème et même correctif déjà présents dans `sx-entity-graph.ts`
+    (commentaire similaire) : relecture différée via
+    `requestAnimationFrame` dans `firstUpdated()`. Découvert et vérifié en
+    conditions réelles via le serveur de prévisualisation (le composant
+    isolé fonctionnait, la page complète non, jusqu'au fix) ;
+  - `investigations/view.py` : remplacement du wiring JS par règle
+    individuelle par un seul `document.addEventListener("sx-rule-change",
+    ...)` ; suppression de `_url_grouping_rules_panel()` ;
+  - `theme.css` : retrait des règles `.url-grouping-rule-row`/
+    `.url-grouping-rule-form` (remplacées par le Shadow DOM du composant) ;
+  - `i18n.js` : retrait de 7 clés devenues mortes (déplacées en dur dans le
+    composant) — a aussi corrigé une collision de clé dupliquée `"Domain"`
+    que ces clés avaient introduite par erreur dans `multilingual`/
+    `additionalTranslations` (silencieusement écrasée par JS, invisible
+    sans relecture attentive) ; conservé « Grouping rules »/« Group saved
+    pages by domain » (toujours light DOM, encore traduits).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 33 tests (dont 1 nouveau test représentative=URL courte réécrit, 1 nouveau test régression clic, 1 test panneau règles réécrit pour `<sx-grouping-rules>`)
+  - `.venv\Scripts\python.exe -m unittest tests.test_i18n_coverage` — OK, 3 tests (confirme la collision de clé résolue)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - Vérification **interactive réelle** (pas seulement statique) via le
+    serveur de prévisualisation MCP : (1) rendu du panneau de règles avec
+    les 5 défauts en grille multi-colonnes ; (2) clic programmatique sur le
+    bouton « +N autres pages » → panneau déplié sans décaler la section
+    suivante (« Règles de regroupement » reste à la même position) ; (3)
+    clic programmatique sur une carte imbriquée → ouvre bien son propre
+    panneau d'inspection (`selectedPanel === nestedId`, pas
+    `representative.id`) — confirme le fix du bug de clic en conditions
+    réelles, pas seulement via l'assertion de présence du code.
+- **Limites / non exécuté :** thème clair non vérifié séparément (rendu par
+  défaut de l'app resté dark dans tous les smokes de cette session).
+- **Fichiers modifiés :** `investigations/view.py`,
+  `frontend/src/components/sx-saved-page-card.ts`,
+  `frontend/src/components/sx-grouping-rules.ts` (nouveau),
+  `frontend/src/index.ts`, `theme.css`, `i18n.js`,
+  `tests/test_investigation_view.py`.
+
+### AI-20260701-004 — Hauteur uniforme des cartes « Pages enregistrées »
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** retour utilisateur — dans une même ligne de la grille, les
+  cartes de hauteurs différentes (ex. carte avec « +N autres pages » plus
+  haute que ses voisines) rendaient l'ensemble visuellement inégal.
+- **Changement :** `theme.css`, `.investigation-results` :
+  `align-items: start` → `align-items: stretch`. Les cartes (grid items)
+  s'étirent désormais à la hauteur de la ligne la plus haute ; le panneau
+  replié (`slot="group-items"`, en superposition depuis AI-20260701-003)
+  reste hors flux donc aucun conflit avec l'étirement.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_home_ui` — OK, 44 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - Smoke headless Chrome : capture avant/après confirmant les 3 cartes
+    d'une même ligne (2 pappers.fr + 1 tiktok groupée) alignées à hauteur
+    égale.
+- **Fichiers modifiés :** `theme.css`.

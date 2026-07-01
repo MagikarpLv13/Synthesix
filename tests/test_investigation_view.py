@@ -1614,6 +1614,118 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("create_page_monitor"', content)
         self.assertIn("Screenshots are not compared automatically", content)
 
+    def test_ungrouped_saved_page_renders_exactly_as_before(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(tree.xpath("//sx-saved-page-card/@group-count"), [])
+        self.assertFalse(tree.xpath("//div[@slot='group-items']"))
+
+    def test_grouped_saved_pages_render_one_representative_card_with_collapsed_others(self):
+        workspace = workspace_payload()
+        # Deliberately give the first-listed and last-listed results the
+        # longer (post) URLs, and the middle one the shortest (profile) URL,
+        # so this exercises "shortest URL wins" rather than "first in list
+        # order wins" (they'd coincide if the shortest URL happened to be
+        # first).
+        workspace["results"][0]["url"] = "https://tiktok.com/@rayy.loc/video/1"
+        workspace["results"].append(
+            {**workspace["results"][0], "id": "result-456", "url": "https://tiktok.com/@rayy.loc"}
+        )
+        workspace["results"].append(
+            {**workspace["results"][0], "id": "result-789", "url": "https://tiktok.com/@rayy.loc/video/2"}
+        )
+        workspace["url_grouping_groups"] = [
+            {
+                "group_key": "tiktok.com/@rayy.loc",
+                "label": "tiktok.com/@rayy.loc",
+                "result_ids": ["result-123", "result-456", "result-789"],
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            tree = html.fromstring(output_path.read_text(encoding="utf-8"))
+
+        top_level_cards = tree.xpath(
+            "//div[@id='investigation-results']/sx-saved-page-card"
+        )
+        self.assertEqual(len(top_level_cards), 1)
+        self.assertEqual(top_level_cards[0].get("data-result-id"), "result-456")
+        self.assertEqual(top_level_cards[0].get("group-count"), "2")
+        self.assertEqual(top_level_cards[0].get("group-label"), "tiktok.com/@rayy.loc")
+
+        nested_cards = tree.xpath(
+            "//div[@slot='group-items']/sx-saved-page-card"
+        )
+        self.assertCountEqual(
+            [card.get("data-result-id") for card in nested_cards],
+            ["result-123", "result-789"],
+        )
+
+    def test_nested_card_clicks_are_not_hijacked_by_the_representative_card(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'event.target.closest("sx-saved-page-card") !== card', content
+        )
+
+    def test_url_grouping_rules_panel_renders_current_rules(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            workspace = workspace_payload()
+            workspace["url_grouping_rules"] = [
+                {"domain": "tiktok.com", "path_segments": 1, "enabled": True},
+                {"domain": "pappers.fr", "path_segments": 1, "enabled": False},
+            ]
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        widgets = tree.xpath("//sx-grouping-rules")
+        self.assertEqual(len(widgets), 1)
+        script = widgets[0].xpath(".//script[@data-rules]")
+        self.assertEqual(len(script), 1)
+        rules = json.loads(script[0].text)
+        self.assertEqual(
+            {rule["domain"]: rule for rule in rules}.keys(),
+            {"tiktok.com", "pappers.fr"},
+        )
+        pappers_rule = next(r for r in rules if r["domain"] == "pappers.fr")
+        self.assertFalse(pappers_rule["enabled"])
+
+        self.assertIn('queueAction("set_url_grouping_rule"', content)
+        self.assertIn("sx-rule-change", content)
+
     def test_archived_workspace_disables_analyst_mutations(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
