@@ -2671,3 +2671,28 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
     d'une même ligne (2 pappers.fr + 1 tiktok groupée) alignées à hauteur
     égale.
 - **Fichiers modifiés :** `theme.css`.
+
+### AI-20260701-005 — Pastille « +N » sur la ligne statut/date (au lieu d'une ligne à part)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-01
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** le `align-items: stretch` du lot précédent rendait les
+  cartes de même hauteur mais avec du vide visible en bas des cartes sans
+  groupe — pas franchement propre. Retour utilisateur : mettre « +N pages »
+  sur la même ligne que le statut/la date au lieu d'une ligne dédiée sous
+  les tags, pour que le contenu réel des cartes ait la même hauteur, pas
+  seulement leur boîte étirée.
+- **Changement :** `frontend/src/components/sx-saved-page-card.ts` — le
+  bouton `.group-toggle` déplacé dans la ligne `.sub` (après la pastille de
+  date), `margin-left: auto` pour rester collé à droite comme les autres
+  pastilles ; libellé raccourci en « +N » (le détail complet reste dans le
+  `title` au survol) ; `align-self: flex-start` retiré (plus pertinent hors
+  flex row dédiée).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` — OK, 33 tests
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - Smoke headless Chrome : capture confirmant les 3 cartes d'une même
+    ligne à hauteur identique, pastille « +2 » bien alignée avec la date.
+- **Fichiers modifiés :** `frontend/src/components/sx-saved-page-card.ts`.

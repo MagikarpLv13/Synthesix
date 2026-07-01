@@ -759,30 +759,30 @@
             ${t}
           </span>
           ${this._renderSeenPill()}
+          ${this.groupCount>0?d`<button
+                type="button"
+                class="group-toggle"
+                aria-expanded=${this._groupOpen?"true":"false"}
+                title=${this.groupLabel?`Regroup\xE9 par r\xE8gle : ${this.groupLabel}`:"Pages regroup\xE9es"}
+                @click=${this._toggleGroup}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline
+                    points=${this._groupOpen?"18 15 12 9 6 15":"6 9 12 15 18 9"}
+                  ></polyline>
+                </svg>
+                +${this.groupCount}
+              </button>`:null}
         </div>
         <slot name="tags"></slot>
-        ${this.groupCount>0?d`<button
-              type="button"
-              class="group-toggle"
-              aria-expanded=${this._groupOpen?"true":"false"}
-              title=${this.groupLabel?`Regroup\xE9 par r\xE8gle : ${this.groupLabel}`:"Pages regroup\xE9es"}
-              @click=${this._toggleGroup}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <polyline
-                  points=${this._groupOpen?"18 15 12 9 6 15":"6 9 12 15 18 9"}
-                ></polyline>
-              </svg>
-              +${this.groupCount} autres pages
-            </button>`:null}
         <slot name="group-items" class="group-panel" ?hidden=${!this._groupOpen}></slot>
         <slot></slot>
       </article>
@@ -931,13 +931,15 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      align-self: flex-start;
+      flex: 0 0 auto;
+      margin-left: auto;
       padding: 3px 8px;
       border: 1px solid var(--line, #334155);
       border-radius: 999px;
       background: transparent;
       color: var(--muted, #94a3b8);
       font: 600 11px/1 var(--font-ui, system-ui, sans-serif);
+      font-variant-numeric: tabular-nums;
       cursor: pointer;
       transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
     }
