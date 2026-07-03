@@ -446,6 +446,28 @@ def _page_scoped_properties_by_result(
     return grouped
 
 
+def _capture_has_image(capture: Mapping) -> bool:
+    return any(
+        str(artifact.get("mime_type", "") or "").startswith("image/")
+        for artifact in capture.get("artifacts", [])
+    )
+
+
+def _evidence_node(capture: Mapping, capture_id: str) -> GraphNode:
+    return GraphNode(
+        id=f"evidence-{capture_id}",
+        label=str(capture.get("name") or "Capture"),
+        tags=_tags("Preuve", capture.get("capture_kind", "")),
+        source=str(capture.get("source_url", "") or ""),
+        date=_date_only(capture.get("captured_at")),
+        properties={
+            "synthesix_id": capture_id,
+            "synthesix_type": "evidence",
+            "source_url": str(capture.get("source_url", "") or ""),
+        },
+    )
+
+
 def _build_curated_graph(
     workspace: Mapping,
     investigation_node: GraphNode,
@@ -461,11 +483,14 @@ def _build_curated_graph(
     }
     facts_by_entity: dict[str, list[Mapping]] = {}
     for entity in workspace.get("entities", []):
-        if _is_page_scoped_property(entity):
-            continue
         parent_id = str(
             entity.get("investigation_entity_id", "") or ""
         )
+        if _is_page_scoped_property(entity) and not parent_id:
+            # A page-level fact with no explicit entity attachment describes
+            # the page itself (see _page_scoped_properties_by_result below),
+            # not any one entity found on it.
+            continue
         if parent_id and entity.get("status") != "rejected":
             facts_by_entity.setdefault(parent_id, []).append(entity)
 
@@ -479,6 +504,16 @@ def _build_curated_graph(
         workspace,
         include_unreviewed=True,
     )
+    evidence_by_id: dict[str, Mapping] = {
+        str(capture.get("id", "") or ""): capture
+        for capture in workspace.get("evidence", [])
+        if str(capture.get("id", "") or "")
+    }
+    # Captures already turned into an evidence node because a specific fact
+    # cites them as its source (see the facts loop below); the page-linkage
+    # pass further down skips these so an entity never gets two edges to the
+    # same screenshot.
+    cited_capture_ids: set[str] = set()
 
     for entity in workspace.get("graph_entities", []):
         entity_id = str(entity.get("id", "") or "")
@@ -497,7 +532,6 @@ def _build_curated_graph(
         properties: dict[str, object] = {
             "synthesix_id": entity_id,
             "synthesix_type": "curated_entity",
-            "linked_source_count": len(linked_result_ids),
         }
         property_type_overrides: dict[str, str] = {}
         manual_properties = entity.get("properties", {})
@@ -511,6 +545,11 @@ def _build_curated_graph(
             if coordinate_fact is not None
             else (None, None)
         )
+        # Facts whose value was captured from a specific screenshot (the
+        # "attach evidence to property" flow sets attributes.source_capture_id)
+        # get that screenshot linked as its own node once the entity node
+        # exists below, labelled with the property it is evidence for.
+        fact_image_captures: list[tuple[str, Mapping]] = []
         for fact in entity_facts:
             # A date becomes a timeline event only when it parses; otherwise keep
             # it as a normal property so it never silently disappears.
@@ -535,6 +574,13 @@ def _build_curated_graph(
                 ).strip()
                 if property_type in PROPERTY_TYPES:
                     property_type_overrides[property_key] = property_type
+                if include_evidence:
+                    source_capture_id = str(
+                        attributes.get("source_capture_id", "") or ""
+                    )
+                    capture = evidence_by_id.get(source_capture_id)
+                    if capture is not None and _capture_has_image(capture):
+                        fact_image_captures.append((property_key, capture))
         # Source URLs are exported as their own "Trouvé sur" entities below,
         # not folded into a Sources property.
         if property_type_overrides:
@@ -571,6 +617,20 @@ def _build_curated_graph(
         entity_nodes[entity_id] = node
         for result_id in linked_result_ids:
             linked_entities_by_result.setdefault(result_id, []).append(node)
+        for property_key, capture in fact_image_captures:
+            capture_id = str(capture.get("id", "") or "")
+            if not capture_id:
+                continue
+            evidence_node = _evidence_node(capture, capture_id)
+            nodes[evidence_node.id] = evidence_node
+            cited_capture_ids.add(capture_id)
+            cited_by = _edge(
+                node,
+                evidence_node,
+                property_key,
+                date=evidence_node.date,
+            )
+            edges[cited_by.id] = cited_by
 
     # Entity-to-entity keyword relations become labelled edges.
     for entity in workspace.get("graph_entities", []):
@@ -638,6 +698,34 @@ def _build_curated_graph(
                 date=source_node.date,
             )
             edges[found_on.id] = found_on
+
+    # Remaining screenshot/image evidence (not already linked to a specific
+    # property above) still becomes its own node beside the entities found on
+    # the page it was captured from — more readable on the ZeroNeurone canvas
+    # than a file buried in "FICHIERS". Other evidence (HTML/MHTML/text
+    # archives) stays a plain file attachment (see _copy_native_assets).
+    if include_evidence:
+        for capture in workspace.get("evidence", []):
+            capture_id = str(capture.get("id", "") or "")
+            result_id = str(capture.get("result_id", "") or "")
+            target_entities = linked_entities_by_result.get(result_id, [])
+            if (
+                not capture_id
+                or not target_entities
+                or capture_id in cited_capture_ids
+                or not _capture_has_image(capture)
+            ):
+                continue
+            evidence_node = _evidence_node(capture, capture_id)
+            nodes[evidence_node.id] = evidence_node
+            for entity_node in target_entities:
+                illustrated_by = _edge(
+                    entity_node,
+                    evidence_node,
+                    "Illustré par",
+                    date=evidence_node.date,
+                )
+                edges[illustrated_by.id] = illustrated_by
 
     return tuple(nodes.values()), tuple(edges.values())
 
@@ -1306,14 +1394,13 @@ NATIVE_PROPERTY_NAMES = {
     "review_statuses": "Statuts de revue",
     "manifest_path": "Manifeste Synthesix",
     "capture_scope": "Périmètre de capture",
-    "linked_source_count": "Sources liées",
 }
 NATIVE_LINK_PROPERTIES = {
     "relation_status": "Statut de la relation",
 }
 # Kept on the graph nodes for internal wiring (asset attachment) but never
 # surfaced as displayed properties in the export.
-HIDDEN_NATIVE_PROPERTIES = {"synthesix_id", "manifest_path"}
+HIDDEN_NATIVE_PROPERTIES = {"synthesix_id", "manifest_path", "synthesix_type"}
 PROPERTY_TYPE_OVERRIDES_KEY = "_synthesix_property_types"
 PROPERTY_TYPES = {
     "text",
@@ -1517,6 +1604,8 @@ def _native_visual(node: GraphNode) -> dict[str, object]:
     elif node_type == "evidence":
         visual.update(
             color="var(--color-node-orange)",
+            shape="square",
+            icon="Image",
         )
     elif node_type == "result" or entity_type in {"url", "domain"}:
         visual.update(
@@ -1569,52 +1658,95 @@ def _curated_positions(
     edges: tuple[GraphEdge, ...],
     entity_nodes: list[GraphNode],
 ) -> dict[str, dict[str, float]]:
-    """Lay curated entities in a column with their source URLs aligned to the
-    right, so each entity and its "Trouvé sur" sources read as a row instead of
-    a single merged vertical line."""
-    source_x = 760.0
-    source_row = 220.0
-    min_block = 420.0
+    """Tile curated entities into a grid instead of one long column, so
+    entity-to-entity relation edges stay short instead of cutting vertically
+    across the whole graph. Entities linked by a relation are ordered next to
+    each other (BFS) before being wrapped into rows, and each entity's own
+    satellites (its "Trouvé sur" source pages and "Illustré par" evidence
+    images) fan out immediately beside it."""
+    entity_column_width = 620.0
+    source_offset = 380.0
+    source_row = 150.0
+    row_gap = 140.0
+    min_block = 260.0
+    max_columns = 4
+
+    entity_ids = {entity.id for entity in entity_nodes}
+    # Only edges between two entities count as a relation for clustering;
+    # edges to a satellite (source page, evidence image, ...) never do,
+    # since their target is never itself an entity node.
+    adjacency: dict[str, set[str]] = {entity.id: set() for entity in entity_nodes}
+    for edge in edges:
+        if edge.source_id in entity_ids and edge.target_id in entity_ids:
+            adjacency[edge.source_id].add(edge.target_id)
+            adjacency[edge.target_id].add(edge.source_id)
+
+    # BFS from each unvisited entity so relation-linked entities land next to
+    # each other once wrapped row-major into the grid below.
+    visited: set[str] = set()
+    ordered_ids: list[str] = []
+    for entity in sorted(
+        entity_nodes, key=lambda item: (item.label.casefold(), item.id)
+    ):
+        if entity.id in visited:
+            continue
+        queue = [entity.id]
+        visited.add(entity.id)
+        while queue:
+            current = queue.pop(0)
+            ordered_ids.append(current)
+            for neighbour in sorted(adjacency[current]):
+                if neighbour not in visited:
+                    visited.add(neighbour)
+                    queue.append(neighbour)
+
     sources_by_entity: dict[str, list[str]] = {}
     for edge in edges:
-        if edge.label == "Trouvé sur":
+        if edge.source_id in entity_ids and edge.target_id not in entity_ids:
             sources_by_entity.setdefault(edge.source_id, []).append(
                 edge.target_id
             )
 
+    columns = max(1, min(max_columns, math.ceil(math.sqrt(len(ordered_ids) or 1))))
     positions: dict[str, dict[str, float]] = {}
     placed_sources: set[str] = set()
-    ordered_entities = sorted(
-        entity_nodes, key=lambda item: (item.label.casefold(), item.id)
-    )
-    cursor = 0.0
-    for entity in ordered_entities:
-        sources = [
-            sid
-            for sid in sources_by_entity.get(entity.id, [])
-            if sid not in placed_sources
-        ]
-        # Give each entity a vertical block tall enough for its source fan so
-        # clusters never overlap into a single cascading line.
-        block = max(min_block, len(sources) * source_row)
-        center = cursor + block / 2
-        positions[entity.id] = {"x": 0.0, "y": center}
-        middle = (len(sources) - 1) / 2
-        for source_index, source_id in enumerate(sources):
-            placed_sources.add(source_id)
-            positions[source_id] = {
-                "x": source_x,
-                "y": center + (source_index - middle) * source_row,
-            }
-        cursor += block
+    row_y = 0.0
+    for row_start in range(0, len(ordered_ids), columns):
+        row_ids = ordered_ids[row_start : row_start + columns]
+        row_sources = {
+            entity_id: [
+                source_id
+                for source_id in sources_by_entity.get(entity_id, [])
+                if source_id not in placed_sources
+            ]
+            for entity_id in row_ids
+        }
+        row_height = max(
+            (max(min_block, len(sources) * source_row) for sources in row_sources.values()),
+            default=min_block,
+        )
+        center_y = row_y + row_height / 2
+        for column_index, entity_id in enumerate(row_ids):
+            x = column_index * entity_column_width
+            positions[entity_id] = {"x": x, "y": center_y}
+            sources = row_sources[entity_id]
+            middle = (len(sources) - 1) / 2
+            for source_index, source_id in enumerate(sources):
+                placed_sources.add(source_id)
+                positions[source_id] = {
+                    "x": x + source_offset,
+                    "y": center_y + (source_index - middle) * source_row,
+                }
+        row_y += row_height + row_gap
 
     leftover = [node for node in nodes if node.id not in positions]
     middle = (len(leftover) - 1) / 2
+    leftover_x = columns * entity_column_width + source_offset * 2
     for index, node in enumerate(
         sorted(leftover, key=lambda item: (item.label.casefold(), item.id))
     ):
         positions[node.id] = {
-            "x": source_x * 2,
+            "x": leftover_x,
             "y": (index - middle) * min_block,
         }
     return positions
@@ -1639,12 +1771,19 @@ def _resolve_asset_path(
     return path if path.is_file() else None
 
 
+# Full-page archives are the bulkiest evidence artifacts (an HTML archive
+# routinely runs several hundred KB) and are rarely useful once imported
+# into ZeroNeurone, so they are excluded from exported assets by default.
+DOCUMENT_ARCHIVE_ARTIFACT_TYPES = {"html", "mhtml", "text"}
+
+
 def _copy_native_assets(
     staging_dir: Path,
     workspace: Mapping,
     *,
     base_dir: Path | None,
     asset_root: Path | None,
+    include_page_archives: bool = False,
 ) -> tuple[list[dict[str, object]], dict[str, list[str]]]:
     assets_dir = staging_dir / "assets"
     assets = []
@@ -1670,12 +1809,26 @@ def _copy_native_assets(
         capture_id = str(capture.get("id", "") or "")
         if not capture_id:
             continue
-        # Curated graph: attach to the entities sourcing this page. Otherwise
-        # (results-only export) fall back to the evidence node (capture id).
+        # Curated graph: non-image archives attach to the entities sourcing
+        # this page. Otherwise (results-only export, or no curated entity for
+        # this page) fall back to the evidence node (capture id).
         target_entity_ids = entities_by_result.get(
             str(capture.get("result_id", "") or ""), []
         ) or [capture_id]
         for artifact in capture.get("artifacts", []):
+            artifact_type = str(artifact.get("artifact_type", "") or "")
+            if (
+                not include_page_archives
+                and artifact_type in DOCUMENT_ARCHIVE_ARTIFACT_TYPES
+            ):
+                continue
+            # Image artifacts get their own "Illustré par" node on the
+            # curated graph (see _build_curated_graph), so their file
+            # attaches there instead of on the entity.
+            is_image = str(
+                artifact.get("mime_type", "") or ""
+            ).startswith("image/")
+            attach_ids = [capture_id] if is_image else target_entity_ids
             source_path = _resolve_asset_path(
                 artifact.get("file_path"),
                 base_dir=base_dir,
@@ -1684,7 +1837,7 @@ def _copy_native_assets(
             if source_path is None:
                 continue
             if source_path in copied_paths:
-                _attach(copied_paths[source_path], target_entity_ids)
+                _attach(copied_paths[source_path], attach_ids)
                 continue
             artifact_id = str(
                 artifact.get("id")
@@ -1712,7 +1865,7 @@ def _copy_native_assets(
                     "archivePath": f"assets/{archive_name}",
                 }
             )
-            _attach(asset_id, target_entity_ids)
+            _attach(asset_id, attach_ids)
     return assets, element_asset_ids
 
 
@@ -1724,6 +1877,7 @@ def _write_native_dossier(
     *,
     generated_at: str,
     include_evidence: bool,
+    include_page_archives: bool,
     base_dir: Path | None,
     asset_root: Path | None,
     stem: str,
@@ -1744,6 +1898,7 @@ def _write_native_dossier(
             workspace,
             base_dir=base_dir,
             asset_root=asset_root,
+            include_page_archives=include_page_archives,
         )
 
     elements = []
@@ -1936,6 +2091,7 @@ def export_zeroneurone_bundle(
     *,
     include_evidence: bool = False,
     include_unreviewed: bool = False,
+    include_page_archives: bool = False,
     tool_version: str = "unknown",
     base_dir: Path | None = None,
     asset_root: Path | None = None,
@@ -1972,6 +2128,7 @@ def export_zeroneurone_bundle(
             edges,
             generated_at=generated_at,
             include_evidence=include_evidence,
+            include_page_archives=include_page_archives,
             base_dir=base_dir,
             asset_root=asset_root,
             stem=stem,
@@ -2010,6 +2167,7 @@ def export_zeroneurone_bundle(
             "options": {
                 "include_evidence": include_evidence,
                 "include_unreviewed": include_unreviewed,
+                "include_page_archives": include_page_archives,
             },
             "counts": {
                 "nodes": len(nodes),

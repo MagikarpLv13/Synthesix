@@ -241,6 +241,7 @@ class InvestigationExport:
     manifest_path: str
     include_evidence: bool
     include_unreviewed: bool
+    include_page_archives: bool
     node_count: int
     edge_count: int
     asset_count: int
@@ -260,6 +261,7 @@ class InvestigationExport:
             "manifest_path": self.manifest_path,
             "include_evidence": self.include_evidence,
             "include_unreviewed": self.include_unreviewed,
+            "include_page_archives": self.include_page_archives,
             "node_count": self.node_count,
             "edge_count": self.edge_count,
             "asset_count": self.asset_count,

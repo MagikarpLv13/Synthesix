@@ -9,6 +9,7 @@ from xml.etree import ElementTree
 
 from exports.zeroneurone import (
     GRAPHML_NAMESPACE,
+    PROPERTY_TYPE_OVERRIDES_KEY,
     build_export_graph,
     export_zeroneurone_bundle,
 )
@@ -181,6 +182,54 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertNotIn("Domaine", person.properties)
         self.assertIn("Site web", source.tags)
         self.assertIn("Trouvé sur", {edge.label for edge in edges})
+
+    def test_curated_graph_surfaces_page_property_attached_to_entity(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-first-seen",
+                "result_id": "result-1",
+                "investigation_entity_id": "person-1",
+                "entity_type": "other",
+                "value_original": "2024-08-23",
+                "value_normalized": "2024-08-23",
+                "source_field": "manual",
+                "confidence": 1.0,
+                "status": "validated",
+                "attributes": {
+                    "property_scope": "page",
+                    "property_type": "date",
+                },
+                "custom_label": "Première publication",
+                "property_key": "Première publication",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, _ = build_export_graph(workspace)
+
+        person = next(
+            node for node in nodes if node.id == "curated-entity-person-1"
+        )
+        # Explicitly attaching a page fact to an entity (the "rattacher à une
+        # entité" control) surfaces it on that entity, not just the page.
+        self.assertEqual(
+            person.properties["Première publication"], "2024-08-23"
+        )
+        self.assertEqual(
+            person.properties[PROPERTY_TYPE_OVERRIDES_KEY]["Première publication"],
+            "date",
+        )
 
     def test_explicit_full_export_includes_evidence_and_unreviewed_entities(self):
         nodes, edges = build_export_graph(
@@ -404,6 +453,99 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertTrue(
             any(name.startswith("assets/") for name in archived_names)
         )
+        self.assertNotIn("Type Synthesix", properties)
+
+    def test_curated_entity_omits_internal_and_source_count_properties(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace, Path(temp_dir) / "export"
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        person = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "Jane Doe"
+        )
+        keys = {item["key"] for item in person["properties"]}
+        self.assertNotIn("Type Synthesix", keys)
+        self.assertNotIn("Sources liées", keys)
+
+    def test_include_page_archives_option_controls_document_assets(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            evidence_dir = base_dir / "data" / "evidence"
+            capture_dir = evidence_dir / "capture-1"
+            capture_dir.mkdir(parents=True)
+            (capture_dir / "page.html").write_bytes(b"<html></html>")
+            (capture_dir / "capture.png").write_bytes(b"png-data")
+            workspace["evidence"][0]["artifacts"] = [
+                {
+                    "id": "artifact-html",
+                    "artifact_type": "html",
+                    "file_path": (capture_dir / "page.html")
+                    .relative_to(base_dir)
+                    .as_posix(),
+                    "mime_type": "text/html",
+                    "sha256": hashlib.sha256(b"<html></html>").hexdigest(),
+                    "byte_size": len(b"<html></html>"),
+                },
+                {
+                    "id": "artifact-png",
+                    "artifact_type": "png",
+                    "file_path": (capture_dir / "capture.png")
+                    .relative_to(base_dir)
+                    .as_posix(),
+                    "mime_type": "image/png",
+                    "sha256": hashlib.sha256(b"png-data").hexdigest(),
+                    "byte_size": len(b"png-data"),
+                },
+            ]
+
+            default_export = export_zeroneurone_bundle(
+                workspace,
+                base_dir / "export-default",
+                include_evidence=True,
+                base_dir=base_dir,
+                asset_root=evidence_dir,
+            )
+            full_export = export_zeroneurone_bundle(
+                workspace,
+                base_dir / "export-full",
+                include_evidence=True,
+                include_page_archives=True,
+                base_dir=base_dir,
+                asset_root=evidence_dir,
+            )
+
+        # HTML/MHTML/text archives are bulky and excluded by default; the
+        # screenshot is always kept.
+        self.assertEqual(default_export.asset_count, 1)
+        self.assertEqual(full_export.asset_count, 2)
 
     def test_curated_entities_replace_source_and_fact_nodes(self):
         workspace = export_workspace()
@@ -461,7 +603,7 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertEqual(found_on.source_label, "ACME SAS")
         self.assertEqual(found_on.target_label, "https://example.org/profile")
 
-    def test_curated_evidence_attaches_as_entity_files(self):
+    def test_curated_image_evidence_becomes_its_own_node(self):
         workspace = export_workspace()
         workspace["graph_entities"] = [
             {
@@ -480,6 +622,9 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
             artifact_path.parent.mkdir(parents=True)
             artifact_path.write_bytes(b"png-data")
             workspace["evidence"][0]["result_id"] = "result-1"
+            workspace["evidence"][0]["source_url"] = (
+                "https://example.org/profile"
+            )
             workspace["evidence"][0]["artifacts"] = [
                 {
                     "id": "artifact-1",
@@ -502,19 +647,195 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
 
         self.assertEqual(exported.asset_count, 1)
         labels = {element["label"] for element in dossier["elements"]}
-        # No standalone evidence node and no project-root node.
-        self.assertNotIn("Profile header", labels)
+        # No project-root node, but the screenshot is now visible on the
+        # canvas as its own image/evidence element.
         self.assertNotIn("Case One", labels)
+        self.assertIn("Profile header", labels)
         person = next(
             element
             for element in dossier["elements"]
             if element["label"] == "Jane Doe"
         )
-        # The evidence file is attached to the entity it supports.
-        self.assertEqual(len(person["assetIds"]), 1)
+        evidence = next(
+            element
+            for element in dossier["elements"]
+            if element["label"] == "Profile header"
+        )
+        # The evidence file is attached to its own node, not the entity.
+        self.assertEqual(person["assetIds"], [])
+        self.assertEqual(len(evidence["assetIds"]), 1)
+        self.assertEqual(evidence["source"], "https://example.org/profile")
+        self.assertEqual(evidence["visual"]["icon"], "Image")
+        link = next(
+            link
+            for link in dossier["links"]
+            if link["label"] == "Illustré par"
+        )
+        self.assertEqual(link["fromId"], person["id"])
+        self.assertEqual(link["toId"], evidence["id"])
         prop_keys = {item["key"] for item in person["properties"]}
         self.assertNotIn("ID Synthesix", prop_keys)
         self.assertNotIn("Manifeste Synthesix", prop_keys)
+
+    def test_fact_cited_screenshot_surfaces_as_property_labelled_node(self):
+        # A property value attached via "attach evidence to property"
+        # (attributes.source_capture_id) must surface its screenshot even
+        # when the capture's page was never added to the entity's
+        # linked_result_ids — that page-level list only covers a coarser,
+        # separate "found on this page" relationship.
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            evidence_dir = base_dir / "data" / "evidence"
+            capture_dir = evidence_dir / "capture-plate"
+            capture_dir.mkdir(parents=True)
+            artifact_path = capture_dir / "capture.png"
+            artifact_path.write_bytes(b"plate-data")
+            workspace["evidence"].append(
+                {
+                    "id": "capture-plate",
+                    "result_id": "result-1",
+                    "name": "WW-246-FA",
+                    "capture_kind": "screenshot",
+                    "capture_scope": "viewport",
+                    "status": "completed",
+                    "source_url": "https://example.org/profile",
+                    "manifest_path": "data/evidence/capture-plate/manifest.json",
+                    "captured_at": "2026-06-12T10:06:00+00:00",
+                    "error": "",
+                    "artifacts": [
+                        {
+                            "id": "artifact-plate",
+                            "file_path": artifact_path.relative_to(
+                                base_dir
+                            ).as_posix(),
+                            "mime_type": "image/png",
+                            "sha256": hashlib.sha256(b"plate-data").hexdigest(),
+                            "byte_size": len(b"plate-data"),
+                        }
+                    ],
+                }
+            )
+            workspace["entities"].append(
+                {
+                    "id": "entity-plate",
+                    "result_id": "result-1",
+                    "investigation_entity_id": "person-1",
+                    "entity_type": "other",
+                    "value_original": "WW-246-FA",
+                    "value_normalized": "WW-246-FA",
+                    "source_field": "manual",
+                    "confidence": 1.0,
+                    "status": "validated",
+                    "attributes": {"source_capture_id": "capture-plate"},
+                    "property_key": "Capture voiture",
+                    "last_observed_at": "2026-06-12T10:06:00+00:00",
+                }
+            )
+            exported = export_zeroneurone_bundle(
+                workspace,
+                base_dir / "export",
+                include_evidence=True,
+                base_dir=base_dir,
+                asset_root=evidence_dir,
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        by_label = {element["label"]: element for element in dossier["elements"]}
+        person = by_label["Jane Doe"]
+        plate_image = by_label["WW-246-FA"]
+        self.assertEqual(len(plate_image["assetIds"]), 1)
+        link = next(
+            link
+            for link in dossier["links"]
+            if link["fromId"] == person["id"] and link["toId"] == plate_image["id"]
+        )
+        self.assertEqual(link["label"], "Capture voiture")
+        # Still readable as plain text too: the property itself is untouched.
+        prop = {item["key"]: item["value"] for item in person["properties"]}
+        self.assertEqual(prop["Capture voiture"], "WW-246-FA")
+
+    def test_curated_layout_fans_out_several_screenshots_beside_entity(self):
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": ["result-1"],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            evidence_dir = base_dir / "data" / "evidence"
+            workspace["evidence"] = []
+            for index in range(6):
+                capture_dir = evidence_dir / f"capture-{index}"
+                capture_dir.mkdir(parents=True)
+                artifact_path = capture_dir / "capture.png"
+                artifact_path.write_bytes(f"png-{index}".encode())
+                workspace["evidence"].append(
+                    {
+                        "id": f"capture-{index}",
+                        "result_id": "result-1",
+                        "name": f"Capture {index}",
+                        "capture_kind": "screenshot",
+                        "capture_scope": "viewport",
+                        "status": "completed",
+                        "source_url": "https://example.org/profile",
+                        "manifest_path": f"data/evidence/capture-{index}/manifest.json",
+                        "captured_at": "2026-06-12T10:04:00+00:00",
+                        "error": "",
+                        "artifacts": [
+                            {
+                                "id": f"artifact-{index}",
+                                "file_path": artifact_path.relative_to(
+                                    base_dir
+                                ).as_posix(),
+                                "mime_type": "image/png",
+                                "sha256": hashlib.sha256(
+                                    f"png-{index}".encode()
+                                ).hexdigest(),
+                                "byte_size": len(f"png-{index}".encode()),
+                            }
+                        ],
+                    }
+                )
+            exported = export_zeroneurone_bundle(
+                workspace,
+                base_dir / "export",
+                include_evidence=True,
+                base_dir=base_dir,
+                asset_root=evidence_dir,
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        by_label = {element["label"]: element for element in dossier["elements"]}
+        person = by_label["Jane Doe"]
+        for index in range(6):
+            capture = by_label[f"Capture {index}"]
+            # Fanned out beside the entity, not dumped into a far-away
+            # "leftover" column: same neighbourhood on the x axis.
+            self.assertGreater(capture["position"]["x"], person["position"]["x"])
+            self.assertLess(
+                capture["position"]["x"] - person["position"]["x"], 620.0
+            )
 
     def test_curated_layout_places_sources_beside_entities(self):
         workspace = export_workspace()
@@ -544,6 +865,74 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertEqual(person["position"]["x"], 0.0)
         self.assertGreater(source["position"]["x"], person["position"]["x"])
         self.assertEqual(source["position"]["y"], person["position"]["y"])
+
+    def test_curated_layout_groups_related_entities_and_avoids_one_column(self):
+        workspace = export_workspace()
+        # Four unrelated entities plus one relation edge (Jean -> Société A):
+        # the old layout stacked everyone in a single column, so the "PDG de"
+        # edge would cut across every unrelated entity in between. The new
+        # layout should at least spread entities across more than one column.
+        workspace["graph_entities"] = [
+            {
+                "id": "a",
+                "label": "Jean",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+                "relations": [
+                    {
+                        "id": "r1",
+                        "target_entity_id": "b",
+                        "target_label": "Société A",
+                        "label": "PDG de",
+                    }
+                ],
+            },
+            {
+                "id": "b",
+                "label": "Société A",
+                "tags": ["Entreprise"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            },
+            {
+                "id": "c",
+                "label": "Autre entité 1",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            },
+            {
+                "id": "d",
+                "label": "Autre entité 2",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            },
+        ]
+        with TemporaryDirectory() as temp_dir:
+            exported = export_zeroneurone_bundle(
+                workspace, Path(temp_dir) / "export"
+            )
+            dossier = json.loads(
+                exported.dossier_path.read_text(encoding="utf-8")
+            )
+
+        by_label = {element["label"]: element for element in dossier["elements"]}
+        xs = {
+            by_label[label]["position"]["x"]
+            for label in ("Jean", "Société A", "Autre entité 1", "Autre entité 2")
+        }
+        self.assertGreater(len(xs), 1)
+        # Related entities (linked by "PDG de") land on the same row.
+        self.assertEqual(
+            by_label["Jean"]["position"]["y"],
+            by_label["Société A"]["position"]["y"],
+        )
 
     def test_date_property_value_normalized_to_iso(self):
         workspace = export_workspace()

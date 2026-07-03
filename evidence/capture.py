@@ -259,6 +259,7 @@ async def capture_png(
     tab,
     output_path: Path,
     selection: Mapping,
+    capture_beyond_viewport: bool = True,
 ) -> CapturedPng:
     normalized = normalize_selection(selection)
     encoded = await tab.send(
@@ -266,7 +267,7 @@ async def capture_png(
             format_="png",
             clip=cdp.page.Viewport(**normalized),
             from_surface=True,
-            capture_beyond_viewport=True,
+            capture_beyond_viewport=capture_beyond_viewport,
             optimize_for_speed=False,
         )
     )

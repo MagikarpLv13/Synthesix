@@ -7,6 +7,8 @@ type CaptureScope = "viewport" | "region";
 interface GraphEntity {
   id: string;
   label: string;
+  tags?: string[];
+  propertyKeys?: string[];
 }
 
 interface CaptureAttach {
@@ -23,6 +25,10 @@ export class SxOverlayCaptureMenu extends LitElement {
   /** Existing graph entities the capture can be attached to right away. */
   @property({ attribute: false })
   graphEntities: GraphEntity[] = [];
+
+  /** Map of tag -> suggested property keys (same source as the entity menu). */
+  @property({ attribute: false })
+  tagsetProperties: Record<string, string[]> = {};
 
   /**
    * User-facing strings. They default to English but the host page (main.py via
@@ -153,11 +159,44 @@ export class SxOverlayCaptureMenu extends LitElement {
     if (prop) {
       prop.value = "";
     }
+    const select = this.entitySelect();
+    if (select) {
+      select.value = "";
+    }
     this.open = false;
   }
 
   private get _entities(): GraphEntity[] {
     return this.graphEntities.filter((entity) => String(entity.id ?? "").trim());
+  }
+
+  private get _propertySuggestions(): string[] {
+    const entity = this._entities.find(
+      (candidate) => String(candidate.id ?? "").trim() === this._selectedEntityId.trim(),
+    );
+    if (!entity) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const push = (raw: string) => {
+      const value = String(raw ?? "").trim();
+      const key = value.toLowerCase();
+      if (!value || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      out.push(value);
+    };
+    for (const tag of entity.tags ?? []) {
+      for (const key of this.tagsetProperties[String(tag ?? "").trim()] ?? []) {
+        push(key);
+      }
+    }
+    for (const key of entity.propertyKeys ?? []) {
+      push(key);
+    }
+    return out;
   }
 
   private get _attach(): CaptureAttach | null {
@@ -219,7 +258,13 @@ export class SxOverlayCaptureMenu extends LitElement {
                 type="text"
                 maxlength="100"
                 placeholder=${this.propertyPlaceholder}
+                list="__sx-capture-props"
               >
+              <datalist id="__sx-capture-props">
+                ${this._propertySuggestions.map(
+                  (key) => html`<option value=${key}></option>`,
+                )}
+              </datalist>
             </div>
           `
         : ""}
@@ -234,6 +279,10 @@ export class SxOverlayCaptureMenu extends LitElement {
 
   private propertyInput(): HTMLInputElement | null {
     return this.renderRoot.querySelector(".prop-input");
+  }
+
+  private entitySelect(): HTMLSelectElement | null {
+    return this.renderRoot.querySelector(".entity-select");
   }
 
   private choose(scope: CaptureScope): void {

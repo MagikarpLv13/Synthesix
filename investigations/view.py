@@ -2587,7 +2587,11 @@ def _export_cards(
         if export.get("include_unreviewed"):
             options.append("all entity review states")
         if export.get("include_evidence"):
-            options.append("evidence assets")
+            options.append(
+                "evidence assets (with page archives)"
+                if export.get("include_page_archives")
+                else "evidence assets (screenshots only)"
+            )
         cards.append(
             f"""
             <sx-export-card
@@ -3205,6 +3209,10 @@ def generate_investigation_page(
                 <label>
                     <input id="export-include-evidence" type="checkbox">
                     Include evidence files as assets
+                </label>
+                <label>
+                    <input id="export-include-page-archives" type="checkbox">
+                    Also include full page archives (HTML/MHTML/Text) — large files
                 </label>
                 <label>
                     <input id="export-include-unreviewed" type="checkbox">
@@ -4349,6 +4357,9 @@ def generate_investigation_page(
                 queueAction("export_zeroneurone", {{
                     includeEvidence: document.getElementById(
                         "export-include-evidence"
+                    ).checked,
+                    includePageArchives: document.getElementById(
+                        "export-include-page-archives"
                     ).checked,
                     includeUnreviewed: document.getElementById(
                         "export-include-unreviewed"

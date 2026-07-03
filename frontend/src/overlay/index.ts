@@ -33,3 +33,41 @@ window.SynthesixOverlay = {
 };
 
 export const OVERLAY_TOKENS = tokensCss;
+
+/**
+ * Host pages with global keyboard shortcuts (TikTok, YouTube, ...) usually
+ * decide whether to intercept a keypress by checking `document.activeElement`.
+ * That check stops at our Shadow DOM boundary (it only ever sees the custom
+ * element host, never the focused `<input>` inside its shadow root), so the
+ * host page wrongly assumes no field is focused and calls `preventDefault()`
+ * on keys meant to be typed into the overlay's own inputs. Intercepting the
+ * event on `window` in the capture phase — the earliest point in the
+ * propagation path — stops it from ever reaching the host page's listeners
+ * (typically bound on `document`) when it originates in one of our fields.
+ */
+const isOverlayFieldEvent = (event: Event): boolean => {
+  const target = event.composedPath()[0] as HTMLElement | undefined;
+  const tag = target?.tagName;
+  if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+    return false;
+  }
+  return event.composedPath().some((node) => {
+    const tagName = (node as HTMLElement)?.tagName;
+    return typeof tagName === "string" && tagName.startsWith("SX-OVERLAY-");
+  });
+};
+
+for (const type of ["keydown", "keypress", "keyup"]) {
+  window.addEventListener(
+    type,
+    (event) => {
+      if (isOverlayFieldEvent(event)) {
+        // stopImmediatePropagation, not just stopPropagation: also blocks
+        // any other listener the host page bound on this same `window` node.
+        event.stopImmediatePropagation();
+        event.stopPropagation();
+      }
+    },
+    true,
+  );
+}

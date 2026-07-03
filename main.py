@@ -355,6 +355,114 @@ def _is_external_web_tab(tab) -> bool:
 
 _OVERLAY_BLOCKED_HOST_FRAGMENTS = ("lens.google.", "maps.google.")
 
+# Tabs (by CDP target id) for which the focus-guard script below has already
+# been armed via Page.addScriptToEvaluateOnNewDocument. Re-arming on every
+# poll tick would stack duplicate scripts on the same target.
+_OVERLAY_FOCUS_GUARD_ARMED_TARGETS: set[str] = set()
+
+
+def _overlay_focus_guard_script() -> str:
+    """JS armed early (before any page script) so it wins the DOM event
+    ordering race against third-party SDKs.
+
+    Some hosts (observed on TikTok's video player) run their own keyboard/
+    focus-trap code that steals focus back from the overlay's Shadow DOM
+    inputs, or preventDefault()s keys meant to be typed there. A script
+    injected the normal way (`tab.evaluate()` after the page has loaded)
+    always registers its listeners after the host page's own scripts, so it
+    loses that race. `Page.addScriptToEvaluateOnNewDocument` runs before any
+    script on the frame, guaranteeing this one is registered first — which
+    matters because same-node listener order follows registration order.
+    """
+    return """
+    (() => {
+        if (window.__synthesixFocusGuardInstalled) {
+            return;
+        }
+        window.__synthesixFocusGuardInstalled = true;
+
+        const isOverlayNode = (node) => {
+            while (node) {
+                const tag = node.tagName;
+                if (typeof tag === "string" && tag.startsWith("SX-OVERLAY-")) {
+                    return true;
+                }
+                node = node.getRootNode
+                    ? (node.getRootNode().host || node.parentNode)
+                    : node.parentNode;
+            }
+            return false;
+        };
+
+        try {
+            const nativeFocus = HTMLElement.prototype.focus;
+            HTMLElement.prototype.focus = function synthesixGuardedFocus(...args) {
+                if (isOverlayNode(document.activeElement) && !isOverlayNode(this)) {
+                    return;
+                }
+                return nativeFocus.apply(this, args);
+            };
+        } catch (_error) {}
+
+        const isOverlayFieldEvent = (event) => {
+            const path = event.composedPath ? event.composedPath() : [];
+            const target = path[0];
+            const tag = target && target.tagName;
+            if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+                return false;
+            }
+            return path.some((node) => {
+                const nodeTag = node && node.tagName;
+                return typeof nodeTag === "string" && nodeTag.startsWith("SX-OVERLAY-");
+            });
+        };
+
+        for (const type of ["keydown", "keypress", "keyup"]) {
+            window.addEventListener(
+                type,
+                (event) => {
+                    if (isOverlayFieldEvent(event)) {
+                        // stopImmediatePropagation, not just stopPropagation:
+                        // this guard is armed before any page script runs, so
+                        // if the host page also binds its own hotkey handler
+                        // on `window` (same node), it registers *after* us —
+                        // stopPropagation alone would still let that later
+                        // same-node listener run and preventDefault() the
+                        // keystroke.
+                        event.stopImmediatePropagation();
+                        event.stopPropagation();
+                    }
+                },
+                true,
+            );
+        }
+    })();
+    """
+
+
+async def _arm_overlay_focus_guard(tab) -> None:
+    """Register the focus-guard script for future navigations of ``tab``.
+
+    Best-effort and idempotent per tab: on failure (or if already armed)
+    this silently no-ops, since the overlay still works on most hosts
+    without it.
+    """
+    target_id = getattr(tab, "target_id", None)
+    if not target_id or target_id in _OVERLAY_FOCUS_GUARD_ARMED_TARGETS:
+        return
+    try:
+        # Page.addScriptToEvaluateOnNewDocument silently no-ops unless the
+        # Page domain has been enabled on this CDP session first.
+        await tab.send(uc.cdp.page.enable())
+        await tab.send(
+            uc.cdp.page.add_script_to_evaluate_on_new_document(
+                _overlay_focus_guard_script()
+            )
+        )
+        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.add(target_id)
+    except Exception:
+        logger.debug("Unable to arm overlay focus guard", exc_info=True)
+
 
 def _overlay_injection_blocked(url: str) -> bool:
     """Skip overlay injection on surfaces where it breaks or crashes Chrome.
@@ -382,6 +490,7 @@ async def _install_and_consume_save_overlay(
 ):
     if _overlay_injection_blocked(getattr(tab, "url", "")):
         return None
+    await _arm_overlay_focus_guard(tab)
     investigation = investigation or {}
     tagsets_json = json.dumps(list(ZERONEURONE_TAGSETS), ensure_ascii=True)
     tagset_properties_json = json.dumps(
@@ -757,6 +866,7 @@ async def _install_and_consume_save_overlay(
                     entityMenu.baseTagsets = entityTagsets;
                     entityMenu.tagsetProperties = tagsetProperties;
                     entityMenu.tagsetPropertyTypes = tagsetPropertyTypes;
+                    captureMenu.tagsetProperties = tagsetProperties;
                     host.__synthesixSetEntityTagsets = (tags) => {{
                         entityMenu.existingTags = Array.isArray(tags) ? tags : [];
                     }};
@@ -1099,7 +1209,12 @@ async def _capture_evidence(
     tool_version = _tool_version()
 
     try:
-        captured_png = await capture_png(tab, png_path, selection)
+        captured_png = await capture_png(
+            tab,
+            png_path,
+            selection,
+            capture_beyond_viewport=capture_scope != "viewport",
+        )
         stored_png_path = _stored_path(png_path, settings.base_dir)
         artifacts = [
             {
@@ -3373,6 +3488,9 @@ async def main():
                 include_unreviewed = bool(
                     result.get("includeUnreviewed", False)
                 )
+                include_page_archives = bool(
+                    result.get("includePageArchives", False)
+                )
                 try:
                     workspace = investigation_service.workspace_payload(
                         investigation_id
@@ -3399,6 +3517,7 @@ async def main():
                         output_dir,
                         include_evidence=include_evidence,
                         include_unreviewed=include_unreviewed,
+                        include_page_archives=include_page_archives,
                         tool_version=_tool_version(),
                         base_dir=settings.base_dir,
                         asset_root=settings.evidence_dir,
@@ -3435,6 +3554,7 @@ async def main():
                         ),
                         include_evidence=include_evidence,
                         include_unreviewed=include_unreviewed,
+                        include_page_archives=include_page_archives,
                         node_count=exported.node_count,
                         edge_count=exported.edge_count,
                         asset_count=exported.asset_count,

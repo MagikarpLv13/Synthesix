@@ -625,4 +625,11 @@ MIGRATIONS = (
             ON evidence_captures(result_id, capture_kind, captured_at DESC);
         """,
     ),
+    (
+        17,
+        """
+        ALTER TABLE investigation_exports
+            ADD COLUMN include_page_archives INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 )

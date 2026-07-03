@@ -2696,3 +2696,432 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   - Smoke headless Chrome : capture confirmant les 3 cartes d'une même
     ligne à hauteur identique, pastille « +2 » bien alignée avec la date.
 - **Fichiers modifiés :** `frontend/src/components/sx-saved-page-card.ts`.
+
+### AI-20260702-001 — Fix overlay : saisie clavier volée par la page hôte (TikTok)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** l'utilisateur ne pouvait plus écrire dans les champs de
+  l'overlay (menu de capture) sur une page vidéo TikTok. Cause identifiée :
+  les `<input>` de l'overlay vivent dans un Shadow DOM ; TikTok a un
+  gestionnaire clavier global (raccourcis lecture/pause, seek…) qui décide
+  d'intercepter la touche en inspectant `document.activeElement` — cette
+  API s'arrête à la frontière du Shadow DOM et ne voit que l'hôte du
+  custom element, jamais l'`<input>` réellement focus. TikTok croit donc
+  qu'aucun champ n'est actif et appelle `preventDefault()` sur les touches
+  destinées à l'overlay.
+- **Changement :** `frontend/src/overlay/index.ts` — ajout d'écouteurs
+  `keydown`/`keypress`/`keyup` sur `window` en phase de capture (le point
+  le plus tôt possible dans la propagation, avant `document`) ; si
+  l'événement provient d'un `input`/`textarea`/`select` situé dans un
+  élément `sx-overlay-*` (détecté via `composedPath()`), `stopPropagation()`
+  empêche l'événement d'atteindre les gestionnaires de la page hôte.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement (fin de ligne)
+- **Non exécuté :** smoke réel sur une page TikTok via CDP live (nécessite
+  une session Zendriver + navigation manuelle) — à valider par l'utilisateur
+  en conditions réelles.
+- **Fichiers modifiés :** `frontend/src/overlay/index.ts`,
+  `assets/synthesix-overlay.js` (bundle régénéré).
+
+### AI-20260702-002 — Fix racine du vol de focus overlay (TikTok) : injection CDP précoce
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** AI-20260702-001 (fix `stopPropagation` sur `keydown` dans le
+  bundle overlay) n'a pas suffi — diagnostic live (utilisateur, console
+  DevTools sur TikTok) a montré que le vol de focus n'est pas dû à un
+  `preventDefault()` sur les touches mais à un appel JS direct
+  `element.focus()` du SDK TikTok (`webmssdk.js`, chaîne d'appel minifiée
+  `nf→nA→nY→nz`) qui reprend le focus sur son propre conteneur juste après
+  que l'input de l'overlay l'ait obtenu. Blocage par `stopPropagation` sur
+  `focus`/`focusin`/`blur`/`focusout` en capture sur `window` : inefficace
+  (testé en live, confirmé par l'utilisateur). Patch direct de
+  `playerRoot.focus` en no-op (instance) : inefficace aussi — l'appel est
+  bien tracé mais le focus part quand même ailleurs, signe que
+  l'interception doit se faire **avant** que le SDK tiers ne s'exécute, pas
+  après.
+- **Cause racine :** l'overlay Synthesix est injecté tard, via
+  `tab.evaluate()` après chargement complet de la page (`main.py`,
+  `_install_and_consume_save_overlay`) — toujours après les scripts de la
+  page hôte, donc toujours perdant sur l'ordre d'exécution/enregistrement
+  des écouteurs et sur toute référence native que le SDK tiers aurait déjà
+  capturée.
+- **Changement :** `main.py` — nouvelle fonction `_overlay_focus_guard_script()`
+  (JS autonome, sans dépendance au bundle Lit) qui : (1) patche
+  `HTMLElement.prototype.focus` pour bloquer tout `.focus()` externe tant que
+  `document.activeElement` est dans un élément `sx-overlay-*` et que la
+  cible ne l'est pas ; (2) garde en défense-en-profondeur le
+  `stopPropagation` sur `keydown/keypress/keyup` pour les champs overlay
+  (même logique que AI-20260702-001, dupliquée ici pour ne pas dépendre du
+  bundle). Nouvelle fonction `_arm_overlay_focus_guard(tab)` qui enregistre
+  ce script via CDP `Page.addScriptToEvaluateOnNewDocument`
+  (`uc.cdp.page.add_script_to_evaluate_on_new_document`, exécuté **avant**
+  tout script de la page sur chaque future navigation de l'onglet) — appelée
+  au début de `_install_and_consume_save_overlay`, idempotente par onglet via
+  un set `_OVERLAY_FOCUS_GUARD_ARMED_TARGETS` keyé sur `tab.target_id`
+  (évite d'empiler le script à chaque tick de poll).
+- **Limite connue :** comme Synthesix découvre les onglets par polling (pas
+  d'écoute `Target.targetCreated`), ce script ne protège que les
+  **navigations futures** de l'onglet (rechargement, nouvelle URL), jamais
+  la page déjà chargée au moment où on l'arme. Sur une TikTok déjà ouverte,
+  l'utilisateur doit recharger une fois la page pour que le guard s'arme ;
+  ensuite il reste actif pour toute la session SPA (le patch de prototype
+  survit à la navigation client-side, seule une vraie navigation/reload
+  réexécute les scripts JS).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement (fichiers déjà
+    modifiés par AI-20260702-001)
+- **Fichiers modifiés :** `main.py`.
+
+### AI-20260702-004 — `stopImmediatePropagation` sur le guard clavier
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** smoke live utilisateur sur AI-20260702-003 : `guard armed:
+  true`, focus/clic/sélection dans les champs texte fonctionnent enfin, mais
+  taper au clavier (lettres, espace, effacer) ne fait toujours rien. Le vol
+  de focus est résolu ; reste l'insertion de caractère bloquée — signe d'un
+  `preventDefault()` sur `keydown`, probablement par un handler TikTok
+  également enregistré sur `window`.
+- **Cause :** `event.stopPropagation()` empêche l'événement d'atteindre
+  d'AUTRES nœuds du DOM, mais pas les autres écouteurs sur le **même** nœud
+  enregistrés après le nôtre. Comme le guard s'arme avant tout script de la
+  page (AI-20260702-002/003), tout handler clavier que TikTok enregistre
+  aussi sur `window` s'enregistre forcément après le nôtre — `stopPropagation`
+  seul ne l'empêche pas de tourner et d'appeler `preventDefault()`. Il fallait
+  `stopImmediatePropagation()`.
+- **Changement :** `main.py` (`_overlay_focus_guard_script`) et
+  `frontend/src/overlay/index.ts` — `event.stopImmediatePropagation()` ajouté
+  avant `stopPropagation()` dans les écouteurs `keydown/keypress/keyup`
+  ciblant les champs overlay.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `.venv\Scripts\python.exe -m py_compile main.py` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel sur TikTok — à revalider par l'utilisateur
+  (redémarrer l'app, laisser Synthesix redécouvrir l'onglet, recharger la
+  page TikTok, tester la frappe clavier dans les champs).
+- **Fichiers modifiés :** `main.py`, `frontend/src/overlay/index.ts`,
+  `assets/synthesix-overlay.js` (bundle régénéré).
+
+### AI-20260702-005 — Suggestions de propriété manquantes + capture "Visible area" qui fait avancer la vidéo hôte
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** deux régressions signalées après validation du vol de focus :
+  (1) le champ « Property name » du menu de capture n'affiche plus de
+  suggestions (liste déroulante des propriétés de l'entité sélectionnée),
+  contrairement au menu « Ajouter à l'enquête » qui l'a toujours ; (2) une
+  capture « Visible area » (pas « Select area ») fait avancer le
+  media (vidéo/photo suivante) sur TikTok/Instagram juste après la capture.
+- **Cause (1) :** lors de la migration Lit, `sx-overlay-capture-menu.ts` n'a
+  jamais reçu la logique de suggestions que `sx-overlay-entity-menu.ts`
+  possède (datalist + `tagsetProperties` dérivées des tags de l'entité
+  sélectionnée) — `main.py` ne passait `tagsetProperties` qu'à `entityMenu`,
+  pas à `captureMenu`.
+- **Cause (2) :** diagnostic confirmé par l'utilisateur — le changement de
+  media survient *après* la capture, sans focus préalable dans un champ
+  texte, donc pas un souci de focus/clic. Seul `capture_png` avec
+  `capture_beyond_viewport=True` (CDP `Page.captureScreenshot`) diffère
+  entre « Visible area » (clip = viewport exact) et « Select area » (clip =
+  sous-région plus petite, qui ne reproduit pas le bug) ; ce flag pousse
+  Chrome à ajuster le rendu au-delà du viewport visible, ce qui semble
+  déclencher la logique « snap vers le media suivant » de ces sites
+  (souvent basée sur la visibilité/scroll).
+- **Changement :**
+  - `frontend/src/overlay/sx-overlay-capture-menu.ts` — nouvelle propriété
+    `tagsetProperties`, `GraphEntity` étendue (`tags`, `propertyKeys`),
+    getter `_propertySuggestions` (même logique que l'entity-menu, sans la
+    complexité du type de propriété qui n'existe pas ici), `<datalist>`
+    branché sur `.prop-input` via `list=`.
+  - `main.py` — `captureMenu.tagsetProperties = tagsetProperties;` ajouté à
+    la création du menu (à côté de l'affectation identique sur
+    `entityMenu`).
+  - `evidence/capture.py`, `capture_png(...)` — nouveau paramètre
+    `capture_beyond_viewport: bool = True` (défaut inchangé, rétrocompatible
+    avec le test existant).
+  - `main.py`, `_capture_evidence` — `capture_beyond_viewport=(capture_scope
+    != "viewport")` : `False` uniquement pour le scope viewport, `True`
+    conservé pour `region` (comportement déjà validé, non modifié).
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `.venv\Scripts\python.exe -m py_compile main.py evidence/capture.py` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel sur TikTok pour les deux points — à
+  revalider par l'utilisateur (redémarrer l'app, recharger la page,
+  vérifier les suggestions de propriété puis une capture « Visible area »).
+- **Fichiers modifiés :** `frontend/src/overlay/sx-overlay-capture-menu.ts`,
+  `main.py`, `evidence/capture.py`,
+  `assets/synthesix-overlay.js` (bundle régénéré).
+
+### AI-20260702-006 — `reset()` du menu de capture n'effaçait pas le `<select>` d'entité
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** après AI-20260702-005, une deuxième capture affichait
+  l'entité de la capture précédente sélectionnée dans le `<select>` (visuel
+  uniquement), sans accès aux suggestions de propriété, et l'attachement
+  échouait silencieusement à l'enregistrement.
+- **Cause :** `sx-overlay-capture-menu.ts::reset()` remet `_selectedEntityId`
+  (état interne Lit) à `""`, mais le template ne lie pas `.value` sur le
+  `<select class="entity-select">` — l'élément DOM garde donc sa valeur
+  précédente après reset. Résultat : `_propertySuggestions` (basé sur
+  `_selectedEntityId`, vide) ne trouve plus l'entité malgré le select qui
+  l'affiche encore, et `_attach` (`if (!this._selectedEntityId) return
+  null`) n'attache plus rien. `sx-overlay-entity-menu.ts::_close()` fait
+  déjà `select.value = ""` explicitement — l'équivalent manquait côté
+  capture-menu.
+- **Changement :** `frontend/src/overlay/sx-overlay-capture-menu.ts` —
+  nouvel accesseur privé `entitySelect()` (même pattern que `input()` /
+  `propertyInput()`), `reset()` remet aussi `select.value = ""`.
+- **Tests exécutés :**
+  - `cd frontend && npm run typecheck && npm run build` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel — à revalider par l'utilisateur (deux
+  captures successives avec attachement à une entité différente/aucune,
+  vérifier que le select et les suggestions repartent bien à vide entre
+  les deux).
+- **Fichiers modifiés :** `frontend/src/overlay/sx-overlay-capture-menu.ts`,
+  `assets/synthesix-overlay.js` (bundle régénéré).
+
+### AI-20260702-003 — Correction du guard CDP : `Page.enable()` manquant
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-02
+- **Branche / commits :** feat/lit-frontend
+- **Objectif :** smoke live utilisateur sur AI-20260702-002 négatif — après
+  redémarrage de l'app et double reload de la page TikTok,
+  `window.__synthesixFocusGuardInstalled` restait `undefined`. Reproduit en
+  isolation avec un script zendriver autonome (hors app, hors TikTok) : même
+  un script minimal (`window.__minimalFlag = 'hello'`) enregistré via
+  `Page.addScriptToEvaluateOnNewDocument` ne s'exécutait jamais après une
+  vraie navigation suivante — la commande CDP est acceptée (renvoie un
+  `ScriptIdentifier` valide) mais reste un no-op silencieux.
+- **Cause :** `Page.addScriptToEvaluateOnNewDocument` exige que le domaine
+  `Page` soit activé (`Page.enable`) sur la session CDP pour prendre effet
+  réellement ; zendriver n'active ce domaine nulle part automatiquement et
+  `_arm_overlay_focus_guard` ne l'envoyait pas non plus.
+- **Changement :** `main.py`, `_arm_overlay_focus_guard` — ajout de
+  `await tab.send(uc.cdp.page.enable())` avant l'appel à
+  `add_script_to_evaluate_on_new_document`.
+- **Tests exécutés :**
+  - Script zendriver isolé (hors suite, `scratchpad`) : sans `page.enable()`
+    → flag jamais posé après navigation réelle (`example.com`) ; avec →
+    `True`. Puis re-testé avec la vraie fonction `_arm_overlay_focus_guard`
+    du projet (pas une réimplémentation) : `installed after navigation: True`.
+  - `.venv\Scripts\python.exe -m py_compile main.py` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 288 tests
+- **Non exécuté :** smoke réel sur TikTok — à revalider par l'utilisateur
+  (redémarrer l'app une nouvelle fois, laisser Synthesix découvrir l'onglet
+  une fois, recharger la page TikTok, vérifier
+  `window.__synthesixFocusGuardInstalled === true` puis tester la saisie).
+- **Fichiers modifiés :** `main.py`.
+
+### AI-20260703-001 — Refonte du layout et des propriétés de l'export ZeroNeurone
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03 08:37-09:20
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** retour utilisateur sur le graphe curaté exporté vers
+  ZeroNeurone : layout illisible (une colonne unique, les relations
+  entité-entité traversaient tout le graphe), propriété `Type Synthesix`
+  incompréhensible côté ZeroNeurone, `Sources liées` fausse/peu pertinente,
+  propriété de page (ex. « Première publication ») explicitement rattachée à
+  une entité mais absente de cette entité à l'export, et fichiers HTML/MHTML/
+  Texte trop volumineux embarqués par défaut dans l'archive.
+- **Changements (`exports/zeroneurone.py`) :**
+  - `_curated_positions` réécrit : les entités curatées sont regroupées par
+    composantes connexes (relations entité-entité, hors « Trouvé sur ») via
+    BFS puis disposées en grille (jusqu'à 4 colonnes) au lieu d'une colonne
+    unique ; les sources de chaque entité restent proches d'elle plutôt que
+    dans une colonne globale partagée.
+  - `HIDDEN_NATIVE_PROPERTIES` inclut désormais `synthesix_type` (n'était
+    affiché nulle part ailleurs, cassait la lecture côté ZeroNeurone).
+  - Propriété `linked_source_count` / « Sources liées » supprimée de l'export
+    (comptage jugé non fiable et peu pertinent par l'utilisateur).
+  - `facts_by_entity` (graphe curaté) n'exclut plus les faits de portée page
+    (`property_scope: page`) qui ont explicitement été rattachés à une entité
+    via `investigation_entity_id` (contrôle « rattacher à une entité » de
+    `investigations/view.py`) : ces propriétés (ex. « Première publication »)
+    apparaissent maintenant sur l'entité en plus de la page source. Les faits
+    de page non rattachés restent uniquement sur le nœud « Site web » (test
+    `test_curated_graph_keeps_page_scoped_properties_on_source_node`
+    préservé).
+  - Nouveau paramètre `include_page_archives` (défaut `False`) sur
+    `export_zeroneurone_bundle` / `_write_native_dossier` /
+    `_copy_native_assets` : les artefacts `html`/`mhtml`/`text`
+    (`DOCUMENT_ARCHIVE_ARTIFACT_TYPES`) sont exclus des assets copiés par
+    défaut ; seuls les captures d'écran (`png`) suivent `include_evidence`
+    par défaut. Option tracée dans `manifest.json` (`options.
+    include_page_archives`).
+- **Changements (persistance / UI) :**
+  - `investigations/migrations.py` — migration 17 : `ALTER TABLE
+    investigation_exports ADD COLUMN include_page_archives INTEGER NOT NULL
+    DEFAULT 0` (même style que la migration 10 pour `asset_count`).
+  - `investigations/models.py`, `investigations/repository.py`,
+    `investigations/service.py` (passthrough `**kwargs`, inchangé) —
+    `InvestigationExport.include_page_archives` propagé de l'insert à
+    `to_payload()`.
+  - `investigations/view.py` — case à cocher « Also include full page
+    archives (HTML/MHTML/Text) — large files » dans le formulaire d'export ;
+    `includePageArchives` ajouté au payload JS `queueAction`;
+    `_export_cards` distingue « evidence assets (screenshots only) » vs
+    « (with page archives) » dans la description de l'export.
+  - `main.py` (handler `export_zeroneurone`) — lit `includePageArchives`,
+    le transmet à `export_zeroneurone_bundle` et à `record_export`.
+- **Non retenu / vérifié faux par les tests existants :** copier
+  automatiquement TOUTES les propriétés de page sur TOUTES les entités liées
+  à cette page (essayé, puis abandonné) : le test
+  `test_curated_graph_keeps_page_scoped_properties_on_source_node` encode
+  volontairement que des métadonnées de page (ex. `Domaine`) ne doivent pas
+  fuiter sur chaque entité trouvée sur la page. Seules les propriétés
+  **explicitement rattachées** à une entité précise en sont remontées.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 25 tests (4 nouveaux : layout en grille, propriété de page rattachée
+    à l'entité, propriétés internes/`Sources liées` absentes, filtrage des
+    archives de page)
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigations
+    tests.test_investigation_view tests.test_main
+    tests.test_zeroneurone_export tests.test_zeroneurone_tags` — OK, 148
+    tests (versions de schéma `16` → `17` mises à jour dans
+    `tests/test_investigations.py`)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 292 tests
+  - `.venv\Scripts\python.exe -m py_compile exports/zeroneurone.py
+    investigations/view.py investigations/migrations.py
+    investigations/models.py investigations/repository.py main.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel d'un export ouvert dans ZeroNeurone (nécessite
+  l'application tierce) — à valider par l'utilisateur ; capture Chrome
+  headless du graphe non pertinente ici (rendu fait côté ZeroNeurone, pas
+  Synthesix).
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `investigations/migrations.py`, `investigations/models.py`,
+  `investigations/repository.py`, `investigations/view.py`, `main.py`,
+  `tests/test_zeroneurone_export.py`, `tests/test_investigations.py`.
+- **Relais :** aucun blocage. Prochaine action si l'utilisateur constate
+  encore des soucis : importer un export réel dans ZeroNeurone pour
+  confirmer visuellement le nouveau layout en grille et la disparition de
+  `Type Synthesix`/`Sources liées`.
+
+### AI-20260703-002 — Les captures d'écran deviennent des nœuds visuels du graphe curaté
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03 09:30-10:05
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** suite à AI-20260703-001, retour utilisateur : les propriétés
+  remontent bien sur le graphe curaté, mais les captures d'écran (ex. 7-8
+  captures liées à une entité « Rayloc ») restaient invisibles (fichiers
+  attachés en silence sur l'entité, sans nœud propre). Demande : quand une
+  preuve est de type image/capture d'écran, la faire apparaître comme nœud
+  sur le graphe (plus visuel), avec la source de l'info ; sinon en evidence
+  classique.
+- **Changements (`exports/zeroneurone.py`) :**
+  - `_build_curated_graph` crée désormais un nœud `evidence-{capture_id}`
+    pour chaque capture liée à une entité curatée dont au moins un artefact a
+    un `mime_type` commençant par `image/` (couvre les captures `screenshot`
+    et les imports `imported` de type image, pas seulement `capture_kind ==
+    "screenshot"`). Relié à l'entité par une arête « Illustré par » ; le nœud
+    porte `source` = l'URL de la page capturée (la « source de l'info »
+    demandée) et la date de capture. Gardé derrière `include_evidence`
+    (paramètre déjà présent mais jusqu'ici inutilisé dans cette fonction).
+    Les preuves non image (archives HTML/MHTML/Texte) restent de simples
+    fichiers attachés à l'entité, comportement inchangé.
+  - `_copy_native_assets` route désormais chaque artefact image vers le
+    nouveau nœud evidence (`capture_id`) plutôt que vers l'entité, pour
+    éviter un doublon (fichier visible à la fois sur le nœud image et dans
+    les FICHIERS de l'entité).
+  - `_native_visual` : les nœuds `evidence` récupèrent une forme carrée et
+    une icône `Image` (au lieu d'une simple couleur) pour se distinguer sur
+    le canevas.
+  - `_curated_positions` généralisé : le mécanisme d'éventail qui plaçait
+    uniquement les sources « Trouvé sur » à côté de leur entité couvre
+    maintenant tout satellite (source de page **et** image de preuve), donc
+    plusieurs captures sur une même entité restent groupées près d'elle au
+    lieu de tomber dans la colonne « leftover » éloignée.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 26 tests (`test_curated_evidence_attaches_as_entity_files` réécrit en
+    `test_curated_image_evidence_becomes_its_own_node` pour refléter le
+    nouveau comportement voulu ; 2 tests ajoutés : nœud image + éventail de
+    plusieurs captures autour d'une entité)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 293 tests
+  - `.venv\Scripts\python.exe -m py_compile exports/zeroneurone.py
+    tests/test_zeroneurone_export.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel dans l'application ZeroNeurone (rendu visuel
+  de l'icône `Image` et de la forme carrée non vérifiable depuis Synthesix)
+  — à valider par l'utilisateur sur le prochain export du cas Rayloc.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`.
+
+### AI-20260703-003 — Captures citées par une propriété (`source_capture_id`) surfacées sur le graphe
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03 10:15-10:50
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** retour utilisateur (cas « Rayloc ») : seules 3 captures sur 8+
+  apparaissaient comme nœuds « Illustré par » (AI-20260703-002). La propriété
+  « Capture voiture » de l'entité montre 8 valeurs (plaques) sourcées chacune
+  par une capture différente (badges de citation numérotés dans Synthesix),
+  mais ces captures n'étaient pas rattachées via `linked_result_ids` de
+  l'entité (mécanisme page-level utilisé par AI-20260703-002), donc
+  invisibles côté export. Demande explicite : ne pas se baser sur le mot
+  « capture », utiliser le mécanisme rationnel déjà présent dans Synthesix ;
+  le lien de l'image doit porter le nom de la propriété dont elle est la
+  preuve.
+- **Cause identifiée :** le flux « attacher une preuve à une propriété »
+  (`InvestigationService.attach_evidence_capture_to_entity`, menu de capture
+  overlay) crée un fait (`extracted entity`) dont `attributes.
+  source_capture_id` pointe vers la capture source — c'est ce champ, pas
+  `linked_result_ids`, que l'UI Synthesix utilise déjà pour numéroter les
+  badges de citation (`investigations/view.py`, `sources_by_parent`). Le
+  graphe curaté ignorait totalement ce champ.
+- **Changements (`exports/zeroneurone.py`) :**
+  - Nouveaux helpers `_capture_has_image(capture)` et
+    `_evidence_node(capture, capture_id)` (factorisés hors de
+    `_build_curated_graph`, réutilisés par les deux mécanismes).
+  - Dans la boucle des faits de `_build_curated_graph` : pour chaque fait
+    dont `attributes.source_capture_id` référence une capture avec un
+    artefact `image/*`, un nœud preuve est créé et relié à l'entité par une
+    arête **nommée d'après la clé de propriété du fait** (ex. « Capture
+    voiture », « Capture Tiktok ») au lieu d'un « Illustré par » générique.
+    La propriété texte existante (ex. « Capture voiture: WW-246-FA; ... »)
+    est conservée telle quelle — le nœud image s'ajoute, ne la remplace pas.
+  - Le passage générique « Illustré par » (page-level, via
+    `linked_result_ids`) reste en filet de sécurité pour les captures sans
+    citation de propriété, mais saute désormais les captures déjà rattachées
+    par citation (`cited_capture_ids`) pour éviter une arête redondante vers
+    le même nœud.
+  - `_copy_native_assets` inchangé dans son principe (route déjà tout
+    artefact image vers `capture_id`), fonctionne sans modification
+    supplémentaire car le nœud existe désormais quel que soit le mécanisme
+    qui l'a créé.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 27 tests (1 nouveau :
+    `test_fact_cited_screenshot_surfaces_as_property_labelled_node`, capture
+    rattachée uniquement via `source_capture_id`, page absente de
+    `linked_result_ids`, vérifie le libellé d'arête = clé de propriété et la
+    conservation de la propriété texte)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 294 tests
+  - `.venv\Scripts\python.exe -m py_compile exports/zeroneurone.py
+    tests/test_zeroneurone_export.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel avec le vrai cas Rayloc dans ZeroNeurone (les
+  8 captures « Capture voiture » doivent maintenant apparaître) — à valider
+  par l'utilisateur sur son prochain export.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`.

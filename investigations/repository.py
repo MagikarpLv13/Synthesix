@@ -2196,6 +2196,7 @@ class InvestigationRepository:
         edge_count: int,
         asset_count: int,
         generated_at: str,
+        include_page_archives: bool = False,
     ) -> InvestigationExport:
         self.get_investigation(investigation_id)
         export_id = str(uuid4())
@@ -2206,11 +2207,12 @@ class InvestigationRepository:
                     id, investigation_id, export_type, archive_path,
                     dossier_path, graphml_path,
                     csv_path, nodes_csv_path, edges_csv_path, manifest_path,
-                    include_evidence, include_unreviewed, node_count,
+                    include_evidence, include_unreviewed,
+                    include_page_archives, node_count,
                     edge_count, asset_count, generated_at
                 )
                 VALUES (
-                    ?, ?, 'zeroneurone', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, 'zeroneurone', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -2225,6 +2227,7 @@ class InvestigationRepository:
                     manifest_path,
                     int(include_evidence),
                     int(include_unreviewed),
+                    int(include_page_archives),
                     int(node_count),
                     int(edge_count),
                     int(asset_count),
@@ -2266,6 +2269,7 @@ class InvestigationRepository:
                 manifest_path=row["manifest_path"],
                 include_evidence=bool(row["include_evidence"]),
                 include_unreviewed=bool(row["include_unreviewed"]),
+                include_page_archives=bool(row["include_page_archives"]),
                 node_count=int(row["node_count"] or 0),
                 edge_count=int(row["edge_count"] or 0),
                 asset_count=int(row["asset_count"] or 0),
