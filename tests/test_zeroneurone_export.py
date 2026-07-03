@@ -603,7 +603,11 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
         self.assertEqual(found_on.source_label, "ACME SAS")
         self.assertEqual(found_on.target_label, "https://example.org/profile")
 
-    def test_curated_image_evidence_becomes_its_own_node(self):
+    def test_curated_image_evidence_merges_onto_its_page_node(self):
+        # A screenshot that isn't cited by any specific property no longer
+        # gets its own "Illustré par" node beside the page — it merges onto
+        # the page ("Site web") node it was captured from, one node per
+        # page instead of two that only duplicated each other.
         workspace = export_workspace()
         workspace["graph_entities"] = [
             {
@@ -647,42 +651,43 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
 
         self.assertEqual(exported.asset_count, 1)
         labels = {element["label"] for element in dossier["elements"]}
-        # No project-root node, but the screenshot is now visible on the
-        # canvas as its own image/evidence element.
+        # No project-root node, and no standalone "Profile header" evidence
+        # node either — just the entity and the page it was found on.
         self.assertNotIn("Case One", labels)
-        self.assertIn("Profile header", labels)
+        self.assertNotIn("Profile header", labels)
+        self.assertEqual(
+            labels, {"Jane Doe", "https://example.org/profile"}
+        )
         person = next(
             element
             for element in dossier["elements"]
             if element["label"] == "Jane Doe"
         )
-        evidence = next(
+        page = next(
             element
             for element in dossier["elements"]
-            if element["label"] == "Profile header"
+            if element["label"] == "https://example.org/profile"
         )
-        # The evidence file is attached to its own node, not the entity.
+        # The evidence file is attached to the page, not the entity.
         self.assertEqual(person["assetIds"], [])
-        self.assertEqual(len(evidence["assetIds"]), 1)
-        self.assertEqual(evidence["source"], "https://example.org/profile")
-        self.assertEqual(evidence["visual"]["icon"], "Image")
+        self.assertEqual(len(page["assetIds"]), 1)
         link = next(
             link
             for link in dossier["links"]
-            if link["label"] == "Illustré par"
+            if link["fromId"] == person["id"] and link["toId"] == page["id"]
         )
-        self.assertEqual(link["fromId"], person["id"])
-        self.assertEqual(link["toId"], evidence["id"])
+        self.assertEqual(link["label"], "Trouvé sur")
         prop_keys = {item["key"] for item in person["properties"]}
         self.assertNotIn("ID Synthesix", prop_keys)
         self.assertNotIn("Manifeste Synthesix", prop_keys)
 
-    def test_fact_cited_screenshot_surfaces_as_property_labelled_node(self):
+    def test_fact_cited_screenshot_surfaces_on_the_page_node(self):
         # A property value attached via "attach evidence to property"
         # (attributes.source_capture_id) must surface its screenshot even
         # when the capture's page was never added to the entity's
         # linked_result_ids — that page-level list only covers a coarser,
-        # separate "found on this page" relationship.
+        # separate "found on this page" relationship. The screenshot itself
+        # merges onto the page node rather than becoming its own node.
         workspace = export_workspace()
         workspace["graph_entities"] = [
             {
@@ -755,19 +760,83 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
 
         by_label = {element["label"]: element for element in dossier["elements"]}
         person = by_label["Jane Doe"]
-        plate_image = by_label["WW-246-FA"]
-        self.assertEqual(len(plate_image["assetIds"]), 1)
+        # No standalone "WW-246-FA" evidence node: the screenshot merges onto
+        # the page it was captured from.
+        self.assertNotIn("WW-246-FA", by_label)
+        page = by_label["https://example.org/profile"]
+        self.assertEqual(len(page["assetIds"]), 1)
         link = next(
             link
             for link in dossier["links"]
-            if link["fromId"] == person["id"] and link["toId"] == plate_image["id"]
+            if link["fromId"] == person["id"] and link["toId"] == page["id"]
         )
         self.assertEqual(link["label"], "Capture voiture")
+        # The generic "Trouvé sur" edge is skipped in favour of the more
+        # specific property-labelled one above (no duplicate parallel edge).
+        self.assertNotIn(
+            "Trouvé sur",
+            {
+                l["label"]
+                for l in dossier["links"]
+                if l["fromId"] == person["id"] and l["toId"] == page["id"]
+            },
+        )
         # Still readable as plain text too: the property itself is untouched.
         prop = {item["key"]: item["value"] for item in person["properties"]}
         self.assertEqual(prop["Capture voiture"], "WW-246-FA")
 
-    def test_curated_layout_fans_out_several_screenshots_beside_entity(self):
+    def test_page_surfaces_with_its_notes_when_only_linked_through_a_fact(self):
+        # Reported gap: an entity attached to a page only through an
+        # extracted fact (investigation_entity_id), with linked_result_ids
+        # left empty, shows the page under "Entités utilisant cette page" in
+        # the Synthesix rail (_page_linked_entities_markup checks both
+        # mechanisms) but the curated export only looked at
+        # linked_result_ids — so the page's own "Site web" node, and the
+        # analyst notes it carries, never made it into the ZeroNeurone
+        # dossier.
+        workspace = export_workspace()
+        workspace["graph_entities"] = [
+            {
+                "id": "person-1",
+                "label": "Jane Doe",
+                "tags": ["Personne"],
+                "properties": {},
+                "linked_result_ids": [],
+                "updated_at": "2026-06-12T10:05:00+00:00",
+            }
+        ]
+        workspace["entities"].append(
+            {
+                "id": "entity-plate",
+                "result_id": "result-1",
+                "investigation_entity_id": "person-1",
+                "entity_type": "other",
+                "value_original": "KTT-RW98",
+                "value_normalized": "KTT-RW98",
+                "source_field": "manual",
+                "confidence": 1.0,
+                "status": "validated",
+                "attributes": {},
+                "property_key": "Plaque",
+                "last_observed_at": "2026-06-12T10:02:00+00:00",
+            }
+        )
+
+        nodes, edges = build_export_graph(workspace)
+
+        source = next(node for node in nodes if node.id == "result-result-1")
+        self.assertEqual(source.notes, "Reviewed profile.")
+        self.assertIn("Site web", source.tags)
+        found_on = next(edge for edge in edges if edge.label == "Trouvé sur")
+        self.assertEqual(found_on.source_label, "Jane Doe")
+        self.assertEqual(found_on.target_label, "https://example.org/profile")
+
+    def test_curated_layout_merges_several_screenshots_onto_one_page_node(self):
+        # Several screenshots captured from the same page (e.g. 8 different
+        # license plates spotted on one profile) used to fan out as 8
+        # separate "Illustré par" nodes beside the entity. They now merge
+        # onto the single page node as multiple assets — one node, not one
+        # per screenshot.
         workspace = export_workspace()
         workspace["graph_entities"] = [
             {
@@ -826,16 +895,17 @@ class ZeroNeuroneExportTestCase(unittest.TestCase):
                 exported.dossier_path.read_text(encoding="utf-8")
             )
 
+        self.assertEqual(exported.asset_count, 6)
         by_label = {element["label"]: element for element in dossier["elements"]}
-        person = by_label["Jane Doe"]
         for index in range(6):
-            capture = by_label[f"Capture {index}"]
-            # Fanned out beside the entity, not dumped into a far-away
-            # "leftover" column: same neighbourhood on the x axis.
-            self.assertGreater(capture["position"]["x"], person["position"]["x"])
-            self.assertLess(
-                capture["position"]["x"] - person["position"]["x"], 620.0
-            )
+            self.assertNotIn(f"Capture {index}", by_label)
+        person = by_label["Jane Doe"]
+        page = by_label["https://example.org/profile"]
+        self.assertEqual(len(page["assetIds"]), 6)
+        # Still beside the entity, not dumped into a far-away "leftover"
+        # column: same neighbourhood on the x axis.
+        self.assertGreater(page["position"]["x"], person["position"]["x"])
+        self.assertLess(page["position"]["x"] - person["position"]["x"], 620.0)
 
     def test_curated_layout_places_sources_beside_entities(self):
         workspace = export_workspace()

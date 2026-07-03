@@ -390,6 +390,12 @@ STATUS_LABELS = {
     "ecarte": "Discarded",
     "confirme": "Confirmed",
 }
+STATUS_BADGE_TONES = {
+    "a_verifier": "warning",
+    "pertinent": "accent",
+    "ecarte": "danger",
+    "confirme": "success",
+}
 ENTITY_STATUS_LABELS = {
     "proposed": "Proposed",
     "validated": "Validated",
@@ -1705,8 +1711,10 @@ def _inspector_panel(
     is_monitored: bool,
     details_markup: str = "",
     local_file_href: str = "",
+    read_only: bool = False,
 ) -> str:
     """Compact summary of a saved page, shown in the workspace rail on click."""
+    disabled = " disabled" if read_only else ""
     result_id = str(result.get("id", ""))
     title = str(result.get("title") or result.get("url") or "Untitled result")
     url = str(result.get("url", ""))
@@ -1736,8 +1744,9 @@ def _inspector_panel(
         )
     else:
         url_markup = ""
+    status_tone = STATUS_BADGE_TONES.get(status, "")
     badges = [
-        f'<span class="inspector-badge inspector-badge--status">'
+        f'<span class="inspector-badge inspector-badge--{status_tone}">'
         f"{_html(status_label)}</span>"
     ]
     if bool(result.get("favorite", False)):
@@ -1754,12 +1763,25 @@ def _inspector_panel(
         if description
         else ""
     )
+    notes = str(result.get("notes", "") or "")
+    notes_markup = (
+        '<label class="entity-field">'
+        '<span class="entity-field__label">Notes</span>'
+        '<textarea rows="3" data-result-notes-edit '
+        f'placeholder="Notes…"{disabled}'
+        f">{_html(notes)}</textarea>"
+        "</label>"
+    )
     return (
         f'<div class="inspector-panel" data-inspector-panel="{_html(result_id)}" '
         f'data-result-id="{_html(result_id)}" hidden>'
-        f"{title_markup}{url_markup}"
+        f'<div class="inspector-panel__head">'
+        f"{title_markup}"
         f'<div class="inspector-panel__badges">{"".join(badges)}</div>'
+        "</div>"
+        f"{url_markup}"
         f"{desc_markup}"
+        f"{notes_markup}"
         f'<div class="inspector-panel__details">{details_markup}</div>'
         "</div>"
     )
@@ -2822,6 +2844,7 @@ def generate_investigation_page(
                 result,
                 is_monitored=result_id in monitors_by_result,
                 local_file_href=local_file_href,
+                read_only=read_only,
                 details_markup=(
                     _page_linked_entities_markup(
                         result,
@@ -4002,6 +4025,19 @@ def generate_investigation_page(
                     "change",
                     () => saveResult(card)
                 );
+                const notesPanel = document.querySelector(
+                    `[data-inspector-panel="${{card.dataset.resultId}}"]`
+                );
+                notesPanel?.querySelector("[data-result-notes-edit]")
+                    ?.addEventListener("blur", (event) => {{
+                        const hiddenNotes = card.querySelector(
+                            "[data-result-notes]"
+                        );
+                        if (hiddenNotes) {{
+                            hiddenNotes.value = event.target.value;
+                        }}
+                        saveResult(card);
+                    }});
                 card.querySelector("[data-result-favorite]")?.addEventListener(
                     "change",
                     () => {{

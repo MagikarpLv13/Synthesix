@@ -453,21 +453,6 @@ def _capture_has_image(capture: Mapping) -> bool:
     )
 
 
-def _evidence_node(capture: Mapping, capture_id: str) -> GraphNode:
-    return GraphNode(
-        id=f"evidence-{capture_id}",
-        label=str(capture.get("name") or "Capture"),
-        tags=_tags("Preuve", capture.get("capture_kind", "")),
-        source=str(capture.get("source_url", "") or ""),
-        date=_date_only(capture.get("captured_at")),
-        properties={
-            "synthesix_id": capture_id,
-            "synthesix_type": "evidence",
-            "source_url": str(capture.get("source_url", "") or ""),
-        },
-    )
-
-
 def _build_curated_graph(
     workspace: Mapping,
     investigation_node: GraphNode,
@@ -509,21 +494,38 @@ def _build_curated_graph(
         for capture in workspace.get("evidence", [])
         if str(capture.get("id", "") or "")
     }
-    # Captures already turned into an evidence node because a specific fact
-    # cites them as its source (see the facts loop below); the page-linkage
-    # pass further down skips these so an entity never gets two edges to the
-    # same screenshot.
-    cited_capture_ids: set[str] = set()
+    # Screenshots no longer get their own node beside the page they were
+    # captured from — the page node already exists (or will, see
+    # source_result_ids below) and the file itself attaches to it as an
+    # asset (_copy_native_assets). Only the "what is this evidence of" edge
+    # from the citing entity is worth keeping, deferred until the page nodes
+    # exist further down.
+    pending_property_citations: list[tuple[GraphNode, str, Mapping]] = []
 
     for entity in workspace.get("graph_entities", []):
         entity_id = str(entity.get("id", "") or "")
         if not entity_id:
             continue
-        linked_result_ids = [
-            str(result_id)
-            for result_id in entity.get("linked_result_ids", [])
-            if str(result_id) in results
-        ]
+        entity_facts = facts_by_entity.get(entity_id, [])
+        # A page is "used by" an entity either through an explicit link
+        # (linked_result_ids) or because a fact extracted from it was
+        # attached to the entity (investigation_entity_id) — the same two
+        # mechanisms _page_linked_entities_markup already recognizes in the
+        # Synthesix rail. Both must count here, otherwise a page whose only
+        # tie to the entity is an extracted fact never becomes a "Site web"
+        # node and its analyst notes never make it into the export.
+        linked_result_ids = list(dict.fromkeys(
+            [
+                str(result_id)
+                for result_id in entity.get("linked_result_ids", [])
+                if str(result_id) in results
+            ]
+            + [
+                str(fact.get("result_id", "") or "")
+                for fact in entity_facts
+                if str(fact.get("result_id", "") or "") in results
+            ]
+        ))
         source_urls = [
             str(results[result_id].get("url", "") or "")
             for result_id in linked_result_ids
@@ -538,7 +540,6 @@ def _build_curated_graph(
         if isinstance(manual_properties, Mapping):
             for key, value in manual_properties.items():
                 _append_property(properties, str(key), value)
-        entity_facts = facts_by_entity.get(entity_id, [])
         coordinate_fact = _best_coordinate_fact(entity_facts)
         latitude, longitude = (
             _coordinates(coordinate_fact)
@@ -618,19 +619,9 @@ def _build_curated_graph(
         for result_id in linked_result_ids:
             linked_entities_by_result.setdefault(result_id, []).append(node)
         for property_key, capture in fact_image_captures:
-            capture_id = str(capture.get("id", "") or "")
-            if not capture_id:
+            if not str(capture.get("id", "") or ""):
                 continue
-            evidence_node = _evidence_node(capture, capture_id)
-            nodes[evidence_node.id] = evidence_node
-            cited_capture_ids.add(capture_id)
-            cited_by = _edge(
-                node,
-                evidence_node,
-                property_key,
-                date=evidence_node.date,
-            )
-            edges[cited_by.id] = cited_by
+            pending_property_citations.append((node, property_key, capture))
 
     # Entity-to-entity keyword relations become labelled edges.
     for entity in workspace.get("graph_entities", []):
@@ -651,12 +642,22 @@ def _build_curated_graph(
             edges[relation_edge.id] = relation_edge
 
     # Evidence is no longer exported as separate nodes: the capture artifacts are
-    # attached as files on the entities they support (see _copy_native_assets).
+    # attached as files on the page (or entity, for non-image archives) they
+    # support (see _copy_native_assets).
 
     # Each source URL becomes its own "Site web" entity, linked from the entities
-    # it sources via a "Trouvé sur" relationship.
-    source_result_ids = set(linked_entities_by_result) | set(
-        page_properties_by_result
+    # it sources via a "Trouvé sur" relationship. A page cited only through a
+    # fact's screenshot (no explicit link, no page-scoped property) still
+    # needs its node here, otherwise the image below has nowhere to attach.
+    cited_result_ids = {
+        str(capture.get("result_id", "") or "")
+        for _, _, capture in pending_property_citations
+        if str(capture.get("result_id", "") or "") in results
+    }
+    source_result_ids = (
+        set(linked_entities_by_result)
+        | set(page_properties_by_result)
+        | cited_result_ids
     )
     for result_id in sorted(source_result_ids):
         result = results.get(result_id)
@@ -690,7 +691,33 @@ def _build_curated_graph(
             },
         )
         nodes[source_node.id] = source_node
+
+    # A fact whose value cites a screenshot gets a direct, property-labelled
+    # edge from the entity to that page — more specific than the generic
+    # "Trouvé sur" below, so that one is skipped for the same entity/page
+    # pair to avoid two parallel edges saying almost the same thing.
+    cited_pairs: set[tuple[str, str]] = set()
+    for entity_node, property_key, capture in pending_property_citations:
+        result_id = str(capture.get("result_id", "") or "")
+        page_node = nodes.get(f"result-{result_id}")
+        if page_node is None:
+            continue
+        cited_pairs.add((entity_node.id, result_id))
+        cited_by = _edge(
+            entity_node,
+            page_node,
+            property_key,
+            date=page_node.date,
+        )
+        edges[cited_by.id] = cited_by
+
+    for result_id in sorted(source_result_ids):
+        source_node = nodes.get(f"result-{result_id}")
+        if source_node is None:
+            continue
         for entity_node in linked_entities_by_result.get(result_id, []):
+            if (entity_node.id, result_id) in cited_pairs:
+                continue
             found_on = _edge(
                 entity_node,
                 source_node,
@@ -698,34 +725,6 @@ def _build_curated_graph(
                 date=source_node.date,
             )
             edges[found_on.id] = found_on
-
-    # Remaining screenshot/image evidence (not already linked to a specific
-    # property above) still becomes its own node beside the entities found on
-    # the page it was captured from — more readable on the ZeroNeurone canvas
-    # than a file buried in "FICHIERS". Other evidence (HTML/MHTML/text
-    # archives) stays a plain file attachment (see _copy_native_assets).
-    if include_evidence:
-        for capture in workspace.get("evidence", []):
-            capture_id = str(capture.get("id", "") or "")
-            result_id = str(capture.get("result_id", "") or "")
-            target_entities = linked_entities_by_result.get(result_id, [])
-            if (
-                not capture_id
-                or not target_entities
-                or capture_id in cited_capture_ids
-                or not _capture_has_image(capture)
-            ):
-                continue
-            evidence_node = _evidence_node(capture, capture_id)
-            nodes[evidence_node.id] = evidence_node
-            for entity_node in target_entities:
-                illustrated_by = _edge(
-                    entity_node,
-                    evidence_node,
-                    "Illustré par",
-                    date=evidence_node.date,
-                )
-                edges[illustrated_by.id] = illustrated_by
 
     return tuple(nodes.values()), tuple(edges.values())
 
@@ -1662,8 +1661,8 @@ def _curated_positions(
     entity-to-entity relation edges stay short instead of cutting vertically
     across the whole graph. Entities linked by a relation are ordered next to
     each other (BFS) before being wrapped into rows, and each entity's own
-    satellites (its "Trouvé sur" source pages and "Illustré par" evidence
-    images) fan out immediately beside it."""
+    satellites (its source pages, whether linked via "Trouvé sur" or a
+    property citation) fan out immediately beside it."""
     entity_column_width = 620.0
     source_offset = 380.0
     source_row = 150.0
@@ -1789,6 +1788,12 @@ def _copy_native_assets(
     assets = []
     element_asset_ids: dict[str, list[str]] = {}
     copied_paths: dict[Path, str] = {}
+    # The curated graph (entities present) merges each screenshot onto the
+    # page ("Site web") node it was captured from instead of giving it its
+    # own node (see _build_curated_graph); the simpler default graph (no
+    # entities yet) still gives every capture its own "evidence" node, so its
+    # images keep attaching to the capture itself.
+    is_curated = bool(workspace.get("graph_entities"))
     # Evidence files are attached to the curated entities they support, so map
     # each saved page to the entities that source from it.
     entities_by_result: dict[str, list[str]] = {}
@@ -1809,12 +1814,11 @@ def _copy_native_assets(
         capture_id = str(capture.get("id", "") or "")
         if not capture_id:
             continue
+        result_id = str(capture.get("result_id", "") or "")
         # Curated graph: non-image archives attach to the entities sourcing
         # this page. Otherwise (results-only export, or no curated entity for
         # this page) fall back to the evidence node (capture id).
-        target_entity_ids = entities_by_result.get(
-            str(capture.get("result_id", "") or ""), []
-        ) or [capture_id]
+        target_entity_ids = entities_by_result.get(result_id, []) or [capture_id]
         for artifact in capture.get("artifacts", []):
             artifact_type = str(artifact.get("artifact_type", "") or "")
             if (
@@ -1822,13 +1826,16 @@ def _copy_native_assets(
                 and artifact_type in DOCUMENT_ARCHIVE_ARTIFACT_TYPES
             ):
                 continue
-            # Image artifacts get their own "Illustré par" node on the
-            # curated graph (see _build_curated_graph), so their file
-            # attaches there instead of on the entity.
             is_image = str(
                 artifact.get("mime_type", "") or ""
             ).startswith("image/")
-            attach_ids = [capture_id] if is_image else target_entity_ids
+            if is_image:
+                # Curated graph: the image merges onto the page ("Site web")
+                # node instead of a standalone evidence node. Default graph:
+                # every capture still gets its own dedicated evidence node.
+                attach_ids = [result_id or capture_id] if is_curated else [capture_id]
+            else:
+                attach_ids = target_entity_ids
             source_path = _resolve_asset_path(
                 artifact.get("file_path"),
                 base_dir=base_dir,

@@ -1340,6 +1340,13 @@ a:focus-visible {
     gap: 8px;
 }
 
+.inspector-panel__head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .inspector-panel__title {
     font-size: 14px;
     font-weight: 700;
@@ -1347,6 +1354,8 @@ a:focus-visible {
     color: var(--accent);
     text-decoration: none;
     overflow-wrap: anywhere;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .inspector-panel__title:hover {
@@ -1362,6 +1371,7 @@ a:focus-visible {
 .inspector-panel__badges {
     display: flex;
     flex-wrap: wrap;
+    flex: 0 0 auto;
     gap: 6px;
 }
 
@@ -1421,6 +1431,30 @@ a:focus-visible {
     border-color: transparent;
     background: var(--accent-soft);
     color: var(--accent-ink);
+}
+
+.inspector-badge--accent {
+    border-color: transparent;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+}
+
+.inspector-badge--success {
+    border-color: transparent;
+    background: var(--success-soft);
+    color: var(--success-ink);
+}
+
+.inspector-badge--warning {
+    border-color: transparent;
+    background: var(--warning-soft);
+    color: var(--warning-ink);
+}
+
+.inspector-badge--danger {
+    border-color: transparent;
+    background: var(--danger-soft);
+    color: var(--danger-ink);
 }
 
 .inspector-goto {

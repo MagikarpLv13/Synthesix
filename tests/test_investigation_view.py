@@ -692,6 +692,30 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("Relevant", panel_text)
         # The "Go to card" button was removed (added nothing).
         self.assertFalse(panel.xpath(".//*[@data-inspector-goto]"))
+        notes_field = panel.xpath(".//textarea[@data-result-notes-edit]")
+        self.assertEqual(len(notes_field), 1)
+        self.assertEqual(notes_field[0].text_content(), "Needs <verification>")
+        self.assertIsNone(notes_field[0].get("disabled"))
+        self.assertEqual(notes_field[0].get("placeholder"), "Notes…")
+        # Title and status badge share the head row; the badge is colored
+        # by status tone instead of the flat neutral pill.
+        head = panel.xpath(".//div[contains(@class, 'inspector-panel__head')]")[0]
+        self.assertTrue(head.xpath(".//*[contains(@class, 'inspector-panel__title')]"))
+        status_badge = head.xpath(
+            ".//span[contains(@class, 'inspector-badge--accent')]"
+        )
+        self.assertEqual([b.text_content() for b in status_badge], ["Relevant"])
+        # Description sits right after the URL, ahead of the notes field.
+        panel_children = panel.xpath("./*")
+        desc_index = next(
+            i for i, node in enumerate(panel_children)
+            if "inspector-panel__desc" in (node.get("class") or "")
+        )
+        notes_index = next(
+            i for i, node in enumerate(panel_children)
+            if node.tag == "label" and "entity-field" in (node.get("class") or "")
+        )
+        self.assertLess(desc_index, notes_index)
 
     def test_entities_are_compact_rows_with_management_card_in_rail(self):
         with TemporaryDirectory() as temp_dir:
@@ -1767,6 +1791,10 @@ class InvestigationViewTestCase(unittest.TestCase):
             )
         )
         self.assertFalse(tree.xpath("//select[@data-result-tag-suggestion]"))
+        self.assertEqual(
+            tree.xpath("//textarea[@data-result-notes-edit]/@disabled"),
+            ["disabled"],
+        )
         self.assertFalse(tree.xpath("//button[contains(@class, 'add-result-tag')]"))
         self.assertTrue(
             tree.xpath(

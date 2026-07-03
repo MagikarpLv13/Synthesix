@@ -3125,3 +3125,201 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   par l'utilisateur sur son prochain export.
 - **Fichiers modifiés :** `exports/zeroneurone.py`,
   `tests/test_zeroneurone_export.py`.
+
+### AI-20260703-004 — Notes analyste éditables sur les pages enregistrées
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** demande utilisateur (cas « Rayloc ») : pouvoir noter ce que
+  l'analyste voit/pense sur une page enregistrée, avec un bloc visuel inspiré
+  du champ Notes des entités, et que ces notes ressortent dans l'export
+  ZeroNeurone.
+- **Constat :** `InvestigationResult.notes` existait déjà de bout en bout
+  (modèle, `repository.py`, validation `service.py`
+  `MAX_RESULT_NOTES_LENGTH`, export `exports/zeroneurone.py:668,834` qui
+  mappe déjà `result.notes` vers `Element.notes`). Le contrôle éditable avait
+  été volontairement retiré de la carte compacte lors d'un lot antérieur
+  (AI-20260621-008 : « suppression des contrôles visibles Notes/tags
+  analyste sur la carte »), les notes restant en `<textarea data-result-notes
+  hidden>` pour préserver le payload `update_investigation_result`. Il
+  manquait uniquement un contrôle visible.
+- **Changements (`investigations/view.py`) :**
+  - `_inspector_panel` : nouveau paramètre `read_only`, nouveau bloc
+    `<label class="entity-field"><span class="entity-field__label">Notes</span>
+    <textarea data-result-notes-edit>...` inséré dans le panneau du rail
+    (juste après les badges statut/favori/surveillance, avant la description
+    auto-extraite), réutilisant tel quel les classes CSS déjà utilisées par
+    le panneau d'entité (`sx-entity-panel`) — aucun CSS ajouté.
+  - Site d'appel de `_inspector_panel` : passe `read_only=read_only`
+    (désactive le textarea en investigation archivée, cohérent avec le
+    reste du panneau).
+  - JS : dans `resultCards.forEach`, écoute `blur` sur
+    `[data-result-notes-edit]` du panneau correspondant, recopie la valeur
+    dans le `<textarea data-result-notes hidden>` de la carte puis appelle
+    `saveResult(card)` (réutilise le payload/action `update_investigation_result`
+    existant, no-reload).
+- **Contrats ou décisions :** aucun nouveau contrat CDP ; réutilise
+  `update_investigation_result` (favori/statut/tags/notes) déjà no-reload.
+  Pas d'éditeur de tags ajouté (hors périmètre de la demande).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view` —
+    OK, 33 tests (2 assertions ajoutées : présence/valeur/non-disabled du
+    textarea dans `test_rail_inspector_panel_summarizes_each_saved_page`,
+    `disabled` en investigation archivée dans
+    `test_archived_workspace_disables_analyst_mutations`)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 294 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+  - smoke visuel headless (rendu isolé du panneau rail via fixture
+    `workspace_payload`) : le textarea affiche bien la valeur échappée
+    (`Needs <verification>`) avec le style `entity-field` (label + zone de
+    texte bordée), cohérent avec le bloc Notes des entités.
+- **Non exécuté :** smoke CDP live dans l'application réelle (clic sur une
+  page enregistrée, saisie de note, vérification de la persistance et de
+  l'export ZeroNeurone du cas Rayloc) — à valider par l'utilisateur.
+- **Fichiers modifiés :** `investigations/view.py`,
+  `tests/test_investigation_view.py`.
+- **Retour utilisateur immédiat (même lot) :** capture réelle de l'app →
+  1) badge de statut sur la même ligne que le titre (était sur sa propre
+  ligne sous l'URL) ; 2) couleurs par statut sur les badges (gris uniforme
+  avant) ; 3) description de la page juste après l'URL (avant : après le
+  bloc Notes) ; 4) placeholder du textarea Notes simplifié en « Notes… »
+  (au lieu de « Ce que l'analyste voit, pense… »).
+  - `investigations/view.py` : nouveau dict `STATUS_BADGE_TONES` (statut →
+    warning/accent/danger/success) ; badge statut = `inspector-badge--
+    {tone}` au lieu de `inspector-badge--status` ; nouveau wrapper
+    `<div class="inspector-panel__head">` regroupant titre + badges ;
+    nouvel ordre du panneau : head, url, description, notes, details.
+  - `theme.css` : `.inspector-panel__head` (flex, titre flexible + badges
+    figés), 4 nouvelles classes `inspector-badge--{accent,success,warning,
+    danger}` réutilisant les tokens `--*-soft`/`--*-ink` déjà présents
+    (mêmes valeurs que `--fav`/`--mon`, pas de nouvelle couleur inventée).
+  - Tests : assertions ajoutées (placeholder, badge de statut coloré dans
+    le head avec le titre, ordre description-avant-notes via position des
+    enfants directs du panneau).
+  - Tests exécutés : `unittest tests.test_investigation_view` (33 OK),
+    `unittest discover` (294 OK), `git diff --check` OK.
+
+### AI-20260703-005 — Notes de page absentes de l'export ZeroNeurone quand le lien passe par un fait
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** retour utilisateur (cas « Rayloc », suite d'AI-20260703-004) :
+  la note saisie sur la page TikTok (« Voiture disponible à la location,
+  plaque KTT-RW98 ») restait invisible dans ZeroNeurone — le nœud inspecté
+  (« KTT-RW98 ») était en fait le nœud preuve/capture citant cette plaque, un
+  nœud distinct du nœud « page ».
+- **Cause racine :** `_build_curated_graph` (`exports/zeroneurone.py`) ne
+  crée un nœud « Site web » pour une page que si elle apparaît dans
+  `source_result_ids = linked_entities_by_result ∪ page_properties_by_result`.
+  `linked_entities_by_result` n'était alimenté que par
+  `entity.linked_result_ids` (lien explicite). Or le rail Synthesix
+  (`_page_linked_entities_markup`, `investigations/view.py`) affiche déjà une
+  page sous « Entités utilisant cette page » via **deux** mécanismes : ce
+  même `linked_result_ids`, **ou** un fait extrait rattaché à l'entité
+  (`investigation_entity_id` + `result_id` du fait). RAYLOC n'était lié à
+  cette page TikTok que via des faits extraits (plaque, etc.), pas via
+  `linked_result_ids` — donc côté export, la page n'obtenait jamais de nœud,
+  et sa note (`result.notes`) n'avait nulle part où atterrir. Même classe de
+  bug que AI-20260703-002/003 (mécanisme de citation non reconnu par
+  l'export), appliquée cette fois au nœud page lui-même plutôt qu'aux
+  preuves.
+- **Correctif (`exports/zeroneurone.py`, `_build_curated_graph`) :**
+  `linked_result_ids` (utilisé pour peupler `linked_entities_by_result` et le
+  `source` du nœud entité) fusionne désormais l'ancien
+  `entity.linked_result_ids` **et** les `result_id` des faits de l'entité
+  (`facts_by_entity`), dédupliqués. Aucun changement de comportement pour les
+  investigations où le lien était déjà explicite ; les pages liées
+  uniquement par fait obtiennent maintenant leur nœud « Site web » (tags,
+  notes, propriétés page-scope, arête « Trouvé sur »), comme le laissait
+  déjà attendre le rail Synthesix.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 28 tests (1 nouveau :
+    `test_page_surfaces_with_its_notes_when_only_linked_through_a_fact` —
+    `linked_result_ids: []`, entité liée uniquement par un fait ; vérifie que
+    le nœud `result-result-1` existe, porte `notes == "Reviewed profile."`,
+    le tag « Site web » et l'arête « Trouvé sur » vers l'entité)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 295 tests
+  - `.venv\Scripts\python.exe -m py_compile exports/zeroneurone.py
+    tests/test_zeroneurone_export.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** ré-export réel du cas Rayloc dans ZeroNeurone pour
+  confirmer que le nœud page TikTok apparaît désormais avec sa note — à
+  valider par l'utilisateur sur son prochain export.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`.
+
+### AI-20260703-006 — Fusion du nœud « page » et du nœud « preuve » sur le graphe curaté
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-03
+- **Branche / commits :** feat/lit-frontend, non committé
+- **Objectif :** retour utilisateur (cas « Rayloc », confirmation
+  d'AI-20260703-005) : le nœud page TikTok apparaît bien avec sa note, mais
+  à côté un second nœud (la capture d'écran nommée « DW-47W88 ») fait
+  doublon — même page, deux nœuds. Demande explicite : fusionner les deux ;
+  le choix du libellé (nom de la preuve vs URL) est volontairement laissé
+  ouvert pour plus tard.
+- **Décision de périmètre :** revient sur une partie du comportement
+  volontairement introduit par AI-20260703-002/003 (donner aux captures
+  d'écran leur propre nœud visuel). Gardé pour l'instant : le libellé du
+  nœud page reste l'URL (stable, unique par page — une preuve n'a pas
+  toujours de nom unique quand plusieurs captures citent des propriétés
+  différentes sur la même page), sujet à revoir plus tard comme demandé.
+- **Changements (`exports/zeroneurone.py`, graphe curaté uniquement —
+  `_build_curated_graph` / `_copy_native_assets` ; le graphe par défaut, sans
+  entités, garde ses nœuds preuve dédiés, contrat inchangé) :**
+  - `_build_curated_graph` : les captures citées par une propriété
+    (`attributes.source_capture_id`) ne créent plus de nœud `evidence-*` ;
+    elles sont mises en attente (`pending_property_citations`) puis, une
+    fois les nœuds page construits, relient l'entité citante **directement**
+    au nœud page avec le libellé de la propriété (ex. « Capture voiture »)
+    au lieu de créer une arête vers un nœud preuve séparé.
+  - Le nœud page se construit aussi désormais pour toute page dont une
+    capture est ainsi citée (`cited_result_ids` ajouté à
+    `source_result_ids`), pas seulement les pages liées par entité ou
+    propriété page-scope.
+  - L'arête générique « Trouvé sur » est sautée pour une paire
+    (entité, page) qui a déjà une arête de citation spécifique (évite deux
+    arêtes parallèles redondantes vers le même nœud).
+  - La passe de secours « captures non citées deviennent un nœud Illustré
+    par » est supprimée : ces images s'attachent maintenant directement au
+    nœud page comme fichier joint (`assetIds`), sans arête dédiée — le lien
+    entité↔page existe déjà via « Trouvé sur ».
+  - `_evidence_node` (devenu mort) supprimé.
+  - `_copy_native_assets` : les artefacts image d'une capture s'attachent
+    désormais à `capture.result_id` (le nœud page) quand l'investigation a
+    des `graph_entities` (graphe curaté) ; comportement inchangé (attache à
+    son propre nœud preuve `capture_id`) pour le graphe par défaut, qui
+    garde des nœuds preuve dédiés.
+  - `_curated_positions` : commentaire mis à jour (ne mentionne plus
+    « Illustré par », le fan-out beside-entity ne change pas de mécanisme —
+    il continue de fonctionner tel quel puisqu'il s'appuie sur *toute* cible
+    non-entité reliée par une arête, page ou non).
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_zeroneurone_export` —
+    OK, 28 tests. Trois tests réécrits pour refléter la fusion (renommés
+    pour rester descriptifs) :
+    - `test_curated_image_evidence_becomes_its_own_node` →
+      `test_curated_image_evidence_merges_onto_its_page_node`
+    - `test_fact_cited_screenshot_surfaces_as_property_labelled_node` →
+      `test_fact_cited_screenshot_surfaces_on_the_page_node`
+    - `test_curated_layout_fans_out_several_screenshots_beside_entity` →
+      `test_curated_layout_merges_several_screenshots_onto_one_page_node`
+      (8→1 nœud, 6 `assetIds` sur le nœud page, position toujours à côté de
+      l'entité)
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 295 tests
+  - `.venv\Scripts\python.exe -m py_compile exports/zeroneurone.py
+    tests/test_zeroneurone_export.py` — OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** ré-export réel du cas Rayloc pour confirmer visuellement
+  la fusion (un seul nœud par page, images en pièces jointes) — à valider
+  par l'utilisateur sur son prochain export.
+- **Reste ouvert (signalé par l'utilisateur, volontairement pas traité) :**
+  choix définitif du libellé du nœud page quand plusieurs preuves nommées
+  différemment y sont attachées (garder l'URL, basculer sur le nom de la
+  preuve la plus récente, ou autre) — décision à prendre plus tard.
+- **Fichiers modifiés :** `exports/zeroneurone.py`,
+  `tests/test_zeroneurone_export.py`.
