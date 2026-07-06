@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 from lxml import html
 
+import observability
 from exceptions import RobotChallengeError
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
@@ -294,6 +295,7 @@ class DuckDuckGoSearchEngine(SearchEngine):
         next_content_check = start
         content_interval = max(0.5, interval)
         while time.monotonic() - start < max(0.0, timeout):
+            observability.count("eval_engine_wait")
             try:
                 if await self.tab.query_selector(self.selector):
                     return True
@@ -447,6 +449,7 @@ class DuckDuckGoSearchEngine(SearchEngine):
         fallback_attempted = False
 
         while time.monotonic() - start < max(0.0, timeout):
+            observability.count("eval_engine_wait")
             try:
                 if await self.tab.query_selector(self.selector):
                     return True

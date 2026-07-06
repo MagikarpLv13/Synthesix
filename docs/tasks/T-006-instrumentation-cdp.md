@@ -1,6 +1,6 @@
 # T-006 — Instrumentation compteurs CDP + budget par tick
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P1 · **Effort** : faible-moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : aucune (à faire AVANT les optimisations de phase 1-3 pour
@@ -64,3 +64,25 @@ doivent être mesurés, pas estimés, avant de refactorer.
   par tick couvre le chemin chaud principal.
 - Dépend de FakeBrowser minimal : si T-050 n'est pas encore fait, créer ici un
   fake local minimal et le déplacer vers `tests/fakes.py` lors de T-050.
+
+## Résultat (2026-07-06)
+
+- Nouveau module `observability.py` : `count`, `observe_bytes`, `snapshot`,
+  `reset`, `maybe_log_snapshot` (dump DEBUG toutes les 10 s, no-op sinon).
+- Instrumenté : `main.py` (`targets_poll`, `eval_home` + octets payloads,
+  `eval_overlay` ×2 + octets bundle/contexte, `eval_settings`, `eval_page`,
+  `screenshot`, dump périodique dans `wait_for_home_action`) ;
+  `search_engine.py` (`eval_engine_wait`, `get_content` + octets) ;
+  `duckduckgo.py`, `brave.py` (`eval_engine_wait` des boucles d'attente).
+- Nouveau `tests/test_cdp_budget.py` : verrouille la baseline par tick à vide
+  (topologie 1 home + 1 externe + 1 page enquête) :
+  **1 inventaire targets + 6 evaluates par tick idle**
+  (2 settings, 1 home, 2 overlay, 1 page) ; le tick qui rend une action home
+  saute la boucle overlay/page. `eval_home` transfère les payloads
+  history+investigations à chaque tick (à faire tomber à 0 en régime stable
+  par T-003).
+- Tests : `test_cdp_budget`, `test_main`, `test_engines`,
+  `test_search_engine_errors` → 75 OK.
+- Non exécuté : mesure 60 s sur session navigateur réelle (nécessite un run
+  interactif) — la baseline verrouillée par le test fait référence ;
+  compléter au premier smoke réel de la phase 1.

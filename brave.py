@@ -8,6 +8,7 @@ from datetime import datetime
 from html import unescape
 from urllib.parse import quote_plus, urlencode, urlparse
 
+import observability
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
@@ -248,6 +249,7 @@ class BraveSearchEngine(SearchEngine):
         interval = settings.brave_results_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
+            observability.count("eval_engine_wait")
             try:
                 if await self.tab.query_selector(self.selector):
                     return True

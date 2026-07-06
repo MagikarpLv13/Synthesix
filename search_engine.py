@@ -9,6 +9,7 @@ import time
 import pandas as pd
 import zendriver as uc
 
+import observability
 from exceptions import BrowserSessionError, SearchEngineError, SynthesixError
 from settings import get_settings
 
@@ -91,7 +92,9 @@ class SearchEngine(ABC):
         return str(output_path.resolve())
 
     async def read_page_content(self, stage: str) -> str:
+        observability.count("get_content")
         raw_html = await self.tab.get_content()
+        observability.observe_bytes("get_content", len(raw_html))
         self.capture_debug_html(raw_html, stage)
         return raw_html
 
@@ -215,6 +218,7 @@ class SearchEngine(ABC):
         interval = settings.page_load_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
+            observability.count("eval_engine_wait")
             try:
                 results = await self.tab.query_selector(self.selector)
                 if results:

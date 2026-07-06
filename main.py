@@ -40,6 +40,7 @@ from exports.zeroneurone_tagsets import (
     ZERONEURONE_TAGSETS,
     zeroneurone_tagset_suggested_properties,
 )
+import observability
 from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
 from investigations.monitoring_view import generate_page_comparison_report
@@ -135,6 +136,7 @@ def _prepare_base_query(
 
 
 async def _open_tabs(browser: uc.Browser):
+    observability.count("targets_poll")
     try:
         await browser.update_targets()
         targets = await browser._get_targets()
@@ -167,6 +169,11 @@ async def _consume_home_tab_action(
 ):
     history_version_json = json.dumps(history_version)
     investigations_version_json = json.dumps(investigations_version)
+    observability.count("eval_home")
+    observability.observe_bytes(
+        "eval_home",
+        len(history_json) + len(investigations_json),
+    )
     try:
         return await tab.evaluate(
             f"""
@@ -279,6 +286,7 @@ def configure_event_loop_policy() -> None:
 
 
 async def _consume_page_tab_action(tab):
+    observability.count("eval_page")
     try:
         return await tab.evaluate(
             """
@@ -299,6 +307,7 @@ async def _consume_page_tab_action(tab):
 
 
 async def _consume_settings_change(tab):
+    observability.count("eval_settings")
     try:
         return await tab.evaluate(
             """
@@ -570,6 +579,7 @@ async def _install_and_consume_save_overlay(
     # repeated parse freezes the page. Only ship the bundle when the page does
     # not already have it loaded.
     overlay_already_loaded = False
+    observability.count("eval_overlay")
     try:
         overlay_already_loaded = bool(
             await tab.evaluate("!!window.SynthesixOverlay")
@@ -579,6 +589,11 @@ async def _install_and_consume_save_overlay(
     overlay_bundle_json = json.dumps(
         "" if overlay_already_loaded else _overlay_bundle_script(),
         ensure_ascii=True,
+    )
+    observability.count("eval_overlay")
+    observability.observe_bytes(
+        "eval_overlay",
+        len(overlay_bundle_json) + len(context_json),
     )
     try:
         return await tab.evaluate(
@@ -1211,6 +1226,7 @@ async def _capture_evidence(
     tool_version = _tool_version()
 
     try:
+        observability.count("screenshot")
         captured_png = await capture_png(
             tab,
             png_path,
@@ -2295,6 +2311,7 @@ async def wait_for_home_action(
         if getattr(browser, "stopped", False):
             return {"action": "quit"}
 
+        observability.maybe_log_snapshot()
         tabs = await _open_tabs(browser)
         if tabs is None:
             await asyncio.sleep(settings.home_poll_interval)
