@@ -3,7 +3,42 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from settings import get_settings
+from settings import get_settings, reload_settings
+
+
+class SettingsCacheTestCase(unittest.TestCase):
+    """T-002: settings are built once per environment signature."""
+
+    def test_same_environment_returns_cached_instance(self):
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"SYNTHESIX_BASE_DIR": temp_dir}, clear=True):
+                first = get_settings()
+                second = get_settings()
+
+                self.assertIs(first, second)
+
+    def test_environment_change_invalidates_cache(self):
+        with TemporaryDirectory() as first_dir, TemporaryDirectory() as second_dir:
+            with patch.dict(
+                "os.environ", {"SYNTHESIX_BASE_DIR": first_dir}, clear=True
+            ):
+                first = get_settings()
+            with patch.dict(
+                "os.environ", {"SYNTHESIX_BASE_DIR": second_dir}, clear=True
+            ):
+                second = get_settings()
+
+            self.assertIsNot(first, second)
+            self.assertNotEqual(first.base_dir, second.base_dir)
+
+    def test_reload_settings_forces_a_rebuild(self):
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"SYNTHESIX_BASE_DIR": temp_dir}, clear=True):
+                first = get_settings()
+                second = reload_settings()
+
+                self.assertIsNot(first, second)
+                self.assertEqual(first, second)
 
 
 class SettingsTestCase(unittest.TestCase):

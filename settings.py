@@ -110,7 +110,45 @@ class AppSettings:
         return self.investigation_pages_dir / f"{investigation_id}.html"
 
 
+# Cache keyed on the SYNTHESIX_* environment plus the working directory
+# (base_dir defaults to "."), so callers in polling loops stop paying ~40
+# env reads and several filesystem path resolutions per call (T-002), while
+# tests that patch os.environ or chdir keep seeing fresh settings without
+# any explicit invalidation.
+_settings_cache: tuple[tuple, AppSettings] | None = None
+
+
+def _env_signature() -> tuple:
+    return (
+        os.getcwd(),
+        tuple(
+            sorted(
+                item
+                for item in os.environ.items()
+                if item[0].startswith("SYNTHESIX_")
+            )
+        ),
+    )
+
+
 def get_settings() -> AppSettings:
+    global _settings_cache
+    signature = _env_signature()
+    if _settings_cache is not None and _settings_cache[0] == signature:
+        return _settings_cache[1]
+    settings = _build_settings()
+    _settings_cache = (signature, settings)
+    return settings
+
+
+def reload_settings() -> AppSettings:
+    """Drop the cached settings and rebuild them from the environment."""
+    global _settings_cache
+    _settings_cache = None
+    return get_settings()
+
+
+def _build_settings() -> AppSettings:
     base_dir = Path(os.getenv("SYNTHESIX_BASE_DIR", ".")).resolve()
     history_dir = _env_path("SYNTHESIX_HISTORY_DIR", "history", base_dir)
     history_report_path = _env_path(

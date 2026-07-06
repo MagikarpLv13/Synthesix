@@ -27,7 +27,7 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
 | [T-001](T-001-file-actions-non-ecrasable.md) | File d'actions non écrasable côté pages | P0 | Codex | done |
-| [T-002](T-002-cache-settings.md) | Cache `get_settings()` | P1 | Codex | todo |
+| [T-002](T-002-cache-settings.md) | Cache `get_settings()` | P1 | Codex | done |
 | [T-003](T-003-diff-push-home.md) | Payload home poussé seulement sur changement | P1 | Codex | done |
 | [T-004](T-004-captcha-google-selector.md) | Détection captcha Google fiable | P1 | Claude | done |
 | [T-005](T-005-nettoyages-cdp-mineurs.md) | Nettoyages CDP mineurs (targets, window.name, purges) | P2 | Codex | done |

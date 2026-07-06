@@ -1,6 +1,6 @@
 # T-002 — Cache `get_settings()`
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P1 · **Effort** : faible
 - **Outil recommandé** : Codex
 - **Dépendances** : aucune
@@ -54,3 +54,17 @@ modifiées en cours de suite : il faut un point d'invalidation explicite.
 - Test qui oublie l'invalidation ⇒ fuite d'état entre tests. Mitigation :
   helper unique `reload_settings()` utilisé partout, documenté dans le
   docstring de `get_settings`.
+
+## Résultat (2026-07-06)
+
+- Approche retenue différente du plan initial (meilleure) : au lieu de
+  `lru_cache` + invalidations manuelles dans ~30 sites de test `patch.dict`,
+  cache invalidé par **signature d'environnement** (`SYNTHESIX_*` triés +
+  `os.getcwd()`, car `base_dir` défaut = `.`). Résultat : un seul objet
+  `AppSettings` par environnement stable, et les tests existants
+  (patch.dict, chdir) restent corrects **sans aucune modification**.
+- `reload_settings()` fourni pour forcer un rebuild explicite.
+- `--debug-html` (`apply_cli_runtime_overrides`) : aucun changement requis —
+  la modification d'env change la signature, rebuild automatique.
+- Tests : 3 nouveaux cas `SettingsCacheTestCase` + **suite complète
+  `discover` : 307 tests OK**.
