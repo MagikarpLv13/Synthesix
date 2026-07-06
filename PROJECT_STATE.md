@@ -27,7 +27,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | Phase | Contenu | Statut |
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
-| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | en cours (T-010..T-013, T-015 done ; T-014 à faire) |
+| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
 | 2 | BrowserService + push CDP pour pages locales | à faire |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
@@ -59,8 +59,11 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 1 : T-014 (pool de tabs moteurs, Claude) est la dernière tâche de la
-phase. T-050, T-010, T-011, T-012, T-013 et T-015 sont livrés. Les attentes
-moteurs passent désormais par un probe composite (un `Runtime.evaluate`
-léger par itération, plus de `get_content` en boucle) ; mesure live 4
-moteurs à consigner au premier run réel.
+Phase 1 terminée (T-014 livré : pool de tabs — 1 tab réutilisable par moteur,
+variantes séquentielles, plus de `bring_to_front` par navigation, fermeture
+garantie en fin de recherche). Prochaines tâches : Phase 2 — T-020
+(BrowserService) puis T-021/T-022 ; T-051 (test bout en bout investigation)
+reste ouvert côté QA ; T-030/T-031 (extension Chrome) peuvent démarrer en
+parallèle. Smokes réels en attente au premier run interactif : mesure
+`engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
+(T-014), annulation live (T-011).

@@ -3558,3 +3558,51 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Prochaine action :** T-014 (pool de tabs moteurs, dernière tâche de la
   phase 1) ; au premier run réel, vérifier les logs de challenge et le dump
   T-006.
+
+### AI-20260706-007 — T-014 : pool de tabs moteurs + fin des vols de focus
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :** la phase 1 est terminée.
+  - `search_engine.py` : `EngineTabPool` — un tab réutilisable par moteur
+    pour toute la recherche (`navigate()` fait `tab.get(url)` si le tab vit,
+    sinon `browser.get(url, new_tab=True)` ; compteurs T-006
+    `engine_tab_open`/`engine_tab_reuse` ; `close_all()` ferme tout et
+    désenregistre `ACTIVE_ENGINE_TAB_TARGETS`). `SearchEngine.navigate`
+    passe par le pool quand `tab_pool` est posé ; suppression du
+    `main_tab.bring_to_front()` par navigation (restent uniquement ceux des
+    résolutions de challenge DDG/Brave). Le `finally` de `search()` appelle
+    `release_tab()` : rendu au pool si le tab lui appartient, fermé sinon
+    (un tab ouvert hors pool, ex. moteur custom, est toujours fermé).
+  - `search_orchestrator.py` : `_run_engines` restructuré — une instance
+    moteur et une tâche asyncio par moteur ; les variantes deviennent des
+    navigations successives du même tab (sérialisées par moteur, sémaphore
+    `engine_concurrency` acquis par variante). Bookkeeping par variante
+    incrémental dans la tâche : à l'échéance du budget T-010, seules les
+    variantes non enregistrées passent en `timeout`, les autres gardent
+    leurs résultats. `finally` → `pool.close_all()` quel que soit l'issue
+    (succès, échec, annulation). Une recherche 6 variantes × 4 moteurs crée
+    désormais ≤ 4 tabs au lieu de 24.
+  - Contrats préservés : clés d'erreur `engine [variant N]`, statuts
+    coverage, retries par variante, pagination Bing/Brave/DDG (même tab),
+    comportement inchangé pour un moteur utilisé sans pool.
+  - `observability.py` : les deux nouvelles catégories documentées.
+- **Tests exécutés :** `tests.test_search_orchestrator` +
+  `tests.test_engines` + `tests.test_search_engine_errors` — 72 OK
+  (maj test variantes : 2 instances réutilisées ; +3 tests pool :
+  réutilisation 1 tab/moteur + 0 `bring_to_front` + désenregistrement,
+  1 tab par moteur, échec de variante puis réutilisation du tab) ;
+  `py_compile` des fichiers touchés ; `unittest discover` — **336 OK** ;
+  `git diff --check` OK (CRLF).
+- **Non exécuté :** smoke réel multi-variantes (fenêtre sans clignotement,
+  mesure `engine_tab_open` via dump T-006) — au premier run interactif.
+- **Résiduel :** la création initiale d'un tab par moteur peut encore
+  prendre le focus une fois (plus de refocus compensatoire, conformément au
+  critère « aucun bring_to_front hors challenge ») ; disparaît avec T-040
+  (navigateur de recherche séparé).
+- **Fichiers modifiés :** `search_engine.py`, `search_orchestrator.py`,
+  `observability.py`, `tests/test_search_orchestrator.py`,
+  `docs/tasks/T-014-pool-tabs-moteurs.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`.
+- **Prochaine action :** Phase 2 — T-020 (BrowserService) ; T-051 (QA bout
+  en bout) et T-030/T-031 (extension Chrome) disponibles en parallèle.

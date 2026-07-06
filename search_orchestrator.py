@@ -9,6 +9,7 @@ import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
 from query_operators import SearchFilters, build_engine_query, result_matches_filters
+from search_engine import EngineTabPool
 from scoring import (
     ScoreBreakdown,
     ScoreComponent,
@@ -315,7 +316,6 @@ class SearchOrchestrator:
         filters: SearchFilters,
         query_variants: Iterable[str] | None = None,
     ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int, tuple[dict, ...]]:
-        tasks = []
         concurrency = max(1, self.settings.engine_concurrency)
         semaphore = asyncio.Semaphore(concurrency)
         queries = tuple(query_variants or (parsed_query,))
@@ -325,103 +325,120 @@ class SearchOrchestrator:
         }
         multiple_queries = len(queries) > 1
 
-        for query_index, query in enumerate(queries):
-            for engine_name, enabled in selected_engines.items():
-                if not enabled:
-                    continue
+        def task_key_for(engine_name: str, query_index: int) -> str:
+            return (
+                f"{engine_name} [variant {query_index + 1}]"
+                if multiple_queries
+                else engine_name
+            )
 
-                factory = self.engine_factories.get(engine_name)
-                if factory is None:
-                    logger.warning("Unknown search engine selected: %s", engine_name)
-                    continue
+        # T-014: one tab per engine for the whole run, one asyncio task per
+        # engine — variants are successive navigations of the same tab, so a
+        # multi-variant search no longer churns one tab per (engine, variant).
+        pool = EngineTabPool(browser)
+        engines: list[tuple[str, object]] = []
+        for engine_name, enabled in selected_engines.items():
+            if not enabled:
+                continue
+            factory = self.engine_factories.get(engine_name)
+            if factory is None:
+                logger.warning("Unknown search engine selected: %s", engine_name)
+                continue
+            engine = factory()
+            engine.search_filters = filters
+            engine.tab_pool = pool
+            engines.append((engine_name, engine))
 
-                engine = factory()
-                engine.search_filters = filters
+        if not engines:
+            logger.warning("No search engine selected.")
+            return {}, {}, 0, ()
+
+        engine_results: dict[str, pd.DataFrame] = {}
+        engine_errors: dict[str, Exception] = {}
+
+        async def run_engine(engine_name: str, engine) -> None:
+            # Per-variant bookkeeping lives inside the task so everything
+            # finished before the T-010 deadline stays recorded.
+            for query_index, query in enumerate(queries):
+                task_key = task_key_for(engine_name, query_index)
                 engine_query = build_engine_query(query, engine_name, filters)
-                task_key = (
-                    f"{engine_name} [variant {query_index + 1}]"
-                    if multiple_queries
-                    else engine_name
-                )
-                tasks.append((
-                    task_key,
-                    engine_name,
-                    query,
-                    asyncio.create_task(self._search_engine_limited(
+                try:
+                    result = await self._search_engine_limited(
                         semaphore,
                         engine_name,
                         engine,
                         engine_query,
                         browser,
                         num_results,
-                    )),
-                ))
+                    )
+                except Exception as exc:
+                    error = self._normalize_engine_error(engine_name, exc)
+                    logger.error(
+                        "%s search failed: %s",
+                        engine_name,
+                        error,
+                        exc_info=(type(exc), exc, exc.__traceback__),
+                    )
+                    engine_errors[task_key] = error
+                    engine_results[task_key] = pd.DataFrame()
+                    coverage[query]["engines"][engine_name] = {
+                        "status": self._coverage_error_status(error),
+                        "count": 0,
+                    }
+                else:
+                    result_frame = result.copy()
+                    result_frame["_engine"] = engine_name
+                    result_frame["_query_variant"] = query
+                    engine_results[task_key] = result_frame
+                    coverage[query]["engines"][engine_name] = {
+                        "status": "ok",
+                        "count": len(result_frame),
+                    }
 
-        if not tasks:
-            logger.warning("No search engine selected.")
-            return {}, {}, 0, ()
+        try:
+            tasks = {
+                engine_name: asyncio.create_task(run_engine(engine_name, engine))
+                for engine_name, engine in engines
+            }
 
-        # T-010: global wall-clock budget over the whole run (queueing under
-        # the semaphore included). Pending tasks are cancelled at the
-        # deadline; finished engines keep their results.
-        budget = max(0.0, self.settings.search_total_budget)
-        _, pending = await asyncio.wait(
-            [task for _, _, _, task in tasks],
-            timeout=budget if budget > 0 else None,
-        )
-        interrupted = set()
-        if pending:
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            interrupted = pending
-            logger.warning(
-                "Search budget of %.1fs exceeded; interrupted engines: %s",
-                budget,
-                ", ".join(sorted(
-                    task_key for task_key, _, _, task in tasks if task in interrupted
-                )),
+            # T-010: global wall-clock budget over the whole run (queueing
+            # under the semaphore included). Pending engine tasks are
+            # cancelled at the deadline; recorded variants keep their results.
+            budget = max(0.0, self.settings.search_total_budget)
+            _, pending = await asyncio.wait(
+                tasks.values(),
+                timeout=budget if budget > 0 else None,
             )
-
-        engine_results = {}
-        engine_errors = {}
-
-        for task_key, engine_name, query, task in tasks:
-            if task in interrupted:
-                engine_errors[task_key] = TimeoutError("search budget exceeded")
-                engine_results[task_key] = pd.DataFrame()
-                coverage[query]["engines"][engine_name] = {
-                    "status": "timeout",
-                    "count": 0,
-                }
-                continue
-            try:
-                result = task.result()
-            except Exception as exc:
-                error = self._normalize_engine_error(engine_name, exc)
-                logger.error(
-                    "%s search failed: %s",
-                    engine_name,
-                    error,
-                    exc_info=(type(exc), exc, exc.__traceback__),
+            if pending:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                interrupted_names = sorted(
+                    engine_name
+                    for engine_name, task in tasks.items()
+                    if task in pending
                 )
-                engine_errors[task_key] = error
-                engine_results[task_key] = pd.DataFrame()
-                coverage[query]["engines"][engine_name] = {
-                    "status": self._coverage_error_status(error),
-                    "count": 0,
-                }
-            else:
-                result_frame = result.copy()
-                result_frame["_engine"] = engine_name
-                result_frame["_query_variant"] = query
-                engine_results[task_key] = result_frame
-                coverage[query]["engines"][engine_name] = {
-                    "status": "ok",
-                    "count": len(result_frame),
-                }
+                for engine_name in interrupted_names:
+                    for query_index, query in enumerate(queries):
+                        if engine_name in coverage[query]["engines"]:
+                            continue
+                        task_key = task_key_for(engine_name, query_index)
+                        engine_errors[task_key] = TimeoutError("search budget exceeded")
+                        engine_results[task_key] = pd.DataFrame()
+                        coverage[query]["engines"][engine_name] = {
+                            "status": "timeout",
+                            "count": 0,
+                        }
+                logger.warning(
+                    "Search budget of %.1fs exceeded; interrupted engines: %s",
+                    budget,
+                    ", ".join(interrupted_names),
+                )
+        finally:
+            await pool.close_all()
 
-        return engine_results, engine_errors, len(tasks), tuple(coverage.values())
+        attempted_count = len(engines) * len(queries)
+        return engine_results, engine_errors, attempted_count, tuple(coverage.values())
 
     @staticmethod
     def _coverage_error_status(error: Exception) -> str:

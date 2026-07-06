@@ -117,6 +117,46 @@ _PROBE_JS_TEMPLATE = r"""
 """
 
 
+class EngineTabPool:
+    """One reusable tab per engine for a whole search run (T-014).
+
+    Query variants of the same engine navigate the same tab sequentially
+    (the orchestrator serializes variants per engine). The pool owner must
+    call :meth:`close_all` once the run is over, whatever the outcome.
+    """
+
+    def __init__(self, browser) -> None:
+        self._browser = browser
+        self._tabs: dict[str, uc.Tab] = {}
+
+    def owns(self, tab) -> bool:
+        return any(existing is tab for existing in self._tabs.values())
+
+    async def navigate(self, engine_name: str, url: str) -> uc.Tab:
+        tab = self._tabs.get(engine_name)
+        if tab is not None and not getattr(tab, "closed", False):
+            observability.count("engine_tab_reuse")
+            await tab.get(url)
+            return tab
+        observability.count("engine_tab_open")
+        tab = await self._browser.get(url, new_tab=True)
+        self._tabs[engine_name] = tab
+        return tab
+
+    async def close_all(self) -> None:
+        tabs, self._tabs = dict(self._tabs), {}
+        for engine_name, tab in tabs.items():
+            target_id = getattr(tab, "target_id", None)
+            if target_id:
+                ACTIVE_ENGINE_TAB_TARGETS.discard(str(target_id))
+            if getattr(tab, "closed", False):
+                continue
+            try:
+                await tab.close()
+            except Exception as exc:
+                logger.warning("Unable to close pooled %s tab: %s", engine_name, exc)
+
+
 class SearchEngine(ABC):
     def __init__(self, name):
         self.name = name
@@ -129,6 +169,7 @@ class SearchEngine(ABC):
         self.selector = None
         self.current_url = None
         self.search_filters = {}
+        self.tab_pool: EngineTabPool | None = None
         self._debug_html_hashes = set()
 
     async def search(self, query, browser=None, max_results=None) -> pd.DataFrame:
@@ -164,7 +205,7 @@ class SearchEngine(ABC):
             ) from exc
         finally:
             logger.info("Execution time %s: %.2f seconds", self.name, time.monotonic() - start_time)
-            await self.close_tab()
+            await self.release_tab()
 
     def capture_debug_html(self, raw_html: str, stage: str) -> str | None:
         settings = get_settings()
@@ -198,6 +239,15 @@ class SearchEngine(ABC):
         observability.observe_bytes("get_content", len(raw_html))
         self.capture_debug_html(raw_html, stage)
         return raw_html
+
+    async def release_tab(self):
+        """Hand a pooled tab back to the pool; close tabs the pool does not own."""
+        if self.tab is None:
+            return
+        if self.tab_pool is not None and self.tab_pool.owns(self.tab):
+            self.tab = None
+            return
+        await self.close_tab()
 
     async def close_tab(self):
         if self.tab is None:
@@ -246,7 +296,10 @@ class SearchEngine(ABC):
         url = self.construct_url()
         self.current_url = url
         try:
-            self.tab = await self.browser.get(url, new_tab=True)
+            if self.tab_pool is not None:
+                self.tab = await self.tab_pool.navigate(self.name, url)
+            else:
+                self.tab = await self.browser.get(url, new_tab=True)
         except Exception as exc:
             raise BrowserSessionError(
                 f"Unable to open {self.name} search page.",
@@ -257,13 +310,8 @@ class SearchEngine(ABC):
         if target_id:
             ACTIVE_ENGINE_TAB_TARGETS.add(str(target_id))
 
-        # Stay focused on the main tab
-        main_tab = getattr(self.browser, "main_tab", None)
-        if main_tab and not getattr(main_tab, "closed", False):
-            try:
-                await main_tab.bring_to_front()
-            except Exception:
-                logger.debug("Unable to bring main tab to front", exc_info=True)
+        # T-014: no main-tab refocus per navigation — the only legitimate
+        # bring_to_front left is the manual anti-robot challenge resolution.
         if not await self.wait_for_page_load():
             raise SearchEngineError(
                 self.name,

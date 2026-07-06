@@ -6,7 +6,7 @@ import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
 from query_operators import SearchFilters
-from search_engine import SearchEngine
+from search_engine import ACTIVE_ENGINE_TAB_TARGETS, SearchEngine
 from search_orchestrator import SearchOrchestrator, aggregate_search_results
 from settings import get_settings
 from tests.fakes import FakeBrowser
@@ -87,6 +87,39 @@ class HangingTabEngine(SearchEngine):
     async def execute_search(self):
         self.tab = await self.browser.get(self.construct_url(), new_tab=True)
         await asyncio.sleep(999)
+
+
+class PooledStubEngine(SearchEngine):
+    """Real SearchEngine subclass exercising the T-014 tab pool end to end."""
+
+    def __init__(self, name="Pooled"):
+        super().__init__(name)
+
+    def set_selector(self):
+        self.selector = "#results"
+
+    def construct_url(self):
+        return f"https://pooled.example/search?q={self.query}"
+
+    def parse_results(self, raw_results):
+        return []
+
+    async def wait_for_page_load(self, timeout=None, interval=None):
+        return True
+
+
+class FlakyParsePooledEngine(PooledStubEngine):
+    """First variant fails at parse time, later variants succeed."""
+
+    def __init__(self):
+        super().__init__("Flaky")
+        self.parse_attempts = 0
+
+    def parse_results(self, raw_results):
+        self.parse_attempts += 1
+        if self.parse_attempts == 1:
+            raise ValueError("bad markup")
+        return []
 
 
 class ConcurrencyTrackingEngine:
@@ -604,6 +637,90 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.nb_results, 1)
         self.assertEqual(result.engine_errors, {})
 
+    async def test_query_variants_reuse_one_pooled_tab_per_engine(self):
+        engine = PooledStubEngine()
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={"pooled": lambda: engine},
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        await orchestrator.search(
+            "anna lindberg",
+            '"anna lindberg"',
+            browser,
+            {"pooled": True},
+            5,
+            base_query='"anna lindberg"',
+            query_variants=('"anna lindberg"', '"lindberg anna"'),
+        )
+
+        # One tab created for the engine; the second variant navigates it.
+        self.assertEqual(browser.journal.count("browser.get"), 1)
+        self.assertEqual(browser.journal.count("get"), 1)
+        self.assertEqual(len(browser.tabs), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        self.assertEqual(browser.journal.count("bring_to_front"), 0)
+        self.assertNotIn(browser.tabs[0].target_id, ACTIVE_ENGINE_TAB_TARGETS)
+        self.assertIsNone(engine.tab)
+
+    async def test_each_engine_gets_its_own_pooled_tab(self):
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={
+                "alpha": lambda: PooledStubEngine("Alpha"),
+                "beta": lambda: PooledStubEngine("Beta"),
+            },
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        await orchestrator.search(
+            "anna lindberg",
+            '"anna lindberg"',
+            browser,
+            {"alpha": True, "beta": True},
+            5,
+            base_query='"anna lindberg"',
+            query_variants=('"anna lindberg"', '"lindberg anna"'),
+        )
+
+        self.assertEqual(browser.journal.count("browser.get"), 2)
+        self.assertEqual(len(browser.tabs), 2)
+        self.assertTrue(all(tab.closed for tab in browser.tabs))
+        self.assertEqual(browser.journal.count("bring_to_front"), 0)
+
+    async def test_variant_failure_keeps_pooled_tab_for_next_variant(self):
+        engine = FlakyParsePooledEngine()
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={"flaky": lambda: engine},
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        with self.assertLogs("search_orchestrator", level="ERROR"):
+            result = await orchestrator.search(
+                "anna lindberg",
+                '"anna lindberg"',
+                browser,
+                {"flaky": True},
+                5,
+                base_query='"anna lindberg"',
+                query_variants=('"anna lindberg"', '"lindberg anna"'),
+            )
+
+        self.assertEqual(set(result.engine_errors), {"flaky [variant 1]"})
+        self.assertEqual(browser.journal.count("browser.get"), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        engines_by_variant = [entry["engines"]["flaky"] for entry in result.coverage]
+        self.assertEqual(engines_by_variant[0]["status"], "error")
+        self.assertEqual(engines_by_variant[1]["status"], "ok")
+
     async def test_engine_specific_queries_are_used_for_filters(self):
         google_engine = FakeEngine()
         bing_engine = FakeEngine()
@@ -669,7 +786,13 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
             query_variants=('"anna lindberg"', '"lindberg anna"'),
         )
 
-        self.assertEqual(len(instances), 4)
+        # T-014: one engine instance per engine, reused across variants.
+        self.assertEqual(len(instances), 2)
+        for engine in instances:
+            self.assertEqual(
+                [call[0] for call in engine.calls],
+                ['"anna lindberg"', '"lindberg anna"'],
+            )
         self.assertEqual(result.nb_results, 1)
         self.assertEqual(len(result.coverage), 2)
         self.assertEqual(

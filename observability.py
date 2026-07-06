@@ -8,6 +8,8 @@ Categories used across the codebase:
 - ``eval_settings``    : settings-bridge evaluates on local tabs
 - ``eval_page``        : investigation/report page consume evaluates
 - ``eval_engine_wait`` : per-iteration probes in engine wait loops
+- ``engine_tab_open``  : engine tabs created by the search tab pool
+- ``engine_tab_reuse`` : pooled engine tab reused for another variant
 - ``get_content``      : full-page HTML retrievals
 - ``screenshot``       : evidence screenshot captures
 
