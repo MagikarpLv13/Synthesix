@@ -3384,3 +3384,44 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   Claude) et T-013/T-015 (Brave fallback + golden files, Codex) sont
   indépendants et peuvent démarrer en parallèle. T-050 (harness FakeTab)
   utile avant T-010 pour mutualiser les fakes.
+
+### AI-20260706-003 — Phase 1 : T-050 (harness FakeTab) + T-010 (budget global de recherche)
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :**
+  - **T-050** : nouveau `tests/fakes.py` — `FakeTab` (méthodes réellement
+    utilisées par le code, référence zendriver 0.15.3), `FakeBrowser`,
+    `FakeElement`, `CallJournal` (`count`, `scripts_evaluated_bytes`) et
+    `fake_clock(*modules)` (proxy `time.monotonic`/`asyncio.sleep` sans effet
+    global — un timeout de 30 s se teste sans temps réel). Réponses
+    programmables : file `program()` → handler `on()` → défaut. 6 tests
+    d'exemple dans `tests/test_fakes.py` (attente moteur succès/timeout,
+    boucle home action, capture PNG). `tests/test_cdp_budget.py` migré sur le
+    harness (fabrique `make_tab`), baseline T-006 inchangée.
+  - **T-010** : réglage `search_total_budget`
+    (`SYNTHESIX_SEARCH_TOTAL_BUDGET`, défaut 120 s, 0 = désactivé, relation
+    aux timeouts de challenge documentée dans `settings.py`). Dans
+    `_run_engines` : `asyncio.wait(tasks, timeout=budget)` au lieu de
+    `gather` ; à l'échéance les tâches restantes sont annulées et attendues,
+    erreur moteur `TimeoutError("search budget exceeded")`, couverture
+    `{"status": "timeout"}`, log WARNING (budget + moteurs interrompus). Les
+    moteurs terminés gardent leurs résultats (retour partiel) ; « tous en
+    échec ⇒ exception » inchangé. Annulation vérifiée : pas de
+    `except BaseException`/`except:` nu dans le dépôt, tab fermé par le
+    `finally` de `SearchEngine.search` (assert `FakeTab.closed`).
+- **Tests exécutés :** `tests.test_fakes` (6), `tests.test_cdp_budget` (4),
+  `tests.test_search_orchestrator` (+4 tests budget),
+  `tests.test_search_engine_errors`, `py_compile` des fichiers touchés,
+  `unittest discover` — **317 tests OK** ; `git diff --check` OK (CRLF).
+- **Non exécuté :** smoke navigateur réel d'une recherche coupée par le
+  budget (comportement couvert par tests unitaires avec moteur suspendu) ;
+  à observer au premier run interactif long.
+- **Fichiers modifiés :** `tests/fakes.py` (nouveau), `tests/test_fakes.py`
+  (nouveau), `tests/test_cdp_budget.py`, `search_orchestrator.py`,
+  `settings.py`, `tests/test_search_orchestrator.py`,
+  `docs/tasks/T-050-harness-faketab.md`,
+  `docs/tasks/T-010-deadline-globale-recherche.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`.
+- **Prochaine action :** T-011 (recherche non bloquante + annulation,
+  Claude) ; T-013/T-015 restent disponibles pour Codex en parallèle.

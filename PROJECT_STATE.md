@@ -27,11 +27,11 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | Phase | Contenu | Statut |
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
-| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | à faire |
+| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | en cours (T-010 done ; T-011..T-015 à faire) |
 | 2 | BrowserService + push CDP pour pages locales | à faire |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
-| QA | Harness FakeTab/FakeBrowser, tests bout en bout | à faire |
+| QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
 
 ## État courant
 
@@ -46,7 +46,8 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 1. ~~Actions UI perdables~~ corrigé (T-001) ; le coût du polling reste,
    réduit par T-003, supprimé par les phases 2/3.
-2. Recherche bloque la boucle d'actions, pas d'annulation (T-010/T-011).
+2. Recherche bloque la boucle d'actions (T-011) ; ~~pas de plafond global~~
+   corrigé (T-010 : budget 120 s, résultats partiels, annulation propre).
 3. Parsing Brave par regex sur bundle minifié : cassera au prochain déploiement Brave (T-013/T-015).
 4. `--load-extension` retiré de Chrome stable brandé ≥137 : l'extension doit prévoir l'installation unpacked persistante (T-032).
 5. Smokes navigateur réels de la phase 0 non exécutés (kill Chrome, captcha
@@ -54,5 +55,6 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 1 : T-010 (deadline globale, Claude) ; T-013 + T-015 (Brave fallback +
-golden files, Codex) en parallèle. T-050 (harness FakeTab) utile avant T-010.
+Phase 1 : T-011 (recherche non bloquante + annulation, Claude) ; T-013 +
+T-015 (Brave fallback + golden files, Codex) en parallèle. T-050 (harness
+FakeTab, `tests/fakes.py`) et T-010 (budget global) sont livrés.

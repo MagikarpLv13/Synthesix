@@ -361,21 +361,49 @@ class SearchOrchestrator:
             logger.warning("No search engine selected.")
             return {}, {}, 0, ()
 
-        results = await asyncio.gather(
-            *(task for _, _, _, task in tasks),
-            return_exceptions=True,
+        # T-010: global wall-clock budget over the whole run (queueing under
+        # the semaphore included). Pending tasks are cancelled at the
+        # deadline; finished engines keep their results.
+        budget = max(0.0, self.settings.search_total_budget)
+        _, pending = await asyncio.wait(
+            [task for _, _, _, task in tasks],
+            timeout=budget if budget > 0 else None,
         )
+        interrupted = set()
+        if pending:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            interrupted = pending
+            logger.warning(
+                "Search budget of %.1fs exceeded; interrupted engines: %s",
+                budget,
+                ", ".join(sorted(
+                    task_key for task_key, _, _, task in tasks if task in interrupted
+                )),
+            )
+
         engine_results = {}
         engine_errors = {}
 
-        for (task_key, engine_name, query, _), result in zip(tasks, results):
-            if isinstance(result, Exception):
-                error = self._normalize_engine_error(engine_name, result)
+        for task_key, engine_name, query, task in tasks:
+            if task in interrupted:
+                engine_errors[task_key] = TimeoutError("search budget exceeded")
+                engine_results[task_key] = pd.DataFrame()
+                coverage[query]["engines"][engine_name] = {
+                    "status": "timeout",
+                    "count": 0,
+                }
+                continue
+            try:
+                result = task.result()
+            except Exception as exc:
+                error = self._normalize_engine_error(engine_name, exc)
                 logger.error(
                     "%s search failed: %s",
                     engine_name,
                     error,
-                    exc_info=(type(result), result, result.__traceback__),
+                    exc_info=(type(exc), exc, exc.__traceback__),
                 )
                 engine_errors[task_key] = error
                 engine_results[task_key] = pd.DataFrame()

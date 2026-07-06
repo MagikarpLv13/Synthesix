@@ -1,6 +1,6 @@
 # T-010 — Deadline globale de recherche + résultats partiels
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P0 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-050 recommandé (FakeTab pour les tests), pas bloquant
@@ -67,3 +67,24 @@ démarre qu'après acquisition du sémaphore, donc la file d'attente s'additionn
   coupe l'utilisateur en pleine résolution. Documenter la relation entre
   `search_total_budget`, `duckduckgo_robot_timeout` et `brave_results_timeout`
   dans `settings.py`.
+
+## Résultat (2026-07-06, Claude)
+
+- `settings.py` : `search_total_budget`
+  (`SYNTHESIX_SEARCH_TOTAL_BUDGET`, défaut 120.0, 0 = désactivé) avec la
+  relation aux timeouts de challenge documentée en commentaire.
+- `search_orchestrator.py` `_run_engines` : `asyncio.gather` remplacé par
+  `asyncio.wait(tasks, timeout=budget)` ; tâches pending annulées puis
+  attendues (`gather(return_exceptions=True)`), erreur moteur
+  `TimeoutError("search budget exceeded")`, couverture
+  `{"status": "timeout", "count": 0}`, log WARNING avec budget et moteurs
+  interrompus. Résultats des moteurs terminés conservés (partiels) ; la règle
+  « tous en échec ⇒ exception » reste inchangée et couvre le cas 0 succès.
+- Chemin d'annulation vérifié : aucun `except BaseException`/`except:` nu
+  dans le dépôt ; `CancelledError` (BaseException en 3.10+) traverse les
+  `except Exception` des moteurs ; `SearchEngine.search` ferme le tab en
+  `finally` (assert `FakeTab.closed` en test).
+- Tests : `tests.test_search_orchestrator` (4 nouveaux : partiels+couverture,
+  0 succès ⇒ raise, tabs fermés après annulation via `HangingTabEngine` réel
+  + FakeBrowser, budget 0 désactivé), `tests.test_search_engine_errors`,
+  `unittest discover` 317 OK.

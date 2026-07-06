@@ -101,6 +101,12 @@ class AppSettings:
     engine_retry_attempts: int
     engine_retry_delay: float
     engine_retry_backoff: float
+    # Global wall-clock cap for a whole search run (all variants × engines,
+    # queueing included). 0 disables the cap. Must stay above the slowest
+    # interactive challenge window (duckduckgo_robot_timeout 75 s,
+    # brave_results_timeout 45 s), otherwise a user resolving a captcha is
+    # cut off mid-challenge.
+    search_total_budget: float
     max_query_variants: int
 
     def search_results_path(self, date_str: str) -> Path:
@@ -216,5 +222,6 @@ def _build_settings() -> AppSettings:
         engine_retry_attempts=_env_int("SYNTHESIX_ENGINE_RETRY_ATTEMPTS", 1),
         engine_retry_delay=_env_float("SYNTHESIX_ENGINE_RETRY_DELAY", 0.5),
         engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),
+        search_total_budget=_env_float("SYNTHESIX_SEARCH_TOTAL_BUDGET", 120.0),
         max_query_variants=max(1, _env_int("SYNTHESIX_MAX_QUERY_VARIANTS", 6)),
     )

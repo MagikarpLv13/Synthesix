@@ -6,8 +6,10 @@ import pandas as pd
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
 from query_operators import SearchFilters
+from search_engine import SearchEngine
 from search_orchestrator import SearchOrchestrator, aggregate_search_results
 from settings import get_settings
+from tests.fakes import FakeBrowser
 
 
 class FakeEngine:
@@ -61,6 +63,30 @@ class SlowEngine:
         self.calls.append((query, browser, max_results))
         await asyncio.sleep(self.delay)
         return pd.DataFrame()
+
+
+class HangingTabEngine(SearchEngine):
+    """Real SearchEngine subclass that opens a tab then hangs forever.
+
+    Exercises the T-010 cancellation path end to end: the budget cancels the
+    task and ``SearchEngine.search``'s ``finally`` must still close the tab.
+    """
+
+    def __init__(self):
+        super().__init__("Hanging")
+
+    def set_selector(self):
+        self.selector = "#results"
+
+    def construct_url(self):
+        return "https://hanging.example/search"
+
+    def parse_results(self, raw_results):
+        return []
+
+    async def execute_search(self):
+        self.tab = await self.browser.get(self.construct_url(), new_tab=True)
+        await asyncio.sleep(999)
 
 
 class ConcurrencyTrackingEngine:
@@ -421,6 +447,162 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(tracker["max_active"], 2)
+
+    async def test_search_budget_returns_partial_results_and_marks_timeouts(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+        fast_engine = FakeEngine(frame=frame)
+        slow_engine = SlowEngine(delay=999)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "bing": lambda: fast_engine,
+                    "google": lambda: slow_engine,
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            started = asyncio.get_running_loop().time()
+            with self.assertLogs("search_orchestrator", level="WARNING") as logs:
+                result = await orchestrator.search(
+                    "python async",
+                    '"python async"',
+                    object(),
+                    {"bing": True, "google": True},
+                    5,
+                )
+            elapsed = asyncio.get_running_loop().time() - started
+
+        self.assertLess(elapsed, 5.0)
+        self.assertEqual(result.nb_results, 1)
+        self.assertIn("google", result.engine_errors)
+        self.assertIsInstance(result.engine_errors["google"], TimeoutError)
+        self.assertEqual(str(result.engine_errors["google"]), "search budget exceeded")
+        engines_coverage = result.coverage[0]["engines"]
+        self.assertEqual(engines_coverage["google"], {"status": "timeout", "count": 0})
+        self.assertEqual(engines_coverage["bing"]["status"], "ok")
+        self.assertTrue(any("Search budget" in entry for entry in logs.output))
+
+    async def test_search_budget_with_no_successful_engine_raises(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"google": lambda: SlowEngine(delay=999)},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="WARNING"):
+                with self.assertRaises(TimeoutError):
+                    await orchestrator.search(
+                        "python async",
+                        '"python async"',
+                        object(),
+                        {"google": True},
+                        5,
+                    )
+
+    async def test_search_budget_cancellation_closes_engine_tabs(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+        hanging_engine = HangingTabEngine()
+        browser = FakeBrowser()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "bing": lambda: FakeEngine(frame=frame),
+                    "google": lambda: hanging_engine,
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="WARNING"):
+                result = await orchestrator.search(
+                    "python async",
+                    '"python async"',
+                    browser,
+                    {"bing": True, "google": True},
+                    5,
+                )
+
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(len(browser.tabs), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        self.assertIsNone(hanging_engine.tab)
+
+    async def test_search_budget_zero_disables_the_deadline(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"SYNTHESIX_SEARCH_TOTAL_BUDGET": "0"},
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"bing": lambda: FakeEngine(frame=frame)},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            result = await orchestrator.search(
+                "python async",
+                '"python async"',
+                object(),
+                {"bing": True},
+                5,
+            )
+
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(result.engine_errors, {})
 
     async def test_engine_specific_queries_are_used_for_filters(self):
         google_engine = FakeEngine()
