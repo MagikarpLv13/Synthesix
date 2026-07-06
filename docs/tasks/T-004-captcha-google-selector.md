@@ -1,6 +1,6 @@
 # T-004 — Détection captcha Google fiable
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P1 · **Effort** : faible
 - **Outil recommandé** : Claude (smoke CDP réel nécessaire)
 - **Dépendances** : aucune
@@ -58,3 +58,20 @@ pas réalisable pendant la tâche, l'indiquer explicitement à la clôture.
 
 - Google peut servir des variantes de page captcha sans `#captcha-form` :
   ajouter le repli URL `/sorry/` couvre le cas principal connu.
+
+## Résultat (2026-07-06)
+
+- `google.py` `robot_check` : détection par `query_selector("#captcha-form")`
+  (au lieu de `tab.find()` qui cherche du texte — comportement non garanti)
+  + repli sur l'URL interstitielle `/sorry/`.
+- Captcha non résolu après l'attente de 100 s → `RobotChallengeError`
+  (couverture `challenge` au lieu d'un résultat vide silencieux, aligné sur
+  Brave/DDG). Garde `_challenge_wait_active` contre la récursion
+  `wait_for_page_load` ↔ `robot_check` (attentes 100 s imbriquées sinon).
+- `activate()` enveloppé en best-effort.
+- Tests : 4 nouveaux cas dans `GoogleRobotCheckTestCase`
+  (`tests.test_engines`) ; suites engines + search_engine_errors → 43 OK.
+- Non exécuté : smoke réel avec captcha Google déclenché (nécessite d'être
+  flaggé par Google en conditions réelles) ; le sélecteur `#captcha-form` et
+  le chemin `/sorry/` correspondent à l'interstitiel connu — à confirmer au
+  premier challenge réel rencontré.

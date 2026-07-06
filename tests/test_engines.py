@@ -15,6 +15,7 @@ from duckduckgo import (
     looks_like_duckduckgo_no_results,
     looks_like_duckduckgo_robot_challenge,
 )
+from exceptions import RobotChallengeError
 from google import GoogleSearchEngine
 from query_operators import SearchFilters
 
@@ -120,6 +121,64 @@ class EngineUrlTestCase(unittest.TestCase):
         params = parse_qs(urlparse(engine.construct_url()).query)
 
         self.assertEqual(params["kl"], ["se-sv"])
+
+
+class _GoogleRobotTab:
+    def __init__(self, captcha_node=None, url="https://www.google.com/search?q=x"):
+        self.captcha_node = captcha_node
+        self.url = url
+        self.activated = False
+
+    async def query_selector(self, selector):
+        assert selector == "#captcha-form"
+        return self.captcha_node
+
+    async def activate(self):
+        self.activated = True
+
+
+class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
+    """T-004: captcha detection uses query_selector and the /sorry/ URL,
+    and an unresolved captcha surfaces as RobotChallengeError (coverage
+    status "challenge" instead of a silent empty result)."""
+
+    def _engine(self, tab, wait_result):
+        engine = GoogleSearchEngine()
+        engine.query = "probe"
+        engine.tab = tab
+
+        async def fake_wait(timeout=None, interval=None):
+            return wait_result
+
+        engine.wait_for_page_load = fake_wait
+        return engine
+
+    async def test_no_marker_means_no_robot(self):
+        engine = self._engine(_GoogleRobotTab(), wait_result=True)
+
+        self.assertFalse(await engine.robot_check())
+
+    async def test_captcha_form_detected_and_resolved(self):
+        tab = _GoogleRobotTab(captcha_node=object())
+        engine = self._engine(tab, wait_result=True)
+
+        self.assertTrue(await engine.robot_check())
+        self.assertTrue(tab.activated)
+
+    async def test_sorry_url_detected_without_form(self):
+        tab = _GoogleRobotTab(
+            url="https://www.google.com/sorry/index?continue=https://www.google.com/search"
+        )
+        engine = self._engine(tab, wait_result=True)
+
+        self.assertTrue(await engine.robot_check())
+
+    async def test_unresolved_captcha_raises_challenge_error(self):
+        tab = _GoogleRobotTab(captcha_node=object())
+        engine = self._engine(tab, wait_result=False)
+
+        with self.assertRaises(RobotChallengeError):
+            await engine.robot_check()
 
 
 class BingPaginationTestCase(unittest.TestCase):
