@@ -1,6 +1,6 @@
 # T-005 — Nettoyages CDP mineurs
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P2 · **Effort** : faible
 - **Outil recommandé** : Codex
 - **Dépendances** : aucune
@@ -66,3 +66,24 @@ Smoke manuel : lancer l'app, tuer le process Chrome, vérifier l'arrêt propre.
 
 - Différence de fraîcheur entre `browser.tabs` et les targets réels selon la
   version zendriver : garder le filtre « type page » actuel.
+
+## Résultat (2026-07-06)
+
+1. **Dédoublonnage targets : non réalisable proprement sur zendriver 0.15.3**
+   (vérifié dans le source du paquet) : `update_targets()` ajoute et met à
+   jour les targets mais ne retire jamais les fermés, et `Connection.closed`
+   est aussi vrai pour des tabs vivants jamais attachés — le second
+   `_get_targets()` est le seul moyen de filtrer les vivants. Les deux
+   requêtes restent, avec un commentaire en code expliquant pourquoi ; T-022
+   (événements Target) les supprimera toutes les deux. Usage privé confiné à
+   `_open_tabs`.
+2. `window.name` conditionnel : déjà livré par T-003 (probe home).
+3. Purge de `_OVERLAY_FOCUS_GUARD_ARMED_TARGETS` : `intersection_update` avec
+   les pages vivantes à chaque inventaire.
+4. Garde anti-zombie : `_BROWSER_UNREACHABLE_QUIT_SECONDS = 10.0` — si
+   `_open_tabs` échoue en continu (Chrome tué), la boucle quitte proprement
+   avec un log au lieu de tourner en silence.
+- Tests : `tests.test_cdp_budget` (2 nouveaux : purge du set + quit sur
+  navigateur injoignable), `tests.test_main` → 39 OK. Smoke réel
+  « kill Chrome » non exécuté (couvert par le test unitaire ; à observer au
+  prochain run réel).

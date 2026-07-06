@@ -162,6 +162,57 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
         # Empty temp-dir data: "[]" history + "[]" investigations payloads.
         self.assertEqual(snapshot["bytes"].get("eval_home", 0), 4)
 
+    async def test_focus_guard_registry_is_pruned_with_targets(self):
+        home = FakeTab(INDEX_URL, "home", home_actions=[{"action": "probe"}])
+        browser = FakeBrowser([home])
+        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.update({"home", "closed-tab"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_HOME_POLL_INTERVAL": "0",
+                },
+            ):
+                settings = get_settings()
+                await asyncio.wait_for(
+                    wait_for_home_action(browser, INDEX_URL, settings=settings),
+                    timeout=10,
+                )
+
+        self.assertEqual(_OVERLAY_FOCUS_GUARD_ARMED_TARGETS, {"home"})
+
+    async def test_unreachable_browser_quits_instead_of_looping(self):
+        class DeadBrowser:
+            stopped = False
+            tabs = []
+
+            async def update_targets(self):
+                raise ConnectionError("chrome is gone")
+
+            async def _get_targets(self):
+                raise ConnectionError("chrome is gone")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_HOME_POLL_INTERVAL": "0",
+                },
+            ):
+                settings = get_settings()
+                with patch("main._BROWSER_UNREACHABLE_QUIT_SECONDS", 0.05):
+                    action = await asyncio.wait_for(
+                        wait_for_home_action(
+                            DeadBrowser(), INDEX_URL, settings=settings
+                        ),
+                        timeout=10,
+                    )
+
+        self.assertEqual(action, {"action": "quit"})
+
 
 if __name__ == "__main__":
     unittest.main()

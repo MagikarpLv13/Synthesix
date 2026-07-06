@@ -65,6 +65,10 @@ from utils import (
 
 RECENT_PAGE_ARCHIVE_REUSE_WINDOW = timedelta(minutes=15)
 
+# How long _open_tabs may keep failing before the main loop gives up on the
+# browser connection (crashed or force-killed Chrome).
+_BROWSER_UNREACHABLE_QUIT_SECONDS = 10.0
+
 logger = logging.getLogger(__name__)
 _MISSING_HISTORY_SIGNATURE = object()
 _OVERLAY_BUNDLE_PATH = (
@@ -139,6 +143,11 @@ async def _open_tabs(browser: uc.Browser):
     observability.count("targets_poll")
     try:
         await browser.update_targets()
+        # Second fetch on purpose: zendriver 0.15.3's update_targets() adds
+        # and refreshes targets but never removes closed ones, so the fresh
+        # list is the only way to know which tabs are still alive (checked —
+        # Connection.closed is also True for live tabs that never attached a
+        # websocket). Both requests go away with T-022 (Target events).
         targets = await browser._get_targets()
         live_page_ids = {
             target.target_id
@@ -149,6 +158,7 @@ async def _open_tabs(browser: uc.Browser):
         logger.debug("Unable to update browser targets", exc_info=True)
         return None
 
+    _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.intersection_update(live_page_ids)
     return [
         tab
         for tab in browser.tabs
@@ -2343,6 +2353,7 @@ async def wait_for_home_action(
 ):
     settings = settings or get_settings()
     empty_since = None
+    unreachable_since = None
     history_cache = {}
 
     while True:
@@ -2352,8 +2363,23 @@ async def wait_for_home_action(
         observability.maybe_log_snapshot()
         tabs = await _open_tabs(browser)
         if tabs is None:
+            # A crashed/killed Chrome never sets browser.stopped; without
+            # this guard the loop would poll a dead connection forever.
+            if unreachable_since is None:
+                unreachable_since = time.monotonic()
+            elif (
+                time.monotonic() - unreachable_since
+                >= _BROWSER_UNREACHABLE_QUIT_SECONDS
+            ):
+                logger.error(
+                    "Browser unreachable for %.0f seconds; shutting down.",
+                    _BROWSER_UNREACHABLE_QUIT_SECONDS,
+                )
+                return {"action": "quit"}
             await asyncio.sleep(settings.home_poll_interval)
             continue
+
+        unreachable_since = None
 
         if not tabs:
             if empty_since is None:
