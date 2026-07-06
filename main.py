@@ -160,54 +160,92 @@ def _is_home_tab(tab, index_url: str) -> bool:
     return _normalize_tab_url(getattr(tab, "url", None)) == index_url
 
 
-async def _consume_home_tab_action(
-    tab,
-    history_json: str,
-    history_version: str,
-    investigations_json: str = "[]",
-    investigations_version: str = "",
-):
-    history_version_json = json.dumps(history_version)
-    investigations_version_json = json.dumps(investigations_version)
+async def _consume_home_tab_action(tab):
+    """Light per-tick probe: consume one queued action and report the data
+    versions currently applied by the page. Payload transfers happen in
+    :func:`_push_home_tab_data`, and only when a version differs (T-003)."""
     observability.count("eval_home")
-    observability.observe_bytes(
-        "eval_home",
-        len(history_json) + len(investigations_json),
-    )
     try:
         return await tab.evaluate(
-            f"""
-            (() => {{
+            """
+            (() => {
                 if (
                     !window.synthesixHome ||
                     typeof window.synthesixHome.consumeAction !== "function"
-                ) {{
-                    return {{ ready: false, action: null }};
-                }}
-                window.name = "synthesix-home";
-                const nextHistoryVersion = {history_version_json};
-                if (window.synthesixHome.historyVersion !== nextHistoryVersion) {{
-                    window.synthesixHome.setHistory({history_json});
-                    window.synthesixHome.historyVersion = nextHistoryVersion;
-                }}
-                const nextInvestigationsVersion = {investigations_version_json};
-                if (
-                    typeof window.synthesixHome.setInvestigations === "function" &&
-                    window.synthesixHome.investigationsVersion !== nextInvestigationsVersion
-                ) {{
-                    window.synthesixHome.setInvestigations({investigations_json});
-                    window.synthesixHome.investigationsVersion = nextInvestigationsVersion;
-                }}
-                return {{
+                ) {
+                    return { ready: false, action: null };
+                }
+                if (window.name !== "synthesix-home") {
+                    window.name = "synthesix-home";
+                }
+                return {
                     ready: true,
-                    action: window.synthesixHome.consumeAction()
-                }};
-            }})()
+                    action: window.synthesixHome.consumeAction(),
+                    historyVersion:
+                        window.synthesixHome.historyVersion ?? null,
+                    investigationsVersion:
+                        window.synthesixHome.investigationsVersion ?? null
+                };
+            })()
             """,
         )
     except Exception:
         logger.debug("Unable to read home tab action", exc_info=True)
         return None
+
+
+async def _push_home_tab_data(
+    tab,
+    history_json: str | None = None,
+    history_version: str = "",
+    investigations_json: str | None = None,
+    investigations_version: str = "",
+) -> None:
+    """Ship history/investigations payloads to a home tab.
+
+    Each part is only embedded when its version diverged, so the steady
+    state costs nothing beyond the light probe above."""
+    parts = []
+    transferred = 0
+    if history_json is not None:
+        parts.append(
+            f"""
+                window.synthesixHome.setHistory({history_json});
+                window.synthesixHome.historyVersion = {json.dumps(history_version)};
+            """
+        )
+        transferred += len(history_json)
+    if investigations_json is not None:
+        parts.append(
+            f"""
+                if (typeof window.synthesixHome.setInvestigations === "function") {{
+                    window.synthesixHome.setInvestigations({investigations_json});
+                    window.synthesixHome.investigationsVersion = (
+                        {json.dumps(investigations_version)}
+                    );
+                }}
+            """
+        )
+        transferred += len(investigations_json)
+    if not parts:
+        return
+
+    observability.count("eval_home")
+    observability.observe_bytes("eval_home", transferred)
+    body = "".join(parts)
+    try:
+        await tab.evaluate(
+            f"""
+            (() => {{
+                if (!window.synthesixHome) {{
+                    return;
+                }}
+{body}
+            }})()
+            """,
+        )
+    except Exception:
+        logger.debug("Unable to push home tab data", exc_info=True)
 
 
 def _history_signature(settings: AppSettings):
@@ -2343,13 +2381,22 @@ async def wait_for_home_action(
         if home_tabs:
             history_json, history_version = _cached_history_payload(settings, history_cache)
             for tab in home_tabs:
-                state = await _consume_home_tab_action(
-                    tab,
-                    history_json,
-                    history_version,
-                    investigations_json,
-                    investigations_version,
-                )
+                state = await _consume_home_tab_action(tab)
+                if state and state.get("ready"):
+                    history_stale = state.get("historyVersion") != history_version
+                    investigations_stale = (
+                        state.get("investigationsVersion") != investigations_version
+                    )
+                    if history_stale or investigations_stale:
+                        await _push_home_tab_data(
+                            tab,
+                            history_json=history_json if history_stale else None,
+                            history_version=history_version,
+                            investigations_json=(
+                                investigations_json if investigations_stale else None
+                            ),
+                            investigations_version=investigations_version,
+                        )
                 if state and state.get("action"):
                     action = state["action"]
                     action["_source_tab"] = tab

@@ -20,20 +20,30 @@ INDEX_URL = "file:///synthesix/index.html"
 
 
 class FakeTab:
-    def __init__(self, url, target_id, home_actions=None):
+    def __init__(self, url, target_id, home_actions=None, home_versions=("", "")):
         self.url = url
         self.target_id = target_id
         self.closed = False
         self._home_actions = list(home_actions or [])
+        self._home_versions = home_versions
+        self.pushed_payloads = 0
 
     async def evaluate(self, script):
         if "consumeSettingsChange" in script:
             return None
         if "!!window.SynthesixOverlay" in script:
             return False
-        if "synthesixHome" in script:
+        if "setHistory" in script or "setInvestigations" in script:
+            self.pushed_payloads += 1
+            return None
+        if "synthesixHome" in script and "consumeAction" in script:
             action = self._home_actions.pop(0) if self._home_actions else None
-            return {"ready": True, "action": action}
+            return {
+                "ready": True,
+                "action": action,
+                "historyVersion": self._home_versions[0],
+                "investigationsVersion": self._home_versions[1],
+            }
         # Overlay install/consume and synthesixPage consume paths.
         return None
 
@@ -95,7 +105,8 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(action["action"], "budget-probe")
 
-        calls = observability.snapshot()["calls"]
+        snapshot = observability.snapshot()
+        calls = snapshot["calls"]
         # Baseline measured on 2026-07-06 (see docs/tasks/T-006): one target
         # inventory per tick, one settings probe per local tab and one home
         # consume per tick; two overlay evaluates per external tab and one
@@ -108,6 +119,11 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls.get("eval_overlay", 0), 2 * idle_ticks)
         self.assertEqual(calls.get("eval_page", 0), idle_ticks)
 
+        # T-003: page versions match the backend, so no payload is embedded
+        # in the steady state.
+        self.assertEqual(snapshot["bytes"].get("eval_home", 0), 0)
+        self.assertEqual(home.pushed_payloads, 0)
+
         evaluates_per_idle_tick = (
             2  # settings probes (home + case page)
             + 1  # home consume
@@ -115,6 +131,36 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
             + calls.get("eval_page", 0) / idle_ticks
         )
         self.assertLessEqual(evaluates_per_idle_tick, 6)
+
+    async def test_stale_home_versions_trigger_payload_push(self):
+        home = FakeTab(
+            INDEX_URL,
+            "home",
+            home_actions=[{"action": "budget-probe"}],
+            home_versions=("stale-history", "stale-investigations"),
+        )
+        browser = FakeBrowser([home])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_HOME_POLL_INTERVAL": "0",
+                },
+            ):
+                settings = get_settings()
+                await asyncio.wait_for(
+                    wait_for_home_action(browser, INDEX_URL, settings=settings),
+                    timeout=10,
+                )
+
+        snapshot = observability.snapshot()
+        # One probe plus one payload push on the single tick.
+        self.assertEqual(snapshot["calls"].get("eval_home", 0), 2)
+        self.assertEqual(home.pushed_payloads, 1)
+        # Empty temp-dir data: "[]" history + "[]" investigations payloads.
+        self.assertEqual(snapshot["bytes"].get("eval_home", 0), 4)
 
 
 if __name__ == "__main__":

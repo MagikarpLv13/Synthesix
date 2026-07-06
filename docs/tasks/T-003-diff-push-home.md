@@ -1,6 +1,6 @@
 # T-003 — Payload home poussé seulement sur changement
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P1 · **Effort** : faible
 - **Outil recommandé** : Codex
 - **Dépendances** : aucune
@@ -60,3 +60,17 @@ l'historique mis à jour ; recharger la home, vérifier le re-push.
 - Désynchronisation si la page est rechargée sans que le backend le voie :
   couvert par la lecture de version par tick (étape 1a) ou par re-push quand
   `ready:false→true`.
+
+## Résultat (2026-07-06)
+
+- `_consume_home_tab_action` réduit à un probe léger (consomme une action,
+  retourne `historyVersion`/`investigationsVersion` de la page, pose
+  `window.name` seulement si absent).
+- Nouveau `_push_home_tab_data` : n'embarque chaque payload (history,
+  investigations) que si sa version diverge de celle de la page ; robuste au
+  rechargement par construction (la page annonce ses versions à chaque tick).
+- Régime stable : 1 evaluate léger/tick, 0 octet de payload (verrouillé par
+  `test_cdp_budget`, assertion bytes == 0 + nouveau test de divergence :
+  probe + push = 2 evaluates, payloads transférés une fois).
+- Tests : `tests.test_cdp_budget`, `tests.test_main`, `tests.test_home_ui`
+  → 48 OK.
