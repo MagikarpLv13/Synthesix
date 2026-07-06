@@ -3425,3 +3425,43 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`.
 - **Prochaine action :** T-011 (recherche non bloquante + annulation,
   Claude) ; T-013/T-015 restent disponibles pour Codex en parallèle.
+
+### AI-20260706-004 — T-011 : recherche non bloquante + annulation
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :**
+  - `main.py` : les actions `search` et `retry_search_combination` partent
+    en tâche de fond (`_start_search_task`, done callback anti-exception
+    silencieuse ; wrappers `_run_search_action` / `_run_retry_search_action`
+    qui possèdent les statuts de fin). Une seule recherche à la fois
+    (`_search_task_running`) ; nouvelle action home **`cancel_search`**
+    (cancel + await + « Search cancelled. ») ; garde d'arrêt : la tâche
+    active est annulée et attendue dans le `finally` de `main()` avant
+    `browser_manager.stop()`. Nouveau push `_set_home_search_running` →
+    contrat home `window.synthesixHome.setSearchRunning(bool)`.
+  - `search_engine.py` : registre `ACTIVE_ENGINE_TAB_TARGETS` (add au
+    `navigate`, discard au `close_tab`) ; `wait_for_home_action` saute ces
+    tabs — pas d'injection overlay ni de focus-guard sur un tab moteur
+    pendant un scrape concurrent.
+  - `index.html` : bouton « Cancel search » (danger, caché par défaut,
+    affiché via `setSearchRunning`) → `queueAction("cancel_search")` ;
+    `theme.css` : `.search-row` en `1fr auto auto` + `.search-cancel-button`.
+  - `i18n.js` : 5 clés (fr/es/zh + pt/de).
+  - Concurrence : `record_search` (SQLite) pendant d'autres actions couvert
+    par WAL + `busy_timeout` 5 s — documenté, pas de changement.
+- **Tests exécutés :** `tests.test_main` (42, dont +7 T-011),
+  `tests.test_i18n_coverage`, `tests.test_cdp_budget`,
+  `py_compile`, `unittest discover` — **324 tests OK** ;
+  `git diff --check` OK (CRLF). Smoke visuel headless : bouton
+  visible/caché, thème sombre + clair
+  (`tmp_ui_render/cancel_button_*.png`).
+- **Non exécuté :** smoke live obligatoire (recherche réelle + save page
+  pendant recherche + annulation ≤ 2 s + quit pendant recherche) — session
+  navigateur réelle requise ; T-011 reste en `review` jusque-là.
+- **Fichiers modifiés :** `main.py`, `search_engine.py`, `index.html`,
+  `theme.css`, `i18n.js`, `tests/test_main.py`,
+  `docs/tasks/T-011-recherche-non-bloquante.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`.
+- **Prochaine action :** smoke live T-011 au prochain run interactif ;
+  ensuite T-012 (Claude) ; T-013/T-015 (Codex) toujours disponibles.

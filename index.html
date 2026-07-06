@@ -75,6 +75,12 @@
                             placeholder="What are you investigating?"
                         >
                         <button id="search-button" class="search-button" type="button">Search</button>
+                        <button
+                            id="cancel-search-button"
+                            class="danger-button search-cancel-button"
+                            type="button"
+                            hidden
+                        >Cancel search</button>
                     </div>
                     <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
                 </div>
@@ -460,6 +466,7 @@
             window.name = "synthesix-home";
 
             const searchButton = document.getElementById("search-button");
+            const cancelSearchButton = document.getElementById("cancel-search-button");
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
             const actionStatus = document.getElementById("action-status");
@@ -987,6 +994,12 @@
                 actionStatus.classList.toggle("is-error", Boolean(isError));
             };
 
+            // Backend is the source of truth for the "search running" state
+            // (T-011); the home only mirrors it.
+            const setSearchRunning = (running) => {
+                cancelSearchButton.hidden = !running;
+            };
+
             const setVpnStatus = (status, label, detail) => {
                 const translate = window.synthesixI18n?.t || ((value) => value);
                 const translatedLabel = translate(label);
@@ -1095,6 +1108,9 @@
             };
 
             searchButton.addEventListener("click", submitSearch);
+            cancelSearchButton.addEventListener("click", () => {
+                queueAction("cancel_search");
+            });
             clearSearchFiltersButton.addEventListener("click", () => {
                 setFilters({});
                 document.getElementById("filter-site").focus();
@@ -1303,6 +1319,7 @@
                 setSelectedInvestigation,
                 setQueryVariants,
                 setStatus,
+                setSearchRunning,
                 checkVpnStatus,
                 consumeAction
             };

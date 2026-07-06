@@ -52,6 +52,7 @@ from query_variants import (
     normalize_query_variants,
     suggest_query_variants,
 )
+from search_engine import ACTIVE_ENGINE_TAB_TARGETS
 from search_orchestrator import SearchOrchestrator
 from settings import AppSettings, get_settings
 import zendriver as uc
@@ -2262,6 +2263,34 @@ async def _set_home_status(
             logger.debug("Unable to update the home status", exc_info=True)
 
 
+async def _set_home_search_running(
+    browser: uc.Browser,
+    index_url: str,
+    running: bool,
+) -> None:
+    """Toggle the home 'search running' UI state (cancel button)."""
+    tabs = await _open_tabs(browser) or []
+    running_json = json.dumps(bool(running))
+    for tab in tabs:
+        if not _is_home_tab(tab, index_url):
+            continue
+        try:
+            await tab.evaluate(
+                f"""
+                (() => {{
+                    if (
+                        window.synthesixHome &&
+                        typeof window.synthesixHome.setSearchRunning === "function"
+                    ) {{
+                        window.synthesixHome.setSearchRunning({running_json});
+                    }}
+                }})()
+                """,
+            )
+        except Exception:
+            logger.debug("Unable to update the home search state", exc_info=True)
+
+
 async def _set_query_variant_suggestions(
     tab,
     query: str,
@@ -2431,6 +2460,11 @@ async def wait_for_home_action(
         for tab in tabs:
             if tab in home_tabs:
                 continue
+            # T-011: searches run concurrently with this loop; leave the
+            # tabs owned by a running engine alone (no overlay injection,
+            # no focus-guard arming mid-scrape).
+            if str(getattr(tab, "target_id", "")) in ACTIVE_ENGINE_TAB_TARGETS:
+                continue
             if _is_external_web_tab(tab):
                 action = await _install_and_consume_save_overlay(
                     tab,
@@ -2493,6 +2527,93 @@ async def _retry_search_combination(
     return f"Retry completed for {engine.title()}.", False
 
 
+def _search_task_running(task: asyncio.Task | None) -> bool:
+    return task is not None and not task.done()
+
+
+def _log_search_task_outcome(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "Search task terminated with an unhandled exception.",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+
+
+def _start_search_task(coro) -> asyncio.Task:
+    """Run a search concurrently with the action loop (T-011).
+
+    The done callback guarantees no exception ever dies silently, even if
+    the wrapper coroutine itself is buggy.
+    """
+    task = asyncio.create_task(coro)
+    task.add_done_callback(_log_search_task_outcome)
+    return task
+
+
+async def _run_search_action(
+    browser: uc.Browser,
+    index_url: str,
+    search_kwargs: dict,
+) -> None:
+    """Background home search; owns the final home statuses."""
+    try:
+        persistence_error = await perform_search(**search_kwargs)
+        if persistence_error:
+            await _set_home_status(
+                browser,
+                index_url,
+                persistence_error,
+                is_error=True,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Search failed unexpectedly.")
+        await _set_home_status(
+            browser,
+            index_url,
+            "Search failed. Check the logs for details.",
+            is_error=True,
+        )
+    finally:
+        await _set_home_search_running(browser, index_url, False)
+
+
+async def _run_retry_search_action(
+    result: dict,
+    browser: uc.Browser,
+    index_url: str,
+    settings: AppSettings,
+    investigation_service: InvestigationService,
+) -> None:
+    """Background retry of one query/engine cell; reports to its page tab."""
+    source_tab = result.get("_source_tab")
+    try:
+        message, is_error = await _retry_search_combination(
+            result,
+            browser,
+            settings,
+            investigation_service,
+        )
+    except asyncio.CancelledError:
+        await _set_page_status(source_tab, "Search cancelled.", is_error=True)
+        raise
+    except Exception:
+        logger.exception("Retry search failed unexpectedly.")
+        await _set_page_status(
+            source_tab,
+            "Search failed. Check the logs for details.",
+            is_error=True,
+        )
+    else:
+        await _set_page_status(source_tab, message, is_error=is_error)
+    finally:
+        await _set_home_search_running(browser, index_url, False)
+
+
 async def main():
     settings = get_settings()
     investigation_service = InvestigationService(
@@ -2513,6 +2634,10 @@ async def main():
     home_tab = await _focus_or_open_home_tab(browser, index_url, reuse_current_tab=True)
     await home_tab.bring_to_front()
     active_investigation = None
+    # T-011: searches run as a background task so the action loop keeps
+    # consuming actions; one search at a time, backend is the source of
+    # truth for the "search running" state.
+    active_search_task: asyncio.Task | None = None
 
     try:
         while True:
@@ -2590,18 +2715,38 @@ async def main():
                 continue
             if result["action"] == "retry_search_combination":
                 source_tab = result.get("_source_tab")
+                if _search_task_running(active_search_task):
+                    await _set_page_status(
+                        source_tab,
+                        "A search is already running. "
+                        "Cancel it or wait for it to finish.",
+                        is_error=True,
+                    )
+                    continue
                 await _set_page_status(source_tab, "Retrying...")
-                message, is_error = await _retry_search_combination(
-                    result,
-                    browser,
-                    settings,
-                    investigation_service,
+                await _set_home_search_running(browser, index_url, True)
+                active_search_task = _start_search_task(
+                    _run_retry_search_action(
+                        result,
+                        browser,
+                        index_url,
+                        settings,
+                        investigation_service,
+                    )
                 )
-                await _set_page_status(
-                    source_tab,
-                    message,
-                    is_error=is_error,
-                )
+                continue
+            if result["action"] == "cancel_search":
+                if not _search_task_running(active_search_task):
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "No search is currently running.",
+                    )
+                    continue
+                active_search_task.cancel()
+                await asyncio.gather(active_search_task, return_exceptions=True)
+                await _set_home_search_running(browser, index_url, False)
+                await _set_home_status(browser, index_url, "Search cancelled.")
                 continue
             if result["action"] == "local_archive_search":
                 filters = dict(result.get("filters", {}) or {})
@@ -3933,27 +4078,40 @@ async def main():
             parsed_query = build_display_query(parsed_base_query, filters)
             engines = result.get("engines", settings.default_engines)
             num_results = result.get("numResults", settings.default_max_results)
-            persistence_error = await perform_search(
-                original_query,
-                parsed_query,
-                browser,
-                engines,
-                num_results,
-                filters,
-                parsed_base_query,
-                investigation_service=investigation_service,
-                investigation_id=investigation_id,
-                query_variants=parsed_query_variants,
-            )
-            if persistence_error:
+            if _search_task_running(active_search_task):
                 await _set_home_status(
                     browser,
                     index_url,
-                    persistence_error,
+                    "A search is already running. "
+                    "Cancel it or wait for it to finish.",
                     is_error=True,
                 )
+                continue
+            await _set_home_search_running(browser, index_url, True)
+            await _set_home_status(browser, index_url, "Search in progress...")
+            active_search_task = _start_search_task(
+                _run_search_action(
+                    browser,
+                    index_url,
+                    {
+                        "original_query": original_query,
+                        "parsed_query": parsed_query,
+                        "browser": browser,
+                        "engines": engines,
+                        "num_results": num_results,
+                        "filters": filters,
+                        "base_query": parsed_base_query,
+                        "investigation_service": investigation_service,
+                        "investigation_id": investigation_id,
+                        "query_variants": parsed_query_variants,
+                    },
+                )
+            )
 
     finally:
+        if _search_task_running(active_search_task):
+            active_search_task.cancel()
+            await asyncio.gather(active_search_task, return_exceptions=True)
         await browser_manager.stop()
         logger.info("Goodbye!")
 

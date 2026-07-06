@@ -30,6 +30,10 @@ from main import (
     _open_or_refresh_investigation_page,
     _prepare_base_query,
     _retry_search_combination,
+    _run_retry_search_action,
+    _run_search_action,
+    _search_task_running,
+    _start_search_task,
     _verify_evidence_capture,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
@@ -1113,6 +1117,166 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
         browser.get.assert_not_awaited()
+
+
+class BackgroundSearchTaskTestCase(unittest.IsolatedAsyncioTestCase):
+    """T-011: searches run as background tasks; the loop stays responsive."""
+
+    async def test_search_task_running_states(self):
+        self.assertFalse(_search_task_running(None))
+        task = asyncio.create_task(asyncio.sleep(60))
+        self.assertTrue(_search_task_running(task))
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self.assertFalse(_search_task_running(task))
+
+    async def test_run_search_action_reports_persistence_error(self):
+        with (
+            patch("main.perform_search", new=AsyncMock(return_value="save failed")),
+            patch("main._set_home_status", new=AsyncMock()) as status,
+            patch("main._set_home_search_running", new=AsyncMock()) as running,
+        ):
+            await _run_search_action(object(), "file:///index.html", {})
+
+        status.assert_awaited_once()
+        self.assertEqual(status.await_args.args[2], "save failed")
+        self.assertTrue(status.await_args.kwargs["is_error"])
+        running.assert_awaited_once()
+        self.assertFalse(running.await_args.args[2])
+
+    async def test_run_search_action_reports_unexpected_failure(self):
+        with (
+            patch(
+                "main.perform_search",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+            patch("main._set_home_status", new=AsyncMock()) as status,
+            patch("main._set_home_search_running", new=AsyncMock()) as running,
+        ):
+            with self.assertLogs("main", level="ERROR"):
+                await _run_search_action(object(), "file:///index.html", {})
+
+        self.assertIn("Search failed", status.await_args.args[2])
+        running.assert_awaited_once()
+        self.assertFalse(running.await_args.args[2])
+
+    async def test_cancelled_search_clears_running_flag_without_status(self):
+        started = asyncio.Event()
+
+        async def hang(**_kwargs):
+            started.set()
+            await asyncio.sleep(60)
+
+        with (
+            patch("main.perform_search", new=hang),
+            patch("main._set_home_status", new=AsyncMock()) as status,
+            patch("main._set_home_search_running", new=AsyncMock()) as running,
+        ):
+            task = _start_search_task(
+                _run_search_action(object(), "file:///index.html", {})
+            )
+            await started.wait()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        self.assertTrue(task.cancelled())
+        status.assert_not_awaited()
+        running.assert_awaited_once()
+        self.assertFalse(running.await_args.args[2])
+
+    async def test_start_search_task_logs_unhandled_exception(self):
+        async def broken():
+            raise RuntimeError("wrapper bug")
+
+        with self.assertLogs("main", level="ERROR") as logs:
+            task = _start_search_task(broken())
+            await asyncio.gather(task, return_exceptions=True)
+            # The done callback runs on the next loop iteration.
+            await asyncio.sleep(0)
+
+        self.assertTrue(
+            any("unhandled exception" in entry for entry in logs.output)
+        )
+
+    async def test_run_retry_search_action_reports_to_page_tab(self):
+        tab = object()
+        with (
+            patch(
+                "main._retry_search_combination",
+                new=AsyncMock(return_value=("Retry completed for Bing.", False)),
+            ),
+            patch("main._set_page_status", new=AsyncMock()) as page_status,
+            patch("main._set_home_search_running", new=AsyncMock()) as running,
+        ):
+            await _run_retry_search_action(
+                {"_source_tab": tab},
+                object(),
+                "file:///index.html",
+                SimpleNamespace(),
+                Mock(),
+            )
+
+        page_status.assert_awaited_once_with(
+            tab, "Retry completed for Bing.", is_error=False
+        )
+        running.assert_awaited_once()
+        self.assertFalse(running.await_args.args[2])
+
+
+class ActiveEngineTabSkipTestCase(unittest.IsolatedAsyncioTestCase):
+    """T-011: the poll loop must not touch tabs owned by a running engine."""
+
+    def setUp(self):
+        from search_engine import ACTIVE_ENGINE_TAB_TARGETS
+
+        ACTIVE_ENGINE_TAB_TARGETS.clear()
+        self.registry = ACTIVE_ENGINE_TAB_TARGETS
+
+    def tearDown(self):
+        self.registry.clear()
+
+    async def test_poll_loop_skips_registered_engine_tabs(self):
+        from tests.fakes import CallJournal, FakeBrowser, FakeTab
+
+        index_url = "file:///synthesix/index.html"
+        home = FakeTab(url=index_url, target_id="home")
+        home.on(
+            "evaluate",
+            lambda script, *_args: (
+                {
+                    "ready": True,
+                    "action": {"action": "probe"},
+                    "historyVersion": "",
+                    "investigationsVersion": "",
+                }
+                if "synthesixHome" in script and "consumeAction" in script
+                else None
+            ),
+        )
+        engine_tab = FakeTab(
+            url="https://www.google.com/search?q=x",
+            target_id="engine-1",
+        )
+        browser = FakeBrowser([home, engine_tab])
+        engine_tab.journal = CallJournal()
+        self.registry.add("engine-1")
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_HOME_POLL_INTERVAL": "0",
+                },
+            ):
+                settings = get_settings()
+                action = await asyncio.wait_for(
+                    wait_for_home_action(browser, index_url, settings=settings),
+                    timeout=10,
+                )
+
+        self.assertEqual(action["action"], "probe")
+        self.assertEqual(engine_tab.journal.records, [])
 
 
 if __name__ == "__main__":

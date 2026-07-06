@@ -330,9 +330,13 @@ a:focus-visible {
 
 .search-row {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     align-items: stretch;
     min-height: 66px;
+}
+
+.search-cancel-button {
+    margin: 8px 8px 8px 0;
 }
 
 .search-input {

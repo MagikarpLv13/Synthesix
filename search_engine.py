@@ -15,6 +15,11 @@ from settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Target ids of tabs currently owned by a running engine search. Since
+# searches run concurrently with the main poll loop (T-011), the loop must
+# skip these tabs: no overlay injection or focus-guard arming mid-scrape.
+ACTIVE_ENGINE_TAB_TARGETS: set[str] = set()
+
 
 class SearchEngine(ABC):
     def __init__(self, name):
@@ -101,6 +106,9 @@ class SearchEngine(ABC):
     async def close_tab(self):
         if self.tab is None:
             return
+        target_id = getattr(self.tab, "target_id", None)
+        if target_id:
+            ACTIVE_ENGINE_TAB_TARGETS.discard(str(target_id))
         try:
             await self.tab.close()
         except Exception as exc:
@@ -149,7 +157,10 @@ class SearchEngine(ABC):
                 url=url,
                 original_error=exc,
             ) from exc
-        
+        target_id = getattr(self.tab, "target_id", None)
+        if target_id:
+            ACTIVE_ENGINE_TAB_TARGETS.add(str(target_id))
+
         # Stay focused on the main tab
         main_tab = getattr(self.browser, "main_tab", None)
         if main_tab and not getattr(main_tab, "closed", False):

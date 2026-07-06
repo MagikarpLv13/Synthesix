@@ -1,6 +1,6 @@
 # T-011 — Recherche non bloquante + annulation
 
-- **Statut** : todo
+- **Statut** : review (code livré ; smoke live obligatoire restant)
 - **Priorité** : P0 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-001 (file d'actions), T-010 (annulation propre)
@@ -76,3 +76,36 @@ annulation. Consigner le résultat.
   (`busy_timeout` 5 s couvre). Documenter.
 - Deux sources de vérité pour « recherche en cours » (backend vs UI) : le
   backend fait foi, l'UI n'affiche que le statut poussé.
+
+## Résultat (2026-07-06, Claude)
+
+- `main.py` : la recherche (home et retry) part en
+  `asyncio.create_task` via `_start_search_task` (done callback = aucune
+  exception silencieuse) ; wrappers `_run_search_action` /
+  `_run_retry_search_action` possèdent les statuts de fin ; une seule
+  recherche à la fois (`_search_task_running`, statut « A search is already
+  running... » sinon) ; nouvelle action home `cancel_search`
+  (cancel + await + « Search cancelled. ») ; à la sortie de `main()` la tâche
+  active est annulée et attendue avant `browser_manager.stop()`.
+- Push d'état `_set_home_search_running` → nouveau contrat home
+  `window.synthesixHome.setSearchRunning(bool)`.
+- `search_engine.py` : registre `ACTIVE_ENGINE_TAB_TARGETS`
+  (navigate → add, close_tab → discard) ; la boucle de poll saute ces tabs
+  (pas d'injection overlay ni focus-guard pendant un scrape).
+- `index.html` : bouton « Cancel search » (`#cancel-search-button`,
+  `danger-button`, caché par défaut) → `queueAction("cancel_search")` ;
+  `theme.css` : `.search-row` passe à `1fr auto auto` + marge
+  `.search-cancel-button`.
+- `i18n.js` : 5 clés ajoutées (fr/es/zh + pt/de) : « Cancel search »,
+  « Search in progress... », « Search cancelled. », « A search is already
+  running... », « No search is currently running. ».
+- Concurrence données : `record_search` s'exécute pendant que la boucle
+  traite d'autres actions ; SQLite WAL + `busy_timeout` 5 s couvrent les
+  écritures croisées (pas de changement nécessaire).
+- Tests : `tests.test_main` (+7 : états de tâche, erreurs
+  persistance/inattendue, annulation, done callback, retry, skip des tabs
+  moteurs), `tests.test_i18n_coverage`, `tests.test_cdp_budget`,
+  `unittest discover` 324 OK. Smoke visuel headless : bouton visible/caché,
+  thèmes sombre + clair (`tmp_ui_render/cancel_button_*.png`).
+- **Restant (obligatoire avant done)** : smoke live — recherche réelle,
+  save page pendant la recherche, annulation ≤ 2 s, quit pendant recherche.
