@@ -1,6 +1,6 @@
 # T-050 — Harness FakeTab/FakeBrowser
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : moyen
 - **Outil recommandé** : Claude (première version), Codex (extensions
   ultérieures)
@@ -68,3 +68,20 @@ assertions de budget (T-006).
   zendriver de référence (0.15.3) en tête du module.
 - Sur-ingénierie de l'horloge : commencer par le patch `asyncio.sleep`
   comptabilisé ; n'ajouter l'horloge injectable que si un test la réclame.
+
+## Résultat (2026-07-06, Claude)
+
+- `tests/fakes.py` : `FakeTab` (evaluate/query_selector/xpath/find/
+  get_content/get/send/save_screenshot/bring_to_front/reload/close),
+  `FakeBrowser` (tabs/main_tab/get/update_targets/_get_targets/cookies.clear/
+  stop), `FakeElement`, `CallJournal` (count, scripts_evaluated_bytes),
+  `fake_clock(*modules)` qui patche `time.monotonic` + `asyncio.sleep` via
+  proxy de module (aucun effet global). Résolution des réponses :
+  file `program()` → handler `on()` → défaut par méthode.
+- `tests/test_fakes.py` : 6 tests — attente moteur (succès + timeout 30 s
+  simulé sans temps réel), boucle home action (`wait_for_home_action`),
+  capture (`capture_png`), comportements du fake.
+- Migration : `tests/test_cdp_budget.py` utilise désormais le harness
+  (fabrique locale `make_tab` + handler de scripts), baseline T-006 intacte.
+- Tests : `tests.test_fakes` (6 OK), `tests.test_cdp_budget` (4 OK),
+  `unittest discover` 317 OK.

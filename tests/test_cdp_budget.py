@@ -15,58 +15,38 @@ from unittest.mock import patch
 import observability
 from main import _OVERLAY_FOCUS_GUARD_ARMED_TARGETS, wait_for_home_action
 from settings import get_settings
+from tests.fakes import FakeBrowser, FakeTab
 
 INDEX_URL = "file:///synthesix/index.html"
 
 
-class FakeTab:
-    def __init__(self, url, target_id, home_actions=None, home_versions=("", "")):
-        self.url = url
-        self.target_id = target_id
-        self.closed = False
-        self._home_actions = list(home_actions or [])
-        self._home_versions = home_versions
-        self.pushed_payloads = 0
+def make_tab(url, target_id, home_actions=None, home_versions=("", "")):
+    """FakeTab answering the home/overlay/page poll scripts (T-050 harness)."""
+    tab = FakeTab(url=url, target_id=target_id)
+    tab.pushed_payloads = 0
+    actions = list(home_actions or [])
 
-    async def evaluate(self, script):
+    def home_scripts(script, *_args):
         if "consumeSettingsChange" in script:
             return None
         if "!!window.SynthesixOverlay" in script:
             return False
         if "setHistory" in script or "setInvestigations" in script:
-            self.pushed_payloads += 1
+            tab.pushed_payloads += 1
             return None
         if "synthesixHome" in script and "consumeAction" in script:
-            action = self._home_actions.pop(0) if self._home_actions else None
+            action = actions.pop(0) if actions else None
             return {
                 "ready": True,
                 "action": action,
-                "historyVersion": self._home_versions[0],
-                "investigationsVersion": self._home_versions[1],
+                "historyVersion": home_versions[0],
+                "investigationsVersion": home_versions[1],
             }
         # Overlay install/consume and synthesixPage consume paths.
         return None
 
-    async def send(self, command):
-        return None
-
-    async def bring_to_front(self):
-        return None
-
-
-class FakeBrowser:
-    def __init__(self, tabs):
-        self.tabs = tabs
-        self.stopped = False
-
-    async def update_targets(self):
-        return None
-
-    async def _get_targets(self):
-        return [
-            type("Target", (), {"target_id": tab.target_id, "type_": "page"})()
-            for tab in self.tabs
-        ]
+    tab.on("evaluate", home_scripts)
+    return tab
 
 
 class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
@@ -80,7 +60,7 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_idle_tick_budget_is_locked(self):
         ticks = 3
-        home = FakeTab(
+        home = make_tab(
             INDEX_URL,
             "home",
             home_actions=[None] * (ticks - 1) + [{"action": "budget-probe"}],
@@ -133,7 +113,7 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(evaluates_per_idle_tick, 6)
 
     async def test_stale_home_versions_trigger_payload_push(self):
-        home = FakeTab(
+        home = make_tab(
             INDEX_URL,
             "home",
             home_actions=[{"action": "budget-probe"}],
@@ -163,7 +143,7 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["bytes"].get("eval_home", 0), 4)
 
     async def test_focus_guard_registry_is_pruned_with_targets(self):
-        home = FakeTab(INDEX_URL, "home", home_actions=[{"action": "probe"}])
+        home = make_tab(INDEX_URL, "home", home_actions=[{"action": "probe"}])
         browser = FakeBrowser([home])
         _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.update({"home", "closed-tab"})
 
