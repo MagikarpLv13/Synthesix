@@ -35,8 +35,8 @@
     "semantic_hash": "ac354d7eb38bbec0221670e9ffbe8792"
   },
   "brave.py": {
-    "mtime": 1783338003.5055125,
-    "ast_hash": "0ce0ea7abd59cd328cfc5bb573dff723",
+    "mtime": 1783368051.477712,
+    "ast_hash": "3ab6e4d01980d4c5270d774dbd7de7be",
     "semantic_hash": ""
   },
   "browser_manager.py": {
@@ -295,8 +295,8 @@
     "semantic_hash": "c5a5dff3d2c8015b15c168b954b29b83"
   },
   "tests/test_engines.py": {
-    "mtime": 1783349713.5791774,
-    "ast_hash": "14f0a574b176da1736915091eed518a7",
+    "mtime": 1783368070.659766,
+    "ast_hash": "a96a06d4b0b4709cd2b0e9284382ea35",
     "semantic_hash": ""
   },
   "tests/test_entities.py": {
@@ -492,6 +492,11 @@
   "tests/test_fakes.py": {
     "mtime": 1783352508.5134313,
     "ast_hash": "b184de935888c0c5988e425624550468",
+    "semantic_hash": ""
+  },
+  "tests/test_engine_golden.py": {
+    "mtime": 1783368159.5307279,
+    "ast_hash": "45e92168c8199398e81dfb1991a6f38f",
     "semantic_hash": ""
   }
 }

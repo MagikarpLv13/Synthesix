@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from datetime import datetime
 import hashlib
+import json
 import logging
 import re
 import time
@@ -19,6 +20,101 @@ logger = logging.getLogger(__name__)
 # searches run concurrently with the main poll loop (T-011), the loop must
 # skip these tabs: no overlay injection or focus-guard arming mid-scrape.
 ACTIVE_ENGINE_TAB_TARGETS: set[str] = set()
+
+# Marker embedded in the probe expression so tests (and log readers) can tell
+# probe evaluates apart from other scripts sent to an engine tab.
+PROBE_MARKER = "__SYNTHESIX_ENGINE_PROBE__"
+
+# Visible-text slice scanned in-page for challenge/no-results markers; those
+# sit near the top of the page, far below this cap (T-012 risk note).
+PROBE_TEXT_LIMIT = 20000
+# documentElement.innerHTML slice scanned for raw challenge markers (e.g.
+# Brave's blockRobots flag); challenge pages are small, so a bounded slice
+# avoids serializing multi-MB result pages in-page on every iteration.
+PROBE_HTML_LIMIT = 200000
+
+_PROBE_DEFAULT_STATE = {
+    "found": False,
+    "ready": "",
+    "body_length": 0,
+    "result_count": 0,
+    "challenge": False,
+    "forbidden": False,
+    "no_results": False,
+    "url": "",
+    "title": "",
+    "text": "",
+}
+
+_PROBE_JS_TEMPLATE = r"""
+(() => { /* __SYNTHESIX_ENGINE_PROBE__ */
+    const config = __CONFIG__;
+    const state = {
+        found: false,
+        ready: String(document.readyState || ""),
+        bodyLength: 0,
+        resultCount: 0,
+        challenge: false,
+        forbidden: false,
+        noResults: false,
+        url: String(location.href || ""),
+        title: String(document.title || ""),
+        text: "",
+    };
+    const countMatches = (selector) => {
+        try {
+            return document.querySelectorAll(selector).length;
+        } catch (err) {
+            return 0;
+        }
+    };
+    if (config.selector) {
+        state.resultCount = countMatches(config.selector);
+        state.found = state.resultCount > 0;
+    }
+    if (document.body && document.body.innerHTML) {
+        state.bodyLength = document.body.innerHTML.length;
+    }
+    if (config.challengeSelectors.some((selector) => countMatches(selector) > 0)) {
+        state.challenge = true;
+    }
+    const path = String(location.pathname || "").toLowerCase();
+    if (!state.challenge &&
+        config.challengeUrlPathSubstrings.some((part) => path.includes(part))) {
+        state.challenge = true;
+    }
+    const needText = config.includeText ||
+        config.challengeTextPatterns.length > 0 ||
+        config.noResultsTextPatterns.length > 0;
+    let text = "";
+    if (needText && document.body) {
+        text = String(document.body.innerText || "").slice(0, config.textLimit);
+    }
+    const flatText = text.toLowerCase().replace(/\s+/g, " ");
+    if (!state.challenge &&
+        config.challengeTextPatterns.some((pattern) => flatText.includes(pattern))) {
+        state.challenge = true;
+    }
+    if (!state.challenge && config.challengeHtmlMarkers.length > 0) {
+        const rawHtml = String(document.documentElement.innerHTML || "")
+            .slice(0, config.htmlLimit);
+        if (config.challengeHtmlMarkers.some((marker) => rawHtml.includes(marker))) {
+            state.challenge = true;
+        }
+    }
+    if (config.forbiddenTitlePatterns.includes(state.title.trim().toLowerCase())) {
+        state.forbidden = true;
+    }
+    if (!state.found &&
+        config.noResultsTextPatterns.some((pattern) => flatText.includes(pattern))) {
+        state.noResults = true;
+    }
+    if (config.includeText) {
+        state.text = text;
+    }
+    return JSON.stringify(state);
+})()
+"""
 
 
 class SearchEngine(ABC):
@@ -205,7 +301,88 @@ class SearchEngine(ABC):
         """
         Return a dictionary with the XPaths necessary for parsing.
         """
-        pass 
+        pass
+
+    def get_probe_markers(self) -> dict:
+        """Per-engine markers consumed by :meth:`probe_page_state`.
+
+        Optional keys:
+        - ``challenge_selectors``: CSS selectors flagging an anti-robot page;
+        - ``challenge_url_path_substrings``: ``location.pathname`` substrings;
+        - ``challenge_text_patterns``: lowercase substrings of the visible text;
+        - ``challenge_html_markers``: raw ``documentElement.innerHTML`` substrings;
+        - ``forbidden_title_patterns``: exact lowercase ``document.title`` values;
+        - ``no_results_text_patterns``: lowercase substrings of the visible text.
+        """
+        return {}
+
+    def _build_probe_expression(self, include_text: bool) -> str:
+        markers = self.get_probe_markers()
+        config = {
+            "selector": self.selector or "",
+            "challengeSelectors": list(markers.get("challenge_selectors", ())),
+            "challengeUrlPathSubstrings": list(
+                markers.get("challenge_url_path_substrings", ())
+            ),
+            "challengeTextPatterns": list(
+                markers.get("challenge_text_patterns", ())
+            ),
+            "challengeHtmlMarkers": list(
+                markers.get("challenge_html_markers", ())
+            ),
+            "forbiddenTitlePatterns": list(
+                markers.get("forbidden_title_patterns", ())
+            ),
+            "noResultsTextPatterns": list(
+                markers.get("no_results_text_patterns", ())
+            ),
+            "includeText": bool(include_text),
+            "textLimit": PROBE_TEXT_LIMIT,
+            "htmlLimit": PROBE_HTML_LIMIT,
+        }
+        return _PROBE_JS_TEMPLATE.replace("__CONFIG__", json.dumps(config))
+
+    async def probe_page_state(self, include_text: bool = False) -> dict:
+        """Composite page-state probe: one lightweight ``Runtime.evaluate``.
+
+        Returns a small dict (``found``, ``ready``, ``body_length``,
+        ``result_count``, ``challenge``, ``forbidden``, ``no_results``,
+        ``url``, ``title``, ``text``) so wait loops never ship the full page
+        HTML per iteration (T-012). Failures degrade to the default
+        "not found" state, matching the old swallowed ``query_selector``
+        errors.
+        """
+        observability.count("eval_engine_wait")
+        state = dict(_PROBE_DEFAULT_STATE)
+        try:
+            raw = await self.tab.evaluate(self._build_probe_expression(include_text))
+        except Exception:
+            logger.debug("Unable to probe %s page state", self.name, exc_info=True)
+            return state
+        if isinstance(raw, str):
+            observability.observe_bytes("eval_engine_wait", len(raw))
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                logger.debug("Unreadable %s probe payload", self.name)
+                return state
+        if not isinstance(raw, dict):
+            return state
+        state.update(
+            {
+                "found": bool(raw.get("found")),
+                "ready": str(raw.get("ready") or ""),
+                "body_length": int(raw.get("bodyLength") or 0),
+                "result_count": int(raw.get("resultCount") or 0),
+                "challenge": bool(raw.get("challenge")),
+                "forbidden": bool(raw.get("forbidden")),
+                "no_results": bool(raw.get("noResults")),
+                "url": str(raw.get("url") or ""),
+                "title": str(raw.get("title") or ""),
+                "text": str(raw.get("text") or ""),
+            }
+        )
+        return state
 
     def test(self):
         pass
@@ -223,19 +400,18 @@ class SearchEngine(ABC):
 
     async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
         """Custom function to wait for the page to load.
+
+        One composite probe per iteration (T-012); the full page HTML is only
+        fetched after the timeout, for the debug capture and robot check.
         """
         settings = get_settings()
         timeout = settings.page_load_timeout if timeout is None else timeout
         interval = settings.page_load_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
-            observability.count("eval_engine_wait")
-            try:
-                results = await self.tab.query_selector(self.selector)
-                if results:
-                    return True
-            except Exception:
-                pass
+            state = await self.probe_page_state()
+            if state["found"]:
+                return True
             await asyncio.sleep(interval)
 
         try:

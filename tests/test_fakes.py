@@ -17,7 +17,7 @@ from evidence.capture import capture_png
 from main import wait_for_home_action
 from search_engine import SearchEngine
 from settings import get_settings
-from tests.fakes import FakeBrowser, FakeElement, FakeTab, fake_clock
+from tests.fakes import FakeBrowser, FakeTab, fake_clock
 
 INDEX_URL = "file:///synthesix/index.html"
 
@@ -47,14 +47,22 @@ class EngineWaitExampleTestCase(unittest.IsolatedAsyncioTestCase):
         engine = ProbeEngine()
         engine.set_selector()
         tab = FakeTab(url="https://probe.example/search")
-        tab.program("query_selector", None, None, FakeElement())
+        # T-012: wait loops issue one composite probe (evaluate) per
+        # iteration and never fetch the page HTML while waiting.
+        tab.program(
+            "evaluate",
+            '{"found": false}',
+            '{"found": false}',
+            '{"found": true}',
+        )
         engine.tab = tab
 
         with fake_clock(search_engine_module) as clock:
             loaded = await engine.wait_for_page_load(timeout=30, interval=0.5)
 
         self.assertTrue(loaded)
-        self.assertEqual(tab.journal.count("query_selector"), 3)
+        self.assertEqual(tab.journal.count("evaluate"), 3)
+        self.assertEqual(tab.journal.count("get_content"), 0)
         self.assertEqual(clock.sleeps, [0.5, 0.5])
 
     async def test_wait_for_page_load_timeout_without_real_time(self):

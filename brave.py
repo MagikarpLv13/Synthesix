@@ -8,7 +8,6 @@ from datetime import datetime
 from html import unescape
 from urllib.parse import quote_plus, urlencode, urlparse
 
-import observability
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
@@ -72,6 +71,20 @@ BRAVE_ROBOT_FIND_PATTERNS = (
     "je ne suis pas un robot",
     "verify you are human",
     "verifiez que vous etes humain",
+)
+
+# Probe-side challenge markers (T-012): the captcha interstitial path and the
+# blockRobots flag, matched on a bounded innerHTML slice in-page. The looser
+# text patterns above stay reserved for robot_check() on the full HTML.
+BRAVE_CHALLENGE_URL_PATH_SUBSTRINGS = (
+    "/captcha",
+    "/challenge",
+    "/verify",
+)
+
+BRAVE_CHALLENGE_HTML_MARKERS = (
+    "blockRobots:true",
+    '"blockRobots":true',
 )
 
 
@@ -227,6 +240,12 @@ class BraveSearchEngine(SearchEngine):
     def set_selector(self):
         self.selector = "#results"
 
+    def get_probe_markers(self) -> dict:
+        return {
+            "challenge_url_path_substrings": BRAVE_CHALLENGE_URL_PATH_SUBSTRINGS,
+            "challenge_html_markers": BRAVE_CHALLENGE_HTML_MARKERS,
+        }
+
     def construct_query(self, query: str) -> str:
         """Construct the query for the search.
         """
@@ -272,12 +291,9 @@ class BraveSearchEngine(SearchEngine):
         interval = settings.brave_results_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
-            observability.count("eval_engine_wait")
-            try:
-                if await self.tab.query_selector(self.selector):
-                    return True
-            except Exception:
-                pass
+            state = await self.probe_page_state()
+            if state["found"]:
+                return True
             await asyncio.sleep(interval)
         return False
 

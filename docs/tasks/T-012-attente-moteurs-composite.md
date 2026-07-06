@@ -1,6 +1,6 @@
 # T-012 — Attente moteurs par evaluate composite
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P1 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-006 (mesure avant/après)
@@ -76,3 +76,32 @@ Smoke réel : une recherche 4 moteurs, vérifier logs + rapport généré.
   `found=false` depuis > N itérations, plutôt que le HTML complet.
 - Divergence probe/parse (le probe dit prêt, le parse ne trouve rien) :
   conserver la boucle de re-tentative existante.
+
+## Réalisation (2026-07-06)
+
+- `search_engine.py` : `probe_page_state()` (un `Runtime.evaluate` par
+  itération, retour JSON ≤ ~400 octets : `found`, `ready`, `body_length`,
+  `result_count`, `challenge`, `forbidden`, `no_results`, `url`, `title`,
+  `text` optionnel tronqué à 20 000 caractères), marqueurs par moteur via
+  `get_probe_markers()`, constante `PROBE_MARKER` pour identifier les
+  probes ; `wait_for_page_load` réécrit sur le probe.
+- `duckduckgo.py` : `_wait_for_result_content` et
+  `_wait_for_manual_challenge_resolution` sans `get_content()` en boucle
+  (challenge = sélecteurs `.anomaly-modal` + textes visibles ; forbidden =
+  titre exact `403 forbidden`/`forbidden` ; arrêt anticipé « no results »
+  conservé) ; la capture follow-up ne lit le HTML qu'au moment du 403.
+  `_wait_for_additional_results` : lecture de page seulement quand
+  `result_count` change (pagination).
+- `brave.py` : `_wait_for_results_container` sur le probe ; marqueurs
+  `/captcha` (pathname) et `blockRobots` (`innerHTML` borné à 200 000).
+- Le parse en boucle DDG (page parseable sans sélecteur correspondant) est
+  supprimé : le sélecteur couvre les trois familles de markup, et le repli
+  endpoint HTML reste le filet.
+- **Mesure** : avant = 1 `query_selector` / itération + `get_content()`
+  complet (DOM entier, potentiellement des Mo) toutes les ~0,5 s côté DDG ;
+  après = 1 evaluate / itération (script ~2,7-3 Ko envoyé, JSON ~0,35 Ko
+  reçu), `get_content()` uniquement à `found`, au timeout ou au challenge.
+  Octets reçus par attente : suivis via `observe_bytes("eval_engine_wait")`.
+  Probe validé dans un vrai DOM (Chrome headless, 9 scénarios
+  found/challenge/no-results/forbidden DDG+Brave). Mesure live 4 moteurs
+  (`--verbose`, dump T-006) à consigner au premier run interactif réel.

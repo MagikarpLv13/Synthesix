@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import unittest
 from urllib.parse import parse_qs, urlparse
 
@@ -18,6 +19,7 @@ from duckduckgo import (
 from exceptions import RobotChallengeError
 from google import GoogleSearchEngine
 from query_operators import SearchFilters
+from search_engine import PROBE_MARKER
 
 
 class EngineUrlTestCase(unittest.TestCase):
@@ -179,6 +181,120 @@ class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(RobotChallengeError):
             await engine.robot_check()
+
+
+class ProbePageStateTestCase(unittest.IsolatedAsyncioTestCase):
+    """T-012: composite probe replaces per-iteration query_selector polls
+    and in-loop full-page reads in engine wait loops."""
+
+    async def test_probe_state_normalizes_json_payload(self):
+        engine = DuckDuckGoSearchEngine()
+        engine.query = "dummy"
+        engine.set_selector()
+        captured = {}
+
+        class Tab:
+            async def evaluate(self, expression):
+                captured["expression"] = expression
+                return json.dumps(
+                    {
+                        "found": True,
+                        "ready": "complete",
+                        "bodyLength": 1234,
+                        "resultCount": 7,
+                        "challenge": False,
+                        "forbidden": True,
+                        "noResults": False,
+                        "url": "https://duckduckgo.com/?q=dummy",
+                        "title": "403 Forbidden",
+                    }
+                )
+
+        engine.tab = Tab()
+        state = await engine.probe_page_state()
+
+        self.assertTrue(state["found"])
+        self.assertEqual(state["ready"], "complete")
+        self.assertEqual(state["body_length"], 1234)
+        self.assertEqual(state["result_count"], 7)
+        self.assertTrue(state["forbidden"])
+        self.assertFalse(state["challenge"])
+        # The engine markers travel inside the probe expression.
+        self.assertIn(PROBE_MARKER, captured["expression"])
+        self.assertIn("anomaly-modal", captured["expression"])
+        self.assertIn(
+            "unfortunately, bots use duckduckgo too", captured["expression"]
+        )
+
+    async def test_probe_failure_degrades_to_not_found(self):
+        engine = BraveSearchEngine()
+        engine.set_selector()
+
+        class Tab:
+            async def evaluate(self, _expression):
+                raise RuntimeError("cdp gone")
+
+        engine.tab = Tab()
+        state = await engine.probe_page_state()
+
+        self.assertFalse(state["found"])
+        self.assertFalse(state["challenge"])
+        self.assertEqual(state["result_count"], 0)
+
+    def test_brave_probe_embeds_challenge_markers(self):
+        engine = BraveSearchEngine()
+        engine.set_selector()
+
+        expression = engine._build_probe_expression(include_text=False)
+
+        self.assertIn("#results", expression)
+        self.assertIn("/captcha", expression)
+        self.assertIn("blockRobots", expression)
+
+    async def test_duckduckgo_wait_stops_on_no_results_without_full_read(self):
+        engine = DuckDuckGoSearchEngine()
+        engine.query = "dummy"
+        engine.max_results = 10
+        engine.set_selector()
+
+        class Tab:
+            content_calls = 0
+
+            async def evaluate(self, _expression):
+                return '{"noResults": true}'
+
+            async def get_content(self):
+                self.content_calls += 1
+                return "<html></html>"
+
+        engine.tab = Tab()
+        loaded = await engine._wait_for_result_content(timeout=5, interval=0)
+
+        self.assertFalse(loaded)
+        self.assertEqual(engine.tab.content_calls, 0)
+
+    async def test_brave_container_wait_uses_probe_without_full_read(self):
+        engine = BraveSearchEngine()
+        engine.set_selector()
+
+        class Tab:
+            probes = 0
+            content_calls = 0
+
+            async def evaluate(self, _expression):
+                self.probes += 1
+                return json.dumps({"found": self.probes >= 3})
+
+            async def get_content(self):
+                self.content_calls += 1
+                return "<html></html>"
+
+        engine.tab = Tab()
+        found = await engine._wait_for_results_container(timeout=5, interval=0)
+
+        self.assertTrue(found)
+        self.assertEqual(engine.tab.probes, 3)
+        self.assertEqual(engine.tab.content_calls, 0)
 
 
 class BingPaginationTestCase(unittest.TestCase):
@@ -501,6 +617,9 @@ class DuckDuckGoParsingTestCase(unittest.TestCase):
         class PaginatedTab:
             async def xpath(self, _selector):
                 return [MoreResultsButton()]
+
+            async def evaluate(self, _expression):
+                return '{"resultCount": 2}'
 
             async def get_content(self):
                 return """

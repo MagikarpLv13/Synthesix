@@ -3510,3 +3510,51 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`, `AI_WORKLOG.md`.
 - **Prochaine action :** T-012 (attente moteurs composite) puis T-014 (pool de
   tabs moteurs).
+
+### AI-20260706-006 — T-012 : attente moteurs par evaluate composite
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :**
+  - `search_engine.py` : nouvelle méthode `probe_page_state()` — un seul
+    `Runtime.evaluate` léger par itération d'attente, retour JSON compact
+    (`found`, `ready`, `body_length`, `result_count`, `challenge`,
+    `forbidden`, `no_results`, `url`, `title`, `text` optionnel ≤ 20 000
+    caractères). Marqueurs par moteur via `get_probe_markers()` ; constante
+    `PROBE_MARKER` dans l'expression ; échec de probe ⇒ état « not found »
+    (équivalent des exceptions avalées d'avant). `wait_for_page_load`
+    réécrit sur le probe ; capture debug `load_timeout` + `robot_check()`
+    inchangés à l'échéance.
+  - `duckduckgo.py` : plus aucun `get_content()` en boucle.
+    `_wait_for_result_content` : probe seul (challenge via sélecteurs
+    `.anomaly-modal`/textes visibles, forbidden via titre exact
+    `403 forbidden`/`forbidden`, arrêt anticipé « no results » conservé).
+    `_wait_for_manual_challenge_resolution` : probe ; lecture HTML unique au
+    moment du 403 pour la capture follow-up. `_wait_for_additional_results`
+    (pagination) : lecture/parse seulement quand `result_count` change.
+  - `brave.py` : `_wait_for_results_container` sur le probe ; marqueurs
+    `/captcha` (pathname) + `blockRobots` (innerHTML borné 200 Ko).
+    `robot_check` (HTML complet, hors boucle) inchangé.
+  - Comportement supprimé (assumé) : le parse lxml en boucle DDG quand le
+    sélecteur ne matche pas — le sélecteur couvre les trois familles de
+    markup et le repli endpoint HTML reste le filet.
+  - Coût par itération : avant = `query_selector` + `get_content` complet
+    (Mo) toutes les ~0,5 s (DDG) ; après = 1 evaluate (~3 Ko envoyé,
+    ~0,35 Ko reçu, octets suivis par `observe_bytes("eval_engine_wait")`).
+- **Tests exécutés :** `tests.test_engines` (+5 tests probe),
+  `tests.test_search_engine_errors` (doubles migrés sur `evaluate`),
+  `tests.test_fakes` (exemple d'attente migré sur le probe),
+  `tests.test_engine_golden`, `py_compile`, `unittest discover` —
+  **333 tests OK** ; `git diff --check` OK. Smoke JS réel : probe exécuté
+  dans Chrome headless (`--dump-dom`) sur 9 pages synthétiques
+  (found/challenge/no-results/forbidden, DDG + Brave) — 9/9 OK.
+- **Non exécuté :** recherche live 4 moteurs avec dump T-006 (mesure
+  `eval_engine_wait`/`get_content` réelle) — à consigner au premier run
+  interactif ; détection challenge live DDG/Brave non reproduite.
+- **Fichiers modifiés :** `search_engine.py`, `duckduckgo.py`, `brave.py`,
+  `tests/test_engines.py`, `tests/test_search_engine_errors.py`,
+  `tests/test_fakes.py`, `docs/tasks/T-012-attente-moteurs-composite.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`.
+- **Prochaine action :** T-014 (pool de tabs moteurs, dernière tâche de la
+  phase 1) ; au premier run réel, vérifier les logs de challenge et le dump
+  T-006.
