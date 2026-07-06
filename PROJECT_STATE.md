@@ -27,7 +27,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | Phase | Contenu | Statut |
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
-| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | en cours (T-010 done ; T-011 en review, smoke live restant ; T-012..T-015 à faire) |
+| 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | en cours (T-010, T-011, T-013, T-015 done ; T-012/T-014 à faire) |
 | 2 | BrowserService + push CDP pour pages locales | à faire |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
@@ -47,17 +47,18 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 1. ~~Actions UI perdables~~ corrigé (T-001) ; le coût du polling reste,
    réduit par T-003, supprimé par les phases 2/3.
 2. ~~Recherche bloque la boucle d'actions~~ corrigé (T-011 : tâche de fond,
-   `cancel_search`, bouton home — smoke live restant) ; ~~pas de plafond
-   global~~ corrigé (T-010 : budget 120 s, résultats partiels, annulation
-   propre).
-3. Parsing Brave par regex sur bundle minifié : cassera au prochain déploiement Brave (T-013/T-015).
+   `cancel_search`, bouton home) ; ~~pas de plafond global~~ corrigé
+   (T-010 : budget 120 s, résultats partiels, annulation propre). Smoke
+   live T-011 non exécuté (clôture décidée par l'utilisateur) — à observer
+   au premier run réel.
+3. ~~Parsing Brave par regex sur bundle minifié~~ durci (T-013 : repli XPath,
+   suffixe JSON assoupli ; T-015 : fixtures golden parsing).
 4. `--load-extension` retiré de Chrome stable brandé ≥137 : l'extension doit prévoir l'installation unpacked persistante (T-032).
 5. Smokes navigateur réels de la phase 0 non exécutés (kill Chrome, captcha
    Google, mesure 60 s) — à couvrir au premier run interactif.
 
 ## Prochaine action recommandée
 
-Phase 1 : smoke live T-011 (recherche réelle + save page pendant recherche +
-annulation) au prochain run interactif, puis T-012 (attente moteurs
-composite, Claude) ; T-013 + T-015 (Brave fallback + golden files, Codex) en
-parallèle. T-050, T-010 et le code de T-011 sont livrés.
+Phase 1 : T-012 (attente moteurs composite, Claude) est la prochaine action
+prioritaire ; T-014 (pool de tabs moteurs) reste disponible ensuite. T-050,
+T-010, T-011, T-013 et T-015 sont livrés.

@@ -312,6 +312,63 @@ class BraveRobotChallengeTestCase(unittest.TestCase):
         self.assertIsNone(asyncio.run(engine._click_robot_button_with_find()))
 
 
+class BraveParsingTestCase(unittest.TestCase):
+    def test_parse_embedded_json_accepts_variable_suffix(self):
+        raw_html = """
+        <html><body><script>
+        window.__brave = {
+            results:[{
+                title:"One",
+                url:"https://example.com/one",
+                description:"First result."
+            },{
+                title:"Two",
+                url:"https://example.com/two",
+                description:"Second result."
+            }],xy:0
+        };
+        </script></body></html>
+        """
+        engine = BraveSearchEngine()
+        engine.max_results = 10
+
+        results = engine.parse_results(raw_html)
+
+        self.assertEqual([result["title"] for result in results], ["One", "Two"])
+        self.assertEqual(engine.num_results, 2)
+        self.assertEqual(engine.nb_results_per_page, 2)
+
+    def test_parse_falls_back_to_xpath_when_embedded_json_is_absent(self):
+        raw_html = """
+        <html><body><main id="results">
+            <div class="snippet" data-pos="1">
+                <a href="https://example.com/one">
+                    <div class="title">One</div>
+                </a>
+                <div class="snippet-description">First result.</div>
+            </div>
+            <div class="snippet" data-pos="2">
+                <a href="https://example.com/two">
+                    <div class="title">Two</div>
+                </a>
+                <div class="snippet-description">Second result.</div>
+            </div>
+        </main></body></html>
+        """
+        engine = BraveSearchEngine()
+        engine.max_results = 10
+
+        with self.assertLogs("brave", level="WARNING") as logs:
+            results = engine.parse_results(raw_html)
+
+        self.assertEqual([result["title"] for result in results], ["One", "Two"])
+        self.assertEqual(engine.num_results, 2)
+        self.assertEqual(engine.nb_results_per_page, 2)
+        self.assertTrue(
+            any("XPath fallback parsed 2 results" in message for message in logs.output)
+        )
+
+
 class DuckDuckGoParsingTestCase(unittest.TestCase):
     def test_detects_duckduckgo_robot_challenge_variants(self):
         self.assertTrue(

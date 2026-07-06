@@ -152,17 +152,16 @@ class BraveSearchEngine(SearchEngine):
             "desc": ".//div[contains(@class, 'snippet-description')]",
         }
 
-    def parse_results(self, raw_results):
-        pattern = r"results:\s*\[\{(.*?)\}\],bo"
+    def _parse_results_embedded_json(self, raw_results):
+        pattern = r"['\"]?results['\"]?\s*:\s*\[\{(.*?)\}\],\s*[a-zA-Z_$]{1,3}\b"
         match = re.search(pattern, raw_results, re.DOTALL)
         results = []
-        self.nb_results_per_page = 0
 
         if match:
             res = js_like_to_json(match.group(1))
             if res is not None:
                 for item in res:
-                    if self.num_results < self.max_results:
+                    if self.max_results is None or self.num_results < self.max_results:
                         title = item.get("title", None)
                         url = item.get("url", None)
                         description = item.get("description", None)
@@ -181,6 +180,30 @@ class BraveSearchEngine(SearchEngine):
             logger.debug("Brave results block not found in page source.")
 
         return results
+
+    def parse_results(self, raw_results):
+        self.nb_results_per_page = 0
+
+        results = self._parse_results_embedded_json(raw_results)
+        if results:
+            return results
+
+        logger.warning(
+            "Brave embedded results parsing returned no results; "
+            "falling back to XPath parsing."
+        )
+        fallback_results = self.parse_results_old(raw_results)
+        if self.max_results is not None:
+            remaining = max(0, self.max_results - self.num_results)
+            fallback_results = fallback_results[:remaining]
+
+        self.num_results += len(fallback_results)
+        self.nb_results_per_page = len(fallback_results)
+        if fallback_results:
+            logger.warning("Brave XPath fallback parsed %d results.", len(fallback_results))
+        else:
+            logger.warning("Brave parsing failed: embedded JSON and XPath fallback returned no results.")
+        return fallback_results
 
     async def post_execute_search(self):
         if self.num_results >= self.max_results:

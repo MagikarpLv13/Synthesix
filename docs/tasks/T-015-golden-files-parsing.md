@@ -1,6 +1,6 @@
 # T-015 — Golden files de parsing par moteur
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : faible-moyen
 - **Outil recommandé** : Codex (collecte des fixtures : Claude ou l'utilisateur)
 - **Dépendances** : aucune
@@ -64,3 +64,17 @@ réelles dans `history/debug_pages/`.
 - Golden files figent un instantané : ils détectent les régressions de *nos*
   parseurs, pas les changements côté moteur — c'est le rôle du repli T-013 et
   des statuts de couverture.
+
+## Résultat 2026-07-06
+
+- Ajout de `tests/test_engine_golden.py` avec procédure de rafraîchissement en
+  en-tête.
+- Ajout de fixtures HTML datées pour Google, Bing, DuckDuckGo et Brave sous
+  `tests/fixtures/engines/`.
+- Les fixtures conservent uniquement le markup de résultats nécessaire au test,
+  issu des structures observées dans les captures locales
+  `history/debug_pages`, sans cookies, tokens, données d'enquête ni chrome de
+  page complet.
+- Couvertures verrouillées : au moins 5 résultats par moteur, champs
+  `title/link/description/source`, liens Bing dé-wrappés, liens DuckDuckGo
+  nettoyés.

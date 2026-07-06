@@ -3465,3 +3465,48 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`.
 - **Prochaine action :** smoke live T-011 au prochain run interactif ;
   ensuite T-012 (Claude) ; T-013/T-015 (Codex) toujours disponibles.
+- **MAJ 2026-07-06 :** T-011 passé `review` → `done` sur décision
+  utilisateur (tests unitaires + smoke visuel headless jugés suffisants).
+  Le smoke live n'a pas été exécuté ; à observer au premier run réel,
+  toute anomalie rouvre la tâche.
+
+### AI-20260706-005 — T-013/T-015 : fallback Brave XPath + golden files parsing
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-06 19:58-20:04
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** durcir le parsing Brave contre les changements de bundle
+  minifié et ajouter des fixtures golden hors réseau pour les parseurs moteurs.
+- **Changements :**
+  - `brave.py` : extraction JSON embarquée isolée dans
+    `_parse_results_embedded_json`, suffixe minifié assoupli, fallback XPath
+    branché quand le JSON retourne 0 résultat, warnings explicites en cas de
+    repli ou d'échec des deux chemins.
+  - `tests/test_engines.py` : couverture du suffixe JSON variable et du
+    fallback XPath, avec vérification de `num_results` et
+    `nb_results_per_page`.
+  - `tests/test_engine_golden.py` : nouveau test golden hors réseau pour
+    Google, Bing, DuckDuckGo et Brave ; procédure de rafraîchissement
+    documentée en tête du test.
+  - `tests/fixtures/engines/` : fixtures datées `2026-06` conservant seulement
+    le markup de résultats nécessaire, à partir des structures observées dans
+    les captures locales `history/debug_pages` ; aucune donnée d'enquête,
+    cookie ou token inclus.
+  - `docs/tasks/T-013-brave-fallback-parsing.md`,
+    `docs/tasks/T-015-golden-files-parsing.md`, `docs/tasks/README.md` et
+    `PROJECT_STATE.md` mis à jour.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_engines` — OK, 34 tests
+  - `.venv\Scripts\python.exe -m unittest tests.test_engine_golden` — OK, 2 tests
+  - `.venv\Scripts\python.exe -m py_compile brave.py tests\test_engines.py tests\test_engine_golden.py` — OK
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 328 tests
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke navigateur réel / nouvelle collecte `--debug-html`
+  live ; les fixtures utilisent des structures locales déjà présentes.
+- **Fichiers modifiés :** `brave.py`, `tests/test_engines.py`,
+  `tests/test_engine_golden.py`, `tests/fixtures/engines/*`,
+  `docs/tasks/T-013-brave-fallback-parsing.md`,
+  `docs/tasks/T-015-golden-files-parsing.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Prochaine action :** T-012 (attente moteurs composite) puis T-014 (pool de
+  tabs moteurs).

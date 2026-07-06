@@ -38,11 +38,11 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
 | [T-010](T-010-deadline-globale-recherche.md) | Deadline globale de recherche + résultats partiels | P0 | Claude | done |
-| [T-011](T-011-recherche-non-bloquante.md) | Recherche non bloquante + annulation | P0 | Claude | review |
+| [T-011](T-011-recherche-non-bloquante.md) | Recherche non bloquante + annulation | P0 | Claude | done |
 | [T-012](T-012-attente-moteurs-composite.md) | Attente moteurs par evaluate composite | P1 | Claude | todo |
-| [T-013](T-013-brave-fallback-parsing.md) | Parsing Brave : chaîne JSON → XPath | P1 | Codex | todo |
+| [T-013](T-013-brave-fallback-parsing.md) | Parsing Brave : chaîne JSON → XPath | P1 | Codex | done |
 | [T-014](T-014-pool-tabs-moteurs.md) | Pool de tabs moteurs + fin des vols de focus | P2 | Claude | todo |
-| [T-015](T-015-golden-files-parsing.md) | Golden files de parsing par moteur | P1 | Codex | todo |
+| [T-015](T-015-golden-files-parsing.md) | Golden files de parsing par moteur | P1 | Codex | done |
 
 ### Phase 2 — BrowserService + push (pages locales)
 

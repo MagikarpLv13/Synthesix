@@ -1,6 +1,6 @@
 # T-011 — Recherche non bloquante + annulation
 
-- **Statut** : review (code livré ; smoke live obligatoire restant)
+- **Statut** : done
 - **Priorité** : P0 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-001 (file d'actions), T-010 (annulation propre)
@@ -107,5 +107,8 @@ annulation. Consigner le résultat.
   moteurs), `tests.test_i18n_coverage`, `tests.test_cdp_budget`,
   `unittest discover` 324 OK. Smoke visuel headless : bouton visible/caché,
   thèmes sombre + clair (`tmp_ui_render/cancel_button_*.png`).
-- **Restant (obligatoire avant done)** : smoke live — recherche réelle,
-  save page pendant la recherche, annulation ≤ 2 s, quit pendant recherche.
+- Smoke live (recherche réelle, save page pendant recherche, annulation,
+  quit) : non exécuté par l'agent ; passage en `done` décidé par
+  l'utilisateur le 2026-07-06 sur la base des tests unitaires et du smoke
+  visuel headless. À observer au premier run interactif réel ; toute
+  anomalie rouvre la tâche.

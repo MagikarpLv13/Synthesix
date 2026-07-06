@@ -1,6 +1,6 @@
 # T-013 — Parsing Brave : chaîne JSON → XPath
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : faible
 - **Outil recommandé** : Codex
 - **Dépendances** : T-015 recommandé (fixtures), pas bloquant
@@ -58,3 +58,13 @@ n'est plus branché. `js_like_to_json` (`utils.py:332`) est lui-même fragile
   tâche (rester minimal).
 - Doublons entre les deux chemins : non concerné, un seul chemin est utilisé
   par page.
+
+## Résultat 2026-07-06
+
+- `parse_results` tente d'abord le bloc JSON embarqué via
+  `_parse_results_embedded_json`, avec suffixe minifié assoupli.
+- Si ce chemin retourne 0 résultat, Brave bascule sur le parser XPath et
+  consigne le chemin de repli en `warning`.
+- `num_results` et `nb_results_per_page` sont alimentés sur les deux chemins.
+- Fixtures ajoutées : `brave_2026-06.html` (JSON) et
+  `brave_xpath_2026-06.html` (fallback XPath).
