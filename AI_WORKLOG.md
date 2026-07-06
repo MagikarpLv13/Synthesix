@@ -3323,3 +3323,25 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   preuve la plus récente, ou autre) — décision à prendre plus tard.
 - **Fichiers modifiés :** `exports/zeroneurone.py`,
   `tests/test_zeroneurone_export.py`.
+
+### AI-20260706-001 — Plan d'action robustesse + migration overlay vers extension Chrome
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :** plan d'action complet issu de la review technique du
+  2026-07-06, sous forme de fichiers de tâches autonomes.
+  - `PROJECT_STATE.md` (nouveau) : état court, décisions structurantes
+    DEC-PLAN-01 à 06 (Zendriver conservé ; transport push
+    `Runtime.addBinding` ; overlay CDP remplacé progressivement par une
+    extension Chrome MV3 intégrée, périmètre http/https uniquement ;
+    captures restent CDP ; second navigateur de recherche à profil dédié).
+  - `docs/tasks/README.md` + 24 tâches `T-0xx` réparties en 6 phases :
+    Phase 0 quick wins (T-001..T-006), Phase 1 recherche robuste
+    (T-010..T-015), Phase 2 BrowserService + push local (T-020..T-022),
+    Phase 3 extension Chrome (T-030..T-036, spike transport T-031 bloquant),
+    Phase 4 isolation/données (T-040..T-043), QA (T-050, T-051).
+  - `AGENTS.md` : ajout de `PROJECT_STATE.md` et `docs/tasks/` aux documents
+    de référence.
+- **Tests exécutés :** aucun (documentation uniquement, aucun code modifié).
+- **Prochaine action :** démarrer T-001 (Codex) puis T-006 (Claude, mesure de
+  référence avant optimisations). T-030 peut démarrer en parallèle.

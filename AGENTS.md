@@ -24,6 +24,8 @@ Ordre de priorité :
 Documents de référence :
 
 * `AI_WORKLOG.md` : tâches actives, verrous, blocages, décisions et comptes rendus ;
+* `PROJECT_STATE.md` : état court du projet, décisions structurantes et avancement des phases du plan ;
+* `docs/tasks/*.md` : tâches concrètes du plan (une tâche = un fichier ; conventions dans `docs/tasks/README.md`) ;
 * `README.md` : installation, architecture générale et commandes ;
 * `docs/UX_REDESIGN.md` : design system et règles UX ;
 * `frontend/README.md` : build et vérifications frontend ;
