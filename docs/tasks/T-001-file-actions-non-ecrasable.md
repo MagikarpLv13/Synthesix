@@ -1,6 +1,6 @@
 # T-001 — File d'actions non écrasable côté pages
 
-- **Statut** : todo
+- **Statut** : done (2026-07-06, Claude)
 - **Priorité** : P0 · **Effort** : faible
 - **Outil recommandé** : Codex
 - **Dépendances** : aucune
@@ -66,3 +66,18 @@ atteignent le dispatcher.
   `__synthesixSavePageAction` doit rendre zéro occurrence hors compatibilité).
 - Double traitement si le drain n'est pas atomique (drainer dans un seul
   `evaluate`).
+
+## Résultat (2026-07-06)
+
+- `main.py` : les 12 écritures scalaires du JS overlay passent par
+  `queueAction()` → `window.__synthesixActions` (FIFO) ; la consommation fait
+  `shift()` d'une action par tick ; garde `!window.__synthesixSavePageAction`
+  du bloc observe supprimée (plus de risque d'écrasement). Contrat Python
+  inchangé (une action ou null par appel).
+- `index.html` : `state.pendingAction` (scalaire) → `state.pendingActions`
+  (file) ; `consumeAction` draine par `shift()`.
+- `investigations/view.py` : déjà en file (`actionQueue.shift()`), aucun
+  changement.
+- Tests : `tests.test_main` (dont nouveau
+  `test_external_page_overlay_queues_actions_fifo`) + `tests.test_home_ui`
+  → 46 tests OK. Grep `__synthesixSavePageAction` → zéro occurrence.

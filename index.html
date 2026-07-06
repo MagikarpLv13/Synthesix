@@ -526,7 +526,7 @@
                 history: [],
                 visibleItems: [],
                 activeIndex: -1,
-                pendingAction: null,
+                pendingActions: [],
                 vpnCheckId: 0,
                 investigations: [],
                 requestedInvestigationId: "",
@@ -562,16 +562,17 @@
                     return;
                 }
                 if (
-                    state.pendingAction
-                    && state.pendingAction.action !== "select_investigation"
+                    state.pendingActions.some(
+                        (entry) => entry.action !== "select_investigation"
+                    )
                 ) {
                     return;
                 }
                 state.announcedInvestigationId = selectedId;
-                state.pendingAction = {
+                state.pendingActions.push({
                     action: "select_investigation",
                     investigationId: selectedId
-                };
+                });
             };
 
             const updateInvestigationControls = () => {
@@ -938,7 +939,7 @@
                 if (!payload) {
                     return;
                 }
-                state.pendingAction = payload;
+                state.pendingActions.push(payload);
                 closeHistory();
             };
 
@@ -976,7 +977,7 @@
             };
 
             const queueAction = (action, payload = {}) => {
-                state.pendingAction = { action, ...payload };
+                state.pendingActions.push({ action, ...payload });
                 closeHistory();
                 setStatus("Processing...");
             };
@@ -1090,9 +1091,7 @@
             };
 
             const consumeAction = () => {
-                const action = state.pendingAction;
-                state.pendingAction = null;
-                return action;
+                return state.pendingActions.shift() || null;
             };
 
             searchButton.addEventListener("click", submitSearch);

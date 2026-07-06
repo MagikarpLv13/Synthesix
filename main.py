@@ -589,6 +589,10 @@ async def _install_and_consume_save_overlay(
                 const tagsetProperties = {tagset_properties_json};
                 const tagsetPropertyTypes = {tagset_property_types_json};
                 const hostId = "__synthesix-save-overlay";
+                const queueAction = (queuedAction) => {{
+                    (window.__synthesixActions =
+                        window.__synthesixActions || []).push(queuedAction);
+                }};
                 const overlayBundle = {overlay_bundle_json};
                 if (!window.SynthesixOverlay && overlayBundle) {{
                     try {{
@@ -653,20 +657,20 @@ async def _install_and_consume_save_overlay(
                     }};
                     button.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
-                            window.__synthesixSavePageAction = {{
+                            queueAction({{
                                 action: "focus_home"
-                            }};
+                            }});
                             return;
                         }}
                         if (button.dataset.state === "saved") {{
                             return;
                         }}
                         host.__synthesixSetButtonState("saving", "Saving...");
-                        window.__synthesixSavePageAction = {{
+                        queueAction({{
                             action: "save_page_to_investigation",
                             investigationId: host.dataset.investigationId,
                             page: host.__synthesixPagePayload()
-                        }};
+                        }});
                     }});
 
                     const archiveButton = document.createElement("sx-overlay-action");
@@ -689,20 +693,20 @@ async def _install_and_consume_save_overlay(
                     }};
                     archiveButton.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
-                            window.__synthesixSavePageAction = {{
+                            queueAction({{
                                 action: "focus_home"
-                            }};
+                            }});
                             return;
                         }}
                         host.__synthesixSetArchiveState(
                             "archiving",
                             "Saving HTML archive..."
                         );
-                        window.__synthesixSavePageAction = {{
+                        queueAction({{
                             action: "archive_page_to_investigation",
                             investigationId: host.dataset.investigationId,
                             page: host.__synthesixPagePayload()
-                        }};
+                        }});
                     }});
 
                     const captureButton = document.createElement("sx-overlay-action");
@@ -740,9 +744,9 @@ async def _install_and_consume_save_overlay(
                             const captureName = detail.captureName || "";
                             const attach = detail.attach || null;
                             if (!host.dataset.investigationId) {{
-                                window.__synthesixSavePageAction = {{
+                                queueAction({{
                                     action: "focus_home"
-                                }};
+                                }});
                                 return;
                             }}
                             if (scope === "viewport") {{
@@ -782,7 +786,7 @@ async def _install_and_consume_save_overlay(
                         host.style.display = "none";
                         window.requestAnimationFrame(() => {{
                             window.requestAnimationFrame(() => {{
-                                window.__synthesixSavePageAction = {{
+                                queueAction({{
                                     action: "capture_evidence_to_investigation",
                                     investigationId: host.dataset.investigationId,
                                     captureScope: scope,
@@ -790,7 +794,7 @@ async def _install_and_consume_save_overlay(
                                     selection,
                                     attach: attach || null,
                                     page: host.__synthesixPagePayload()
-                                }};
+                                }});
                                 if (
                                     typeof captureMenu.reset === "function"
                                 ) {{
@@ -846,9 +850,9 @@ async def _install_and_consume_save_overlay(
 
                     captureButton.addEventListener("click", () => {{
                         if (!host.dataset.investigationId) {{
-                            window.__synthesixSavePageAction = {{
+                            queueAction({{
                                 action: "focus_home"
-                            }};
+                            }});
                             return;
                         }}
                         const nextOpen = !captureMenu.hasAttribute("open");
@@ -882,12 +886,12 @@ async def _install_and_consume_save_overlay(
                         (event) => {{
                             const detail = event.detail || {{}};
                             if (!host.dataset.investigationId) {{
-                                window.__synthesixSavePageAction = {{
+                                queueAction({{
                                     action: "focus_home"
-                                }};
+                                }});
                                 return;
                             }}
-                            window.__synthesixSavePageAction = {{
+                            queueAction({{
                                 action: "create_graph_entity_from_selection",
                                 investigationId: host.dataset.investigationId,
                                 entity: {{
@@ -895,7 +899,7 @@ async def _install_and_consume_save_overlay(
                                     category: detail.category
                                 }},
                                 page: host.__synthesixPagePayload()
-                            }};
+                            }});
                         }}
                     );
                     entityMenu.addEventListener(
@@ -903,12 +907,12 @@ async def _install_and_consume_save_overlay(
                         (event) => {{
                             const detail = event.detail || {{}};
                             if (!host.dataset.investigationId) {{
-                                window.__synthesixSavePageAction = {{
+                                queueAction({{
                                     action: "focus_home"
-                                }};
+                                }});
                                 return;
                             }}
-                            window.__synthesixSavePageAction = {{
+                            queueAction({{
                                 action: "attach_selection_to_graph_entity",
                                 investigationId: host.dataset.investigationId,
                                 entityId: detail.entityId,
@@ -918,7 +922,7 @@ async def _install_and_consume_save_overlay(
                                     property_type: detail.propertyType || ""
                                 }},
                                 page: host.__synthesixPagePayload()
-                            }};
+                            }});
                         }}
                     );
                     host.addEventListener(
@@ -1058,21 +1062,19 @@ async def _install_and_consume_save_overlay(
                 if (
                     context.id
                     && host.dataset.observationKey !== pageKey
-                    && !window.__synthesixSavePageAction
                 ) {{
                     host.dataset.observationKey = pageKey;
-                    window.__synthesixSavePageAction = {{
+                    queueAction({{
                         action: "observe_saved_page",
                         investigationId: context.id,
                         page: {{
                             url: window.location.href
                         }}
-                    }};
+                    }});
                 }}
 
-                const action = window.__synthesixSavePageAction || null;
-                window.__synthesixSavePageAction = null;
-                return action;
+                const queued = window.__synthesixActions;
+                return queued && queued.length ? queued.shift() : null;
             }})()
             """,
         )

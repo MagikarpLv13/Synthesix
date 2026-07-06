@@ -781,6 +781,27 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Personne", tab.script)
         self.assertFalse(_is_external_web_tab(SimpleNamespace(url="file:///index.html")))
 
+    async def test_external_page_overlay_queues_actions_fifo(self):
+        """T-001: clicks land in a FIFO queue instead of a clobberable scalar,
+        and the poll drains exactly one action per call."""
+
+        class FakeTab:
+            url = "https://example.com/article"
+
+            async def evaluate(self, script):
+                self.script = script
+                if "!!window.SynthesixOverlay" in script:
+                    return False
+                return None
+
+        tab = FakeTab()
+        await _install_and_consume_save_overlay(tab, {"id": "case-1", "title": "Case"})
+
+        self.assertIn("window.__synthesixActions", tab.script)
+        self.assertIn("queueAction({", tab.script)
+        self.assertIn("queued.shift()", tab.script)
+        self.assertNotIn("__synthesixSavePageAction", tab.script)
+
     def test_selection_entity_helper_saves_page_and_links_source(self):
         service = Mock()
         investigation = SimpleNamespace(id="case-1", status="active")
