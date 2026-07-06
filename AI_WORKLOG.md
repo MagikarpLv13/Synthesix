@@ -3345,3 +3345,42 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Tests exécutés :** aucun (documentation uniquement, aucun code modifié).
 - **Prochaine action :** démarrer T-001 (Codex) puis T-006 (Claude, mesure de
   référence avant optimisations). T-030 peut démarrer en parallèle.
+
+### AI-20260706-002 — Phase 0 du plan : quick wins stabilité (T-001..T-006)
+
+- **Agent :** Claude
+- **Branche :** feat/lit-frontend
+- **Résultat :** les 6 tâches de la phase 0 sont livrées, une par commit :
+  - T-001 (6bba4dc) : actions UI en files FIFO (overlay `window.__synthesixActions`,
+    home `state.pendingActions`) — plus de clics perdus entre deux ticks.
+  - T-006 (072723c) : `observability.py` + instrumentation CDP
+    (main.py, search_engine, duckduckgo, brave) + `tests/test_cdp_budget.py`
+    qui verrouille la baseline : 1 inventaire targets + 6 evaluates par tick
+    idle (topologie 1 home + 1 externe + 1 page enquête).
+  - T-003 (20ce8fb) : probe home léger + push des payloads
+    history/investigations uniquement sur divergence de version —
+    0 octet transféré en régime stable (verrouillé par test).
+  - T-005 : quit propre après 10 s de navigateur injoignable, purge du set
+    focus-guard ; dédoublonnage targets documenté non-réalisable sur
+    zendriver 0.15.3 (update_targets ne retire jamais les targets fermés),
+    sera supprimé par T-022.
+  - T-004 : captcha Google détecté par `query_selector("#captcha-form")` +
+    URL `/sorry/`, `RobotChallengeError` si non résolu (couverture
+    `challenge`), garde anti-récursion des attentes.
+  - T-002 : cache `AppSettings` par signature d'environnement
+    (SYNTHESIX_* + cwd) + `reload_settings()` — compatible avec tous les
+    tests `patch.dict`/chdir sans modification.
+- **Tests exécutés :** suites ciblées par tâche (voir fichiers T-0xx) +
+  `unittest discover` complet après T-002 : **307 tests OK**.
+- **Non exécuté :** smoke navigateur réel (mesure 60 s à vide, kill Chrome,
+  captcha Google réel) — à faire au premier run interactif ; les
+  comportements sont couverts par tests unitaires.
+- **Fichiers modifiés :** `main.py`, `index.html`, `settings.py`,
+  `google.py`, `search_engine.py`, `duckduckgo.py`, `brave.py`,
+  `observability.py` (nouveau), `tests/test_main.py`,
+  `tests/test_engines.py`, `tests/test_settings.py`,
+  `tests/test_cdp_budget.py` (nouveau), `docs/tasks/*`.
+- **Prochaine action :** Phase 1 — T-010 (deadline globale de recherche,
+  Claude) et T-013/T-015 (Brave fallback + golden files, Codex) sont
+  indépendants et peuvent démarrer en parallèle. T-050 (harness FakeTab)
+  utile avant T-010 pour mutualiser les fakes.

@@ -26,7 +26,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 | Phase | Contenu | Statut |
 |---|---|---|
-| 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | à faire |
+| 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | à faire |
 | 2 | BrowserService + push CDP pour pages locales | à faire |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
@@ -38,16 +38,21 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 - Branche active : `feat/lit-frontend`.
 - Migration Lit frontend : terminée (Lots 17-22, voir `frontend/TASKS.md`).
 - Review technique complète réalisée le 2026-07-06 (base du présent plan).
-- Aucun chantier de code du plan démarré.
+- Phase 0 livrée le 2026-07-06 (6 commits, 307 tests verts). Baseline CDP
+  verrouillée par `tests/test_cdp_budget.py` : 1 inventaire targets +
+  6 evaluates par tick idle ; payloads home à 0 octet en régime stable.
 
 ## Risques ouverts majeurs
 
-1. Boucle de polling CDP 250 ms : coût permanent, actions UI perdables (corrigé par T-001 puis phase 2/3).
+1. ~~Actions UI perdables~~ corrigé (T-001) ; le coût du polling reste,
+   réduit par T-003, supprimé par les phases 2/3.
 2. Recherche bloque la boucle d'actions, pas d'annulation (T-010/T-011).
 3. Parsing Brave par regex sur bundle minifié : cassera au prochain déploiement Brave (T-013/T-015).
 4. `--load-extension` retiré de Chrome stable brandé ≥137 : l'extension doit prévoir l'installation unpacked persistante (T-032).
+5. Smokes navigateur réels de la phase 0 non exécutés (kill Chrome, captcha
+   Google, mesure 60 s) — à couvrir au premier run interactif.
 
 ## Prochaine action recommandée
 
-Démarrer Phase 0 : `docs/tasks/T-001-file-actions-non-ecrasable.md` (Codex),
-puis T-006 (instrumentation, référence de mesure) avant toute optimisation.
+Phase 1 : T-010 (deadline globale, Claude) ; T-013 + T-015 (Brave fallback +
+golden files, Codex) en parallèle. T-050 (harness FakeTab) utile avant T-010.
