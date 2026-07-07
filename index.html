@@ -542,6 +542,19 @@
 
             const normalize = (value) => String(value || "").toLowerCase().trim();
 
+            // T-021: deliver a fully-formed action object. When the push
+            // binding is armed it goes straight to the backend queue (instant,
+            // never double-delivered); otherwise it falls back to the local
+            // poll queue. Every action emitter must go through here so none is
+            // left on the slow, binding-throttled poll path (e.g. search).
+            const emitAction = (item) => {
+                if (window.synthesixDispatch) {
+                    window.synthesixDispatch(JSON.stringify(item));
+                } else {
+                    state.pendingActions.push(item);
+                }
+            };
+
             try {
                 state.requestedInvestigationId = String(
                     window.localStorage.getItem(activeInvestigationStorageKey) || ""
@@ -576,7 +589,7 @@
                     return;
                 }
                 state.announcedInvestigationId = selectedId;
-                state.pendingActions.push({
+                emitAction({
                     action: "select_investigation",
                     investigationId: selectedId
                 });
@@ -946,7 +959,7 @@
                 if (!payload) {
                     return;
                 }
-                state.pendingActions.push(payload);
+                emitAction(payload);
                 closeHistory();
             };
 
@@ -984,14 +997,7 @@
             };
 
             const queueAction = (action, payload = {}) => {
-                const item = { action, ...payload };
-                if (window.synthesixDispatch) {
-                    // T-021: push transport — bypass the local poll queue
-                    // entirely so the action is never delivered twice.
-                    window.synthesixDispatch(JSON.stringify(item));
-                } else {
-                    state.pendingActions.push(item);
-                }
+                emitAction({ action, ...payload });
                 closeHistory();
                 setStatus("Processing...");
             };
