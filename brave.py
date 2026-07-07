@@ -272,7 +272,10 @@ class BraveSearchEngine(SearchEngine):
             self.results.extend(results)
 
     def set_selector(self):
-        self.selector = "#results"
+        # Wait on the result rows themselves, not the `#results` container:
+        # Brave mounts the container empty and hydrates the snippets after, so
+        # the container appearing does not mean the results are ready yet.
+        self.selector = "#results .snippet[data-pos]"
 
     def get_probe_markers(self) -> dict:
         return {
@@ -335,48 +338,27 @@ class BraveSearchEngine(SearchEngine):
             await asyncio.sleep(interval)
         return False
 
-    async def _count_result_snippets(self) -> int:
-        """Live count of hydrated result rows (``#results .snippet[data-pos]``)."""
-        try:
-            raw = await self.tab.evaluate(
-                "document.querySelectorAll('#results .snippet[data-pos]').length"
-            )
-            return int(raw or 0)
-        except Exception:
-            return 0
-
     async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
-        """Wait for Brave's client-rendered results before reading.
+        """Wait for Brave's client-rendered results, then read — same strategy
+        as the other engines (wait for the result selector, scrape on found).
 
-        Brave (SvelteKit) ships an empty shell, then injects the result
-        snippets client-side (the base 2.5s ``page_load_timeout`` reads that
-        shell => 0 results). Wait for the results container, then read as soon
-        as the snippet count stops growing — hydration is usually done in ~1s,
-        so this is far faster than a blind fixed settle. ``brave_results_settle``
-        only caps the hydration wait so a genuinely empty result page (snippet
-        count stays 0) can't stall."""
-        settings = get_settings()
-        interval = settings.brave_results_interval if interval is None else interval
-        if not await self._wait_for_results_container(timeout, interval):
-            try:
-                await self.read_page_content("load_timeout")
-            except Exception:
-                logger.debug(
-                    "Unable to capture Brave content after load timeout",
-                    exc_info=True,
-                )
-            return bool(await self.robot_check())
+        The selector targets the result rows (``#results .snippet[data-pos]``),
+        not the ``#results`` container: Brave (SvelteKit) mounts an empty
+        container first and injects the snippets client-side, so waiting on the
+        container read the shell (0 results). Waiting on the rows returns as
+        soon as the results are actually present (~1s), with Brave's own
+        results timeout for slow pages and an early bail on a captcha."""
+        if await self._wait_for_results_container(timeout, interval):
+            return True
 
-        budget = max(0.0, settings.brave_results_settle)
-        start = time.monotonic()
-        last_count = -1
-        while (time.monotonic() - start) < budget:
-            count = await self._count_result_snippets()
-            if count > 0 and count == last_count:
-                break  # snippets hydrated and stable
-            last_count = count
-            await asyncio.sleep(interval)
-        return True
+        try:
+            await self.read_page_content("load_timeout")
+        except Exception:
+            logger.debug(
+                "Unable to capture Brave content after load timeout",
+                exc_info=True,
+            )
+        return bool(await self.robot_check())
 
     async def _click_robot_button_with_find(self):
         for text in BRAVE_ROBOT_FIND_PATTERNS:

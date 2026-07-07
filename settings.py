@@ -104,10 +104,6 @@ class AppSettings:
     page_load_interval: float
     brave_results_timeout: float
     brave_results_interval: float
-    # Brave renders results client-side; once the results container appears,
-    # read as soon as the snippet count stabilizes. This only caps that
-    # hydration wait so a genuinely empty result page can't stall.
-    brave_results_settle: float
     brave_robot_find_timeout: float
     duckduckgo_results_timeout: float
     duckduckgo_robot_timeout: float
@@ -233,7 +229,6 @@ def _build_settings() -> AppSettings:
         page_load_interval=_env_float("SYNTHESIX_PAGE_LOAD_INTERVAL", 0.1),
         brave_results_timeout=_env_float("SYNTHESIX_BRAVE_RESULTS_TIMEOUT", 45.0),
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
-        brave_results_settle=_env_float("SYNTHESIX_BRAVE_RESULTS_SETTLE", 2.5),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
         duckduckgo_results_timeout=_env_float(
             "SYNTHESIX_DUCKDUCKGO_RESULTS_TIMEOUT",
