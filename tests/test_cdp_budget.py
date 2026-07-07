@@ -90,13 +90,16 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
 
         snapshot = observability.snapshot()
         calls = snapshot["calls"]
-        # Baseline measured on 2026-07-06 (see docs/tasks/T-006): one target
-        # inventory per tick, one settings probe per local tab and one home
-        # consume per tick; two overlay evaluates per external tab and one
-        # page consume per tick — except on the final tick, where the home
-        # action returns before the overlay/page loop runs.
+        # Baseline measured on 2026-07-06 (see docs/tasks/T-006): one settings
+        # probe per local tab and one home consume per tick; two overlay
+        # evaluates per external tab and one page consume per tick — except on
+        # the final tick, where the home action returns before the overlay/page
+        # loop runs.
+        # T-022: tab discovery is event-driven; the authoritative getTargets
+        # resync only runs once for these three rapid ticks (interval 10 s),
+        # instead of once per tick.
         idle_ticks = ticks - 1
-        self.assertEqual(calls.get("targets_poll", 0), ticks)
+        self.assertEqual(calls.get("targets_poll", 0), 1)
         self.assertEqual(calls.get("eval_settings", 0), 2 * ticks)
         self.assertEqual(calls.get("eval_home", 0), ticks)
         self.assertEqual(calls.get("eval_overlay", 0), 2 * idle_ticks)

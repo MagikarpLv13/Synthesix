@@ -28,7 +28,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
-| 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021 review ; T-022 à faire) |
+| 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 review, smoke live restant) |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
@@ -59,14 +59,18 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 2 : T-020 livré. T-021 livré en `review` (push `Runtime.addBinding` sur
-home + pages d'enquête ; poll existant en repli, throttlé une fois le
-binding confirmé ; overlay CDP http/https et scan de réglages inchangés —
-hors périmètre, cf. DEC-PLAN-04). Reste : smoke CDP live (latence perçue,
-taux `eval_home`/`eval_page` réduit) au premier run interactif, puis T-022
-(découverte de tabs par événements Target). T-051 (test bout en bout
-investigation) reste ouvert côté QA ; T-030/T-031 (extension Chrome)
-peuvent démarrer en parallèle. Smokes réels en attente au premier run
-interactif : mesure `engine_tab_open`/`eval_engine_wait` (T-006), fenêtre
-sans clignotement (T-014), annulation live (T-011), workflow complet
+Phase 2 : T-020 livré. T-021 et T-022 livrés en `review`. T-021 : push
+`Runtime.addBinding` sur home + pages d'enquête (poll en repli, throttlé une
+fois le binding confirmé). T-022 : découverte de tabs par le registre
+événementiel de zendriver (`Target.*`), le `getTargets` autoritaire ne
+tournant plus qu'en resync lent (10 s, `SYNTHESIX_TARGET_RESYNC_INTERVAL`) qui
+sert aussi de sonde de liveness ; overlay CDP http/https et scan de réglages
+inchangés (hors périmètre, DEC-PLAN-04). Reste sur la phase 2 : smoke CDP live
+(latence perçue, `eval_home`/`eval_page` réduits, `targets_poll` ≈ 0,1/s,
+rafales d'ouverture/fermeture, kill Chrome, quit normal) au premier run
+interactif. La phase 2 n'a plus de tâche à coder ; enchaîner sur la phase 3
+(T-030/T-031, extension Chrome) ou T-051 (test bout en bout investigation, QA).
+Smokes réels en attente au premier run interactif : mesure
+`engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
+(T-014), annulation live (T-011), workflow complet
 recherche/save/capture/archive post-T-020.

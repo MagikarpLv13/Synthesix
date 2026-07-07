@@ -1,6 +1,6 @@
 # T-022 — Découverte de tabs par événements Target
 
-- **Statut** : todo
+- **Statut** : review (2026-07-07, Claude)
 - **Priorité** : P2 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-020, T-021
@@ -63,3 +63,58 @@ Smoke réel : rafales d'ouverture/fermeture, kill Chrome, quit normal.
   l'armement du script new-document ; le focus guard tolère déjà ce cas
   (installé pour les navigations suivantes), l'extension (T-03x) le supprime
   pour les pages http(s).
+
+## Réalisé (2026-07-07)
+
+**Spike confirmé** : `zendriver` 0.15.3 s'abonne déjà à
+`Target.targetCreated/InfoChanged/Destroyed` sur la connexion navigateur
+(`set_discover_targets(discover=True)` + `_handle_target_update`) et
+maintient `browser.targets` — **suppressions incluses** (le handler retire
+l'entrée sur `TargetDestroyed`, contrairement à `update_targets()` qui
+n'ajoute/rafraîchit que). Le `Listener` de la connexion navigateur tourne en
+continu (`asyncio.create_task(listener_loop)`), donc les événements Target
+alimentent le registre sans aucun poll de notre part.
+
+**Déviation de conception assumée** (par rapport aux étapes 3 et à des
+callbacks `on_tab_created`/`on_tab_removed` explicites) : plutôt que de
+restructurer l'armement en callbacks événementiels, `BrowserService.tabs()`
+lit le registre événementiel à chaque tick et ne fait un `getTargets`
+autoritaire que toutes les `target_resync_interval` secondes (10 s par
+défaut). L'armement (focus guard / binding) et l'élagage des registres
+(`armed_script_targets`, `armed_binding_targets`, `last_local_sync_at`)
+restent pilotés par la boucle existante (cadence ≤ `home_poll_interval`), ce
+qui satisfait le critère « armement < 500 ms » **sans** poll `getTargets` —
+et évite de toucher au chemin overlay http/https (hors périmètre,
+DEC-PLAN-04).
+
+**Détection de liveness préservée** : le `getTargets` de resync sert aussi de
+sonde CDP — son échec renvoie `None` et alimente le garde
+`_BROWSER_UNREACHABLE_QUIT_SECONDS`. Le kill franc de Chrome reste détecté
+immédiatement par `browser.stopped` (poll process, sans CDP) en tête de
+boucle. Un registre vide **force** un resync (une lacune d'événement
+transitoire ne peut donc pas être confondue avec « plus aucun tab ⇒ quit »).
+
+**Détection de dérive** : à chaque resync (hors tout premier), l'ensemble de
+page-ids issu du fil est comparé au registre événementiel ; toute divergence
+est journalisée en DEBUG (signal de bug d'événements manqués).
+
+- **Fichiers modifiés** : `browser/service.py` (`tabs()` réécrit,
+  `_live_page_ids`, `_resync_targets`, attrs `target_resync_interval` /
+  `_last_target_resync`), `main.py` (câblage de l'intervalle sur le service
+  partagé), `settings.py` (`target_resync_interval`,
+  `SYNTHESIX_TARGET_RESYNC_INTERVAL`, défaut 10 s), `tests/test_cdp_budget.py`
+  (baseline `targets_poll` 1 au lieu de 1/tick), `tests/test_transport_push.py`
+  (proxy de tick = `eval_settings`), `tests/test_browser_service.py`
+  (3 nouveaux tests).
+- **Tests exécutés** : `tests.test_browser_service` (23),
+  `tests.test_cdp_budget` (4), `tests.test_main` (42),
+  `tests.test_transport_push` (4), `unittest discover` (363 OK),
+  `py_compile` sur `browser/service.py main.py settings.py`,
+  `git diff --check` (CRLF uniquement).
+- **Non exécuté** : smoke CDP live (rafales d'ouverture/fermeture de tabs,
+  kill Chrome, quit normal, mesure `targets_poll` ≈ 0,1/s) — à faire au
+  premier run interactif ; couvert en unitaire par le harnais FakeBrowser.
+- **Risque résiduel** : entre deux resyncs (≤ 10 s), un décrochage CDP «
+  process vivant / websocket mort » n'est détecté qu'au resync suivant ; le
+  garde unreachable (10 s) puis le quit s'enchaînent ensuite, et le kill franc
+  reste couvert par `browser.stopped`.

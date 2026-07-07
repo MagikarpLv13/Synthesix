@@ -54,6 +54,43 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(await BrowserService(DeadBrowser()).tabs())
 
+    async def test_tabs_reads_event_registry_between_resyncs(self):
+        # T-022: a tab that appears in the event-maintained registry after
+        # the first resync is returned without a fresh getTargets round-trip.
+        live = FakeTab("https://example.com", "live")
+        browser = FakeBrowser([live])
+        service = BrowserService(browser)
+
+        await service.tabs()  # first call: authoritative resync (last == 0)
+        appeared = FakeTab("https://new.example", "new")
+        appeared.journal = browser.journal
+        browser.tabs.append(appeared)  # zendriver's TargetCreated handler
+        tabs = await service.tabs()  # second call: reads registry, no resync
+
+        self.assertEqual({tab.target_id for tab in tabs}, {"live", "new"})
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 1)
+
+    async def test_tabs_resyncs_after_interval(self):
+        service = BrowserService(FakeBrowser([FakeTab(target_id="a")]))
+        service.target_resync_interval = 0.0  # every call is due
+
+        await service.tabs()
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 2)
+
+    async def test_tabs_forces_resync_when_registry_empty(self):
+        # An empty registry must never be trusted on its own (a transient
+        # event gap would look like "all tabs closed" => quit): resync even
+        # when the time-based interval is nowhere near due.
+        service = BrowserService(FakeBrowser([]))
+        service.target_resync_interval = 9999.0
+
+        await service.tabs()
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 2)
+
     async def test_eval_js_returns_value_and_counts_category(self):
         tab = FakeTab()
         tab.program("evaluate", {"ready": True})

@@ -2347,6 +2347,11 @@ async def wait_for_home_action(
     push_fallback_interval = getattr(
         settings, "home_push_fallback_interval", settings.home_poll_interval
     )
+    # T-022: event-driven tab discovery; the authoritative getTargets resync
+    # cadence lives on the shared service (default kept for older doubles).
+    service.target_resync_interval = getattr(
+        settings, "target_resync_interval", service.target_resync_interval
+    )
     empty_since = None
     unreachable_since = None
     history_cache = {}

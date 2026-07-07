@@ -94,6 +94,11 @@ class AppSettings:
     # consume/sync evaluate once its binding is confirmed armed.
     transport_mode: str
     home_push_fallback_interval: float
+    # T-022: tab discovery is event-driven (zendriver maintains the target
+    # registry from Target.* events); an authoritative `getTargets` resync
+    # only runs every `target_resync_interval` seconds to correct any drift
+    # and double as the CDP liveness probe.
+    target_resync_interval: float
     empty_tabs_grace_seconds: float
     page_load_timeout: float
     page_load_interval: float
@@ -215,6 +220,9 @@ def _build_settings() -> AppSettings:
         transport_mode=_env_str("SYNTHESIX_TRANSPORT", "push"),
         home_push_fallback_interval=_env_float(
             "SYNTHESIX_HOME_PUSH_FALLBACK_INTERVAL", 2.0
+        ),
+        target_resync_interval=_env_float(
+            "SYNTHESIX_TARGET_RESYNC_INTERVAL", 10.0
         ),
         empty_tabs_grace_seconds=_env_float("SYNTHESIX_EMPTY_TABS_GRACE_SECONDS", 2.0),
         page_load_timeout=_env_float("SYNTHESIX_PAGE_LOAD_TIMEOUT", 2.5),

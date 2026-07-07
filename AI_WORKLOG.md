@@ -3750,3 +3750,61 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`, `AI_WORKLOG.md`.
 - **Prochaine action :** smoke CDP live au premier run interactif, puis
   T-022 (découverte de tabs par événements Target).
+
+### AI-20260707-002 — T-022 : découverte de tabs par événements Target
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-07
+- **Branche / commits :** `feat/lit-frontend`
+- **Objectif :** remplacer l'inventaire `Target.getTargets` par tick (4×/s)
+  par le registre événementiel de zendriver, avec un resync lent de secours.
+- **Spike confirmé :** zendriver 0.15.3 s'abonne déjà à
+  `Target.targetCreated/InfoChanged/Destroyed` sur la connexion navigateur
+  (`set_discover_targets` + `_handle_target_update`) et maintient
+  `browser.targets` **suppressions incluses** ; son `Listener` tourne en
+  continu, donc le registre est alimenté sans poll. `update_targets()`
+  n'ajoute/rafraîchit que — le `getTargets` autoritaire reste l'autorité sur
+  les tabs vivants, mais uniquement en resync.
+- **Changements :**
+  - `browser/service.py` : `tabs()` lit `browser.tabs` (registre
+    événementiel) à chaque appel ; `getTargets` autoritaire seulement toutes
+    les `target_resync_interval` s (`_resync_targets`), ou lorsque le registre
+    est vide (garde anti-quit sur lacune d'événement transitoire). Élagage des
+    registres (`armed_script_targets`, `armed_binding_targets`,
+    `last_local_sync_at`) conservé. Log DEBUG de dérive registre vs fil (hors
+    tout premier resync).
+  - `settings.py` : `target_resync_interval`
+    (`SYNTHESIX_TARGET_RESYNC_INTERVAL`, défaut 10 s).
+  - `main.py` : câblage de l'intervalle sur le service partagé au début de
+    `wait_for_home_action` (défaut conservé pour les doubles de test).
+- **Déviation assumée :** pas de callbacks `on_tab_created`/`on_tab_removed`
+  explicites ; l'armement reste piloté par la boucle existante (cadence ≤
+  `home_poll_interval`), ce qui satisfait « armement < 500 ms sans tick
+  getTargets » sans toucher au chemin overlay http/https (DEC-PLAN-04).
+- **Liveness :** le `getTargets` de resync sert de sonde CDP (échec ⇒ `None`
+  ⇒ garde `_BROWSER_UNREACHABLE_QUIT_SECONDS`) ; le kill franc reste détecté
+  immédiatement par `browser.stopped` en tête de boucle.
+- **Contrats ou décisions :** aucun contrat CDP/payload modifié ; catégorie
+  observabilité `targets_poll` inchangée (désormais ~0,1/s au lieu de 4/s).
+- **Tests exécutés :**
+  - `tests.test_browser_service` (23, dont 3 nouveaux : lecture registre
+    entre resyncs, resync après intervalle, resync forcé sur registre vide) ;
+  - `tests.test_cdp_budget` (4, baseline `targets_poll` = 1 pour 3 ticks
+    rapides) ;
+  - `tests.test_transport_push` (4, proxy de tick basculé sur
+    `eval_settings`) ;
+  - `tests.test_main` (42) ;
+  - `unittest discover` — 363 OK ;
+  - `py_compile browser/service.py main.py settings.py` — OK ;
+  - `git diff --check` — CRLF uniquement.
+- **Non exécuté :** smoke CDP live (rafales ouverture/fermeture de tabs, kill
+  Chrome, quit normal, mesure `targets_poll` ≈ 0,1/s) — au premier run
+  interactif ; couvert en unitaire par le harnais FakeBrowser.
+- **Fichiers modifiés :** `browser/service.py`, `main.py`, `settings.py`,
+  `tests/test_browser_service.py`, `tests/test_cdp_budget.py`,
+  `tests/test_transport_push.py`,
+  `docs/tasks/T-022-decouverte-tabs-evenementielle.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Prochaine action :** smoke CDP live phase 2 au premier run interactif ;
+  la phase 2 n'a plus de tâche à coder — enchaîner sur la phase 3 (T-030/T-031,
+  extension Chrome) ou T-051 (QA bout en bout).

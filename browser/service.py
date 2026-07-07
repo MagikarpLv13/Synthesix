@@ -31,6 +31,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import weakref
 from typing import Any, Callable, Mapping
 
@@ -119,31 +120,70 @@ class BrowserService:
         # Per-target last time the local-page consume/sync evaluate actually
         # ran, so callers can throttle it once push delivery is confirmed.
         self.last_local_sync_at: dict[str, float] = {}
+        # T-022: zendriver keeps `browser.tabs` up to date from Target.*
+        # events, so the per-tick `getTargets` inventory is replaced by a
+        # slow authoritative resync. Overridable from settings by the caller.
+        self.target_resync_interval: float = 10.0
+        self._last_target_resync: float = 0.0
 
-    async def tabs(self) -> list | None:
-        """Live page tabs, or ``None`` when the browser is unreachable.
+    def _live_page_ids(self) -> set[str]:
+        """Page-target ids from zendriver's event-maintained registry."""
+        return {
+            target_id
+            for tab in self.browser.tabs
+            if (target_id := getattr(tab, "target_id", None))
+        }
 
-        The ``None`` return drives the unreachable-browser quit guard in the
-        main loop, so failures must not surface as an empty list.
+    async def _resync_targets(self) -> set[str] | None:
+        """Authoritative `getTargets` round-trip: refresh the registry and
+        report the live page-target ids. Returns ``None`` when the browser
+        is unreachable — the only remaining per-loop CDP liveness probe.
+
+        zendriver 0.15.3's ``update_targets()`` only adds/refreshes (never
+        removes closed targets), so the fresh ``_get_targets()`` list stays
+        the authority on which tabs are still alive.
         """
         observability.count("targets_poll")
         try:
             await self.browser.update_targets()
-            # Second fetch on purpose: zendriver 0.15.3's update_targets()
-            # adds and refreshes targets but never removes closed ones, so
-            # the fresh list is the only way to know which tabs are still
-            # alive (checked — Connection.closed is also True for live tabs
-            # that never attached a websocket). Both requests go away with
-            # T-022 (Target events).
             targets = await self.browser._get_targets()
-            live_page_ids = {
-                target.target_id
-                for target in targets
-                if target.type_ == "page"
-            }
         except Exception:
             logger.debug("Unable to update browser targets", exc_info=True)
             return None
+        return {
+            target.target_id
+            for target in targets
+            if target.type_ == "page"
+        }
+
+    async def tabs(self) -> list | None:
+        """Live page tabs, or ``None`` when the browser is unreachable.
+
+        Reads zendriver's event-maintained registry on every call; an
+        authoritative ``getTargets`` resync only runs every
+        :attr:`target_resync_interval` seconds (or when the registry looks
+        empty, so a transient event gap cannot be mistaken for "all tabs
+        closed"). The ``None`` return drives the unreachable-browser quit
+        guard in the main loop, so failures must not surface as an empty
+        list.
+        """
+        registry_ids = self._live_page_ids()
+        now = time.monotonic()
+        first_resync = self._last_target_resync == 0.0
+        resync_due = now - self._last_target_resync >= self.target_resync_interval
+        if resync_due or not registry_ids:
+            live_page_ids = await self._resync_targets()
+            if live_page_ids is None:
+                return None
+            self._last_target_resync = now
+            if not first_resync and live_page_ids != registry_ids:
+                logger.debug(
+                    "Target registry drift: events=%s wire=%s",
+                    sorted(registry_ids),
+                    sorted(live_page_ids),
+                )
+        else:
+            live_page_ids = registry_ids
 
         self.armed_script_targets.intersection_update(live_page_ids)
         self.armed_binding_targets.intersection_update(live_page_ids)

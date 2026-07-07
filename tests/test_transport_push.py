@@ -137,9 +137,12 @@ class PushTransportTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(action["action"], "probe")
         self.assertEqual(len(calls), 3)
-        # More ticks happened than evaluates: the throttle skipped several.
+        # More ticks happened than home consumes: the throttle skipped
+        # several. The per-tick settings scan (`eval_settings`, one per local
+        # tab, never throttled) is the tick counter here — `targets_poll` is
+        # no longer one-per-tick since T-022 made discovery event-driven.
         self.assertGreater(
-            observability.snapshot()["calls"].get("targets_poll", 0), len(calls)
+            observability.snapshot()["calls"].get("eval_settings", 0), len(calls)
         )
 
     async def test_poll_mode_never_arms_binding(self):
