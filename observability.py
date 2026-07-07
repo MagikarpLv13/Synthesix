@@ -3,15 +3,19 @@
 Categories used across the codebase:
 
 - ``targets_poll``     : tab inventory requests (main poll loop)
-- ``eval_home``        : home-tab consume/push evaluates
-- ``eval_overlay``     : external-tab overlay install/consume evaluates
+- ``eval_home``        : home-tab consume/push/status evaluates
+- ``eval_overlay``     : external-tab overlay install/consume/status evaluates
 - ``eval_settings``    : settings-bridge evaluates on local tabs
-- ``eval_page``        : investigation/report page consume evaluates
+- ``eval_page``        : investigation/report page consume/status evaluates
 - ``eval_engine_wait`` : per-iteration probes in engine wait loops
 - ``engine_tab_open``  : engine tabs created by the search tab pool
 - ``engine_tab_reuse`` : pooled engine tab reused for another variant
 - ``get_content``      : full-page HTML retrievals
 - ``screenshot``       : evidence screenshot captures
+- ``capture_html``     : evidence outer-HTML captures (BrowserService)
+- ``capture_mhtml``    : evidence MHTML snapshots (BrowserService)
+- ``open_tab``         : tabs opened by the app (home, reports, pages)
+- ``arm_script``       : new-document scripts armed on a target (once/tab)
 
 Counters are cheap (dict increments under a lock) and always on; the
 periodic dump only formats output when DEBUG logging is enabled

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import os
 import re
 from dataclasses import dataclass
@@ -9,8 +8,8 @@ from pathlib import Path
 from typing import Mapping
 
 from lxml import html as lxml_html
-from zendriver import cdp
 
+from browser import service as browser_service
 from evidence.hashing import sha256_bytes
 
 
@@ -262,16 +261,11 @@ async def capture_png(
     capture_beyond_viewport: bool = True,
 ) -> CapturedPng:
     normalized = normalize_selection(selection)
-    encoded = await tab.send(
-        cdp.page.capture_screenshot(
-            format_="png",
-            clip=cdp.page.Viewport(**normalized),
-            from_surface=True,
-            capture_beyond_viewport=capture_beyond_viewport,
-            optimize_for_speed=False,
-        )
+    content = await browser_service.screenshot(
+        tab,
+        normalized,
+        beyond_viewport=capture_beyond_viewport,
     )
-    content = base64.b64decode(encoded, validate=True)
     output_path = Path(output_path)
     await asyncio.to_thread(_write_atomic, output_path, content)
     return CapturedPng(
@@ -284,16 +278,10 @@ async def capture_png(
 
 
 async def capture_html(tab, output_path: Path) -> CapturedDocument:
-    document = await tab.send(cdp.dom.get_document(depth=0, pierce=False))
-    content = await tab.send(
-        cdp.dom.get_outer_html(
-            node_id=document.node_id,
-            include_shadow_dom=False,
-        )
-    )
+    content = await browser_service.outer_html(tab)
     return await _write_document(output_path, sanitize_html(content))
 
 
 async def capture_mhtml(tab, output_path: Path) -> CapturedDocument:
-    content = await tab.send(cdp.page.capture_snapshot(format_="mhtml"))
+    content = await browser_service.mhtml(tab)
     return await _write_document(output_path, sanitize_mhtml(content))

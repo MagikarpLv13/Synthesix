@@ -40,6 +40,7 @@ from main import (
     parse_cli_args,
     wait_for_home_action,
 )
+from browser import BrowserService
 from exceptions import InvestigationValidationError
 from settings import get_settings
 
@@ -67,7 +68,9 @@ class OverlayInjectionGuardTestCase(unittest.TestCase):
     def test_installer_skips_blocked_tab(self):
         tab = SimpleNamespace(url="https://lens.google.com/")
         self.assertIsNone(
-            asyncio.run(_install_and_consume_save_overlay(tab))
+            asyncio.run(
+                _install_and_consume_save_overlay(BrowserService(None), tab)
+            )
         )
 
 
@@ -84,7 +87,9 @@ class OverlayBundleReuseTestCase(unittest.TestCase):
                     return already_loaded
                 return None
 
-        asyncio.run(_install_and_consume_save_overlay(Tab()))
+        asyncio.run(
+            _install_and_consume_save_overlay(BrowserService(None), Tab())
+        )
         # The first eval is the cheap pre-check, the last is the install/poll.
         self.assertGreaterEqual(len(scripts), 2)
         self.assertIn("!!window.SynthesixOverlay", scripts[0])
@@ -718,6 +723,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
         tab = FakeTab()
         action = await _install_and_consume_save_overlay(
+            BrowserService(None),
             tab,
             {
                 "id": "case-1",
@@ -799,7 +805,11 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                 return None
 
         tab = FakeTab()
-        await _install_and_consume_save_overlay(tab, {"id": "case-1", "title": "Case"})
+        await _install_and_consume_save_overlay(
+            BrowserService(None),
+            tab,
+            {"id": "case-1", "title": "Case"},
+        )
 
         self.assertIn("window.__synthesixActions", tab.script)
         self.assertIn("queueAction({", tab.script)
@@ -939,7 +949,9 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
                 return {"action": "focus_home"}
 
         tab = FakeTab()
-        action = await _install_and_consume_save_overlay(tab)
+        action = await _install_and_consume_save_overlay(
+            BrowserService(None), tab
+        )
 
         self.assertEqual(action["action"], "focus_home")
         self.assertIn("Select investigation", tab.script)

@@ -1,6 +1,6 @@
 # T-020 — BrowserService : couche unique Zendriver/CDP
 
-- **Statut** : todo
+- **Statut** : done (2026-07-07, Claude)
 - **Priorité** : P1 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-005, T-006 (mesures)
@@ -70,3 +70,51 @@ Smoke réel obligatoire (workflow complet ci-dessus). Consigner.
   b : main.py) pour rester relisible.
 - Sur-abstraction : refuser toute méthode non utilisée par un appelant
   existant ou une tâche planifiée.
+
+## Résultat (2026-07-07, Claude)
+
+- Nouveau paquet `browser/` : `BrowserService` (état par navigateur :
+  `tabs()` avec purge du registre, `open_tab`, `arm_new_document_script`
+  idempotent par target, `on_event` minimal pour T-021) + wrappers
+  module-level sans état (`eval_js`, `screenshot`, `mhtml`, `outer_html`)
+  utilisables avec un simple handle de tab. `get_browser_service(browser)`
+  = instance partagée (WeakKeyDictionary ; doubles de test non
+  weakref-ables → instance fraîche non cachée).
+- `main.py` : plus aucun `tab.send` / `tab.evaluate` / `_get_targets` /
+  `uc.cdp.` ; tous les evaluates passent par `eval_js` (catégories T-006,
+  échec normalisé en `None` + log DEBUG, comme les anciens try/except par
+  site). `_open_tabs` conservé comme seam de test (délègue au service).
+  `_install_and_consume_save_overlay` reçoit le service en premier
+  paramètre.
+- `evidence/capture.py` : signatures publiques inchangées, les 3 `tab.send`
+  migrés vers les wrappers.
+- `browser_manager.py` : `HeadlessBrowserManager.service` posé à `create()`
+  et `clear_browser_data()`, remis à `None` par `stop()`.
+- Garde anti-régression : `tests/test_browser_service.py` échoue si
+  `main.py` ou `evidence/capture.py` recontiennent un idiome CDP brut.
+- Nouvelles catégories T-006 : `open_tab`, `arm_script`, `capture_html`,
+  `capture_mhtml` ; `eval_settings` compte désormais aussi
+  `_apply_settings_to_tabs` (hors boucle idle, baseline inchangée).
+
+### Écarts assumés vs énoncé
+
+- Pas de dataclass `TabInfo` : les appelants ont besoin des handles
+  zendriver vivants (`bring_to_front`, `reload`) ; à revoir avec T-022.
+- `close_tab` non implémenté : aucun appelant dans `main.py` (les moteurs
+  ferment leurs tabs eux-mêmes et ne sont pas migrés par T-020).
+- Pas de timeout uniforme sur `eval_js` : en ajouter un changerait le
+  comportement ; à introduire quand T-021 en aura besoin.
+- `tabs()` garde la double requête `update_targets` + `_get_targets`
+  (limite zendriver 0.15.3 documentée, supprimée par T-022).
+
+### Validation
+
+- `unittest discover` : 350 tests OK (dont 14 nouveaux service + garde).
+- Baseline T-006 verrouillée inchangée (`tests/test_cdp_budget.py`).
+- Smoke réel : démarrage `python main.py --verbose`, home ouverte via
+  `open_tab=1`, régime idle 1 `targets_poll` + 1 `eval_home` +
+  1 `eval_settings` par tick, push initial 8 KiB puis 0 octet (T-003) ;
+  kill des processus Chrome du profil → arrêt propre (« Goodbye! »,
+  exit 0, aucun processus résiduel). Non couvert en live : recherche,
+  save page, capture région, archive (nécessitent une session
+  interactive ; comportement inchangé couvert par la suite complète).

@@ -13,7 +13,8 @@ import unittest
 from unittest.mock import patch
 
 import observability
-from main import _OVERLAY_FOCUS_GUARD_ARMED_TARGETS, wait_for_home_action
+from browser import get_browser_service
+from main import wait_for_home_action
 from settings import get_settings
 from tests.fakes import FakeBrowser, FakeTab
 
@@ -52,11 +53,9 @@ def make_tab(url, target_id, home_actions=None, home_versions=("", "")):
 class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         observability.reset()
-        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.clear()
 
     def tearDown(self):
         observability.reset()
-        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.clear()
 
     async def test_idle_tick_budget_is_locked(self):
         ticks = 3
@@ -145,7 +144,8 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_focus_guard_registry_is_pruned_with_targets(self):
         home = make_tab(INDEX_URL, "home", home_actions=[{"action": "probe"}])
         browser = FakeBrowser([home])
-        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.update({"home", "closed-tab"})
+        registry = get_browser_service(browser).armed_script_targets
+        registry.update({"home", "closed-tab"})
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(
@@ -161,7 +161,7 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
                     timeout=10,
                 )
 
-        self.assertEqual(_OVERLAY_FOCUS_GUARD_ARMED_TARGETS, {"home"})
+        self.assertEqual(registry, {"home"})
 
     async def test_unreachable_browser_quits_instead_of_looping(self):
         class DeadBrowser:

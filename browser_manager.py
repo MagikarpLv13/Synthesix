@@ -14,6 +14,7 @@ import zendriver as uc
 from zendriver import cdp
 from zendriver.core.config import Config
 
+from browser import BrowserService, get_browser_service
 from settings import AppSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,7 @@ def _build_zendriver_config(settings: AppSettings) -> Config:
 class HeadlessBrowserManager:
     def __init__(self):
         self.browser : uc.Browser = None
+        self.service: BrowserService | None = None
         self.profile_dir: str | None = None
         self.home_url: str | None = None
         self.settings: AppSettings | None = None
@@ -360,6 +362,7 @@ class HeadlessBrowserManager:
         # config.headless = True
 
         self.browser = await uc.start(config=config)
+        self.service = get_browser_service(self.browser)
         return self
 
     async def get_driver(self):
@@ -397,6 +400,7 @@ class HeadlessBrowserManager:
 
         config = _build_zendriver_config(self.settings)
         self.browser = await uc.start(config=config)
+        self.service = get_browser_service(self.browser)
         logger.info("Browser profile data cleared (%s paths removed).", removed)
         return self.browser
 
@@ -408,5 +412,6 @@ class HeadlessBrowserManager:
             logger.warning("Unable to stop browser cleanly", exc_info=True)
         finally:
             self.browser = None
+            self.service = None
             if self.profile_dir:
                 _mark_profile_exited_cleanly(self.profile_dir)

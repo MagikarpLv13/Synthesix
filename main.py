@@ -17,6 +17,7 @@ import sys
 from typing import Mapping
 from urllib.parse import urlsplit
 from uuid import uuid4
+from browser import BrowserService, eval_js, get_browser_service
 from browser_manager import HeadlessBrowserManager
 from evidence import (
     build_evidence_manifest,
@@ -141,30 +142,11 @@ def _prepare_base_query(
 
 
 async def _open_tabs(browser: uc.Browser):
-    observability.count("targets_poll")
-    try:
-        await browser.update_targets()
-        # Second fetch on purpose: zendriver 0.15.3's update_targets() adds
-        # and refreshes targets but never removes closed ones, so the fresh
-        # list is the only way to know which tabs are still alive (checked —
-        # Connection.closed is also True for live tabs that never attached a
-        # websocket). Both requests go away with T-022 (Target events).
-        targets = await browser._get_targets()
-        live_page_ids = {
-            target.target_id
-            for target in targets
-            if target.type_ == "page"
-        }
-    except Exception:
-        logger.debug("Unable to update browser targets", exc_info=True)
-        return None
+    """Live page tabs via the shared :class:`BrowserService`.
 
-    _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.intersection_update(live_page_ids)
-    return [
-        tab
-        for tab in browser.tabs
-        if getattr(tab, "target_id", None) in live_page_ids
-    ]
+    Kept as a module seam: tests patch it to inject fake tab inventories.
+    """
+    return await get_browser_service(browser).tabs()
 
 
 def _is_home_tab(tab, index_url: str) -> bool:
@@ -175,34 +157,31 @@ async def _consume_home_tab_action(tab):
     """Light per-tick probe: consume one queued action and report the data
     versions currently applied by the page. Payload transfers happen in
     :func:`_push_home_tab_data`, and only when a version differs (T-003)."""
-    observability.count("eval_home")
-    try:
-        return await tab.evaluate(
-            """
-            (() => {
-                if (
-                    !window.synthesixHome ||
-                    typeof window.synthesixHome.consumeAction !== "function"
-                ) {
-                    return { ready: false, action: null };
-                }
-                if (window.name !== "synthesix-home") {
-                    window.name = "synthesix-home";
-                }
-                return {
-                    ready: true,
-                    action: window.synthesixHome.consumeAction(),
-                    historyVersion:
-                        window.synthesixHome.historyVersion ?? null,
-                    investigationsVersion:
-                        window.synthesixHome.investigationsVersion ?? null
-                };
-            })()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to read home tab action", exc_info=True)
-        return None
+    return await eval_js(
+        tab,
+        """
+        (() => {
+            if (
+                !window.synthesixHome ||
+                typeof window.synthesixHome.consumeAction !== "function"
+            ) {
+                return { ready: false, action: null };
+            }
+            if (window.name !== "synthesix-home") {
+                window.name = "synthesix-home";
+            }
+            return {
+                ready: true,
+                action: window.synthesixHome.consumeAction(),
+                historyVersion:
+                    window.synthesixHome.historyVersion ?? null,
+                investigationsVersion:
+                    window.synthesixHome.investigationsVersion ?? null
+            };
+        })()
+        """,
+        category="eval_home",
+    )
 
 
 async def _push_home_tab_data(
@@ -241,22 +220,20 @@ async def _push_home_tab_data(
     if not parts:
         return
 
-    observability.count("eval_home")
     observability.observe_bytes("eval_home", transferred)
     body = "".join(parts)
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                if (!window.synthesixHome) {{
-                    return;
-                }}
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            if (!window.synthesixHome) {{
+                return;
+            }}
 {body}
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to push home tab data", exc_info=True)
+        }})()
+        """,
+        category="eval_home",
+    )
 
 
 def _history_signature(settings: AppSettings):
@@ -335,45 +312,39 @@ def configure_event_loop_policy() -> None:
 
 
 async def _consume_page_tab_action(tab):
-    observability.count("eval_page")
-    try:
-        return await tab.evaluate(
-            """
-            (() => {
-                if (
-                    !window.synthesixPage ||
-                    typeof window.synthesixPage.consumeAction !== "function"
-                ) {
-                    return null;
-                }
-                return window.synthesixPage.consumeAction();
-            })()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to read page tab action", exc_info=True)
-        return None
+    return await eval_js(
+        tab,
+        """
+        (() => {
+            if (
+                !window.synthesixPage ||
+                typeof window.synthesixPage.consumeAction !== "function"
+            ) {
+                return null;
+            }
+            return window.synthesixPage.consumeAction();
+        })()
+        """,
+        category="eval_page",
+    )
 
 
 async def _consume_settings_change(tab):
-    observability.count("eval_settings")
-    try:
-        return await tab.evaluate(
-            """
-            (() => {
-                if (
-                    !window.synthesixI18n ||
-                    typeof window.synthesixI18n.consumeSettingsChange !== "function"
-                ) {
-                    return null;
-                }
-                return window.synthesixI18n.consumeSettingsChange();
-            })()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to read Synthesix settings change", exc_info=True)
-        return None
+    return await eval_js(
+        tab,
+        """
+        (() => {
+            if (
+                !window.synthesixI18n ||
+                typeof window.synthesixI18n.consumeSettingsChange !== "function"
+            ) {
+                return null;
+            }
+            return window.synthesixI18n.consumeSettingsChange();
+        })()
+        """,
+        category="eval_settings",
+    )
 
 
 async def _apply_settings_to_tabs(tabs, settings: dict, source_tab=None) -> None:
@@ -381,24 +352,20 @@ async def _apply_settings_to_tabs(tabs, settings: dict, source_tab=None) -> None
     for tab in tabs:
         if tab is source_tab or _is_external_web_tab(tab):
             continue
-        try:
-            await tab.evaluate(
-                f"""
-                (() => {{
-                    if (
-                        window.synthesixI18n &&
-                        typeof window.synthesixI18n.applySettings === "function"
-                    ) {{
-                        window.synthesixI18n.applySettings({settings_json});
-                    }}
-                }})()
-                """,
-            )
-        except Exception:
-            logger.debug(
-                "Unable to synchronize Synthesix settings",
-                exc_info=True,
-            )
+        await eval_js(
+            tab,
+            f"""
+            (() => {{
+                if (
+                    window.synthesixI18n &&
+                    typeof window.synthesixI18n.applySettings === "function"
+                ) {{
+                    window.synthesixI18n.applySettings({settings_json});
+                }}
+            }})()
+            """,
+            category="eval_settings",
+        )
 
 
 def _is_external_web_tab(tab) -> bool:
@@ -412,11 +379,6 @@ def _is_external_web_tab(tab) -> bool:
 
 
 _OVERLAY_BLOCKED_HOST_FRAGMENTS = ("lens.google.", "maps.google.")
-
-# Tabs (by CDP target id) for which the focus-guard script below has already
-# been armed via Page.addScriptToEvaluateOnNewDocument. Re-arming on every
-# poll tick would stack duplicate scripts on the same target.
-_OVERLAY_FOCUS_GUARD_ARMED_TARGETS: set[str] = set()
 
 
 def _overlay_focus_guard_script() -> str:
@@ -498,28 +460,13 @@ def _overlay_focus_guard_script() -> str:
     """
 
 
-async def _arm_overlay_focus_guard(tab) -> None:
+async def _arm_overlay_focus_guard(service: BrowserService, tab) -> None:
     """Register the focus-guard script for future navigations of ``tab``.
 
-    Best-effort and idempotent per tab: on failure (or if already armed)
-    this silently no-ops, since the overlay still works on most hosts
-    without it.
+    Best-effort and idempotent per tab (registry held by the service), since
+    the overlay still works on most hosts without it.
     """
-    target_id = getattr(tab, "target_id", None)
-    if not target_id or target_id in _OVERLAY_FOCUS_GUARD_ARMED_TARGETS:
-        return
-    try:
-        # Page.addScriptToEvaluateOnNewDocument silently no-ops unless the
-        # Page domain has been enabled on this CDP session first.
-        await tab.send(uc.cdp.page.enable())
-        await tab.send(
-            uc.cdp.page.add_script_to_evaluate_on_new_document(
-                _overlay_focus_guard_script()
-            )
-        )
-        _OVERLAY_FOCUS_GUARD_ARMED_TARGETS.add(target_id)
-    except Exception:
-        logger.debug("Unable to arm overlay focus guard", exc_info=True)
+    await service.arm_new_document_script(tab, _overlay_focus_guard_script())
 
 
 def _overlay_injection_blocked(url: str) -> bool:
@@ -543,12 +490,13 @@ def _overlay_injection_blocked(url: str) -> bool:
 
 
 async def _install_and_consume_save_overlay(
+    service: BrowserService,
     tab,
     investigation: dict | None = None,
 ):
     if _overlay_injection_blocked(getattr(tab, "url", "")):
         return None
-    await _arm_overlay_focus_guard(tab)
+    await _arm_overlay_focus_guard(service, tab)
     investigation = investigation or {}
     tagsets_json = json.dumps(list(ZERONEURONE_TAGSETS), ensure_ascii=True)
     tagset_properties_json = json.dumps(
@@ -627,26 +575,24 @@ async def _install_and_consume_save_overlay(
     # already-busy renderer (e.g. Google Lens active in the side panel) this
     # repeated parse freezes the page. Only ship the bundle when the page does
     # not already have it loaded.
-    overlay_already_loaded = False
-    observability.count("eval_overlay")
-    try:
-        overlay_already_loaded = bool(
-            await tab.evaluate("!!window.SynthesixOverlay")
+    overlay_already_loaded = bool(
+        await eval_js(
+            tab,
+            "!!window.SynthesixOverlay",
+            category="eval_overlay",
         )
-    except Exception:
-        overlay_already_loaded = False
+    )
     overlay_bundle_json = json.dumps(
         "" if overlay_already_loaded else _overlay_bundle_script(),
         ensure_ascii=True,
     )
-    observability.count("eval_overlay")
     observability.observe_bytes(
         "eval_overlay",
         len(overlay_bundle_json) + len(context_json),
     )
-    try:
-        return await tab.evaluate(
-            f"""
+    return await eval_js(
+        tab,
+        f"""
             (() => {{
                 const context = {context_json};
                 const entityTagsets = {tagsets_json};
@@ -1141,10 +1087,8 @@ async def _install_and_consume_save_overlay(
                 return queued && queued.length ? queued.shift() : null;
             }})()
             """,
-        )
-    except Exception:
-        logger.debug("Unable to install or read the save-page overlay", exc_info=True)
-        return None
+        category="eval_overlay",
+    )
 
 
 async def _set_save_overlay_status(
@@ -1155,37 +1099,36 @@ async def _set_save_overlay_status(
 ) -> None:
     if tab is None:
         return
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                const host = document.getElementById("__synthesix-save-overlay");
-                const button = (
-                    host?.__synthesixSaveButton
-                    || host?.querySelector(
-                        "[data-synthesix-save-page]"
-                    )
-                );
-                if (!button || !host.__synthesixSetButtonState) {{
-                    return;
-                }}
-                const isError = {json.dumps(is_error)};
-                host.dataset.saved = isError ? "0" : "1";
-                button.title = {json.dumps(message)};
-                button.titleText = button.title;
-                button.setAttribute("title-text", button.title);
-                host.__synthesixSetButtonState(
-                    isError ? "error" : "saved",
-                    {json.dumps(message)}
-                );
-                host.dataset.statusUntil = isError
-                    ? String(Date.now() + 1800)
-                    : "0";
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update the save-page overlay", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            const host = document.getElementById("__synthesix-save-overlay");
+            const button = (
+                host?.__synthesixSaveButton
+                || host?.querySelector(
+                    "[data-synthesix-save-page]"
+                )
+            );
+            if (!button || !host.__synthesixSetButtonState) {{
+                return;
+            }}
+            const isError = {json.dumps(is_error)};
+            host.dataset.saved = isError ? "0" : "1";
+            button.title = {json.dumps(message)};
+            button.titleText = button.title;
+            button.setAttribute("title-text", button.title);
+            host.__synthesixSetButtonState(
+                isError ? "error" : "saved",
+                {json.dumps(message)}
+            );
+            host.dataset.statusUntil = isError
+                ? String(Date.now() + 1800)
+                : "0";
+        }})()
+        """,
+        category="eval_overlay",
+    )
 
 
 async def _set_evidence_overlay_status(
@@ -1196,25 +1139,24 @@ async def _set_evidence_overlay_status(
 ) -> None:
     if tab is None:
         return
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                const host = document.getElementById("__synthesix-save-overlay");
-                if (!host || !host.__synthesixSetCaptureState) {{
-                    return;
-                }}
-                host.style.display = "block";
-                host.__synthesixSetCaptureState(
-                    {json.dumps("error" if is_error else "captured")},
-                    {json.dumps(message)}
-                );
-                host.dataset.captureStatusUntil = String(Date.now() + 2200);
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update the evidence overlay", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            const host = document.getElementById("__synthesix-save-overlay");
+            if (!host || !host.__synthesixSetCaptureState) {{
+                return;
+            }}
+            host.style.display = "block";
+            host.__synthesixSetCaptureState(
+                {json.dumps("error" if is_error else "captured")},
+                {json.dumps(message)}
+            );
+            host.dataset.captureStatusUntil = String(Date.now() + 2200);
+        }})()
+        """,
+        category="eval_overlay",
+    )
 
 
 async def _set_archive_overlay_status(
@@ -1225,24 +1167,23 @@ async def _set_archive_overlay_status(
 ) -> None:
     if tab is None:
         return
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                const host = document.getElementById("__synthesix-save-overlay");
-                if (!host || !host.__synthesixSetArchiveState) {{
-                    return;
-                }}
-                host.__synthesixSetArchiveState(
-                    {json.dumps("error" if is_error else "archived")},
-                    {json.dumps(message)}
-                );
-                host.dataset.archiveStatusUntil = String(Date.now() + 2200);
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update the page archive overlay", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            const host = document.getElementById("__synthesix-save-overlay");
+            if (!host || !host.__synthesixSetArchiveState) {{
+                return;
+            }}
+            host.__synthesixSetArchiveState(
+                {json.dumps("error" if is_error else "archived")},
+                {json.dumps(message)}
+            );
+            host.dataset.archiveStatusUntil = String(Date.now() + 2200);
+        }})()
+        """,
+        category="eval_overlay",
+    )
 
 
 async def _capture_evidence(
@@ -1275,7 +1216,6 @@ async def _capture_evidence(
     tool_version = _tool_version()
 
     try:
-        observability.count("screenshot")
         captured_png = await capture_png(
             tab,
             png_path,
@@ -2110,25 +2050,24 @@ async def _set_evidence_verification_status(
 ) -> None:
     if tab is None:
         return
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                const item = document.querySelector(
-                    `[data-evidence-id="${{CSS.escape({json.dumps(capture_id)})}}"]`
-                );
-                const status = item?.querySelector("[data-evidence-verification]");
-                if (!status) {{
-                    return;
-                }}
-                status.textContent = {json.dumps(message)};
-                status.classList.toggle("is-error", {json.dumps(is_error)});
-                status.classList.toggle("is-verified", {json.dumps(not is_error)});
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update evidence verification status", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            const item = document.querySelector(
+                `[data-evidence-id="${{CSS.escape({json.dumps(capture_id)})}}"]`
+            );
+            const status = item?.querySelector("[data-evidence-verification]");
+            if (!status) {{
+                return;
+            }}
+            status.textContent = {json.dumps(message)};
+            status.classList.toggle("is-error", {json.dumps(is_error)});
+            status.classList.toggle("is-verified", {json.dumps(not is_error)});
+        }})()
+        """,
+        category="eval_page",
+    )
 
 
 def _generate_investigation_page(
@@ -2149,24 +2088,23 @@ def _generate_investigation_page(
 async def _set_page_status(tab, message: str, *, is_error: bool = False) -> None:
     if tab is None:
         return
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                if (
-                    window.synthesixPage &&
-                    typeof window.synthesixPage.setStatus === "function"
-                ) {{
-                    window.synthesixPage.setStatus(
-                        {json.dumps(message)},
-                        {json.dumps(is_error)}
-                    );
-                }}
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update page status", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            if (
+                window.synthesixPage &&
+                typeof window.synthesixPage.setStatus === "function"
+            ) {{
+                window.synthesixPage.setStatus(
+                    {json.dumps(message)},
+                    {json.dumps(is_error)}
+                );
+            }}
+        }})()
+        """,
+        category="eval_page",
+    )
 
 
 def _refresh_investigation_page_file(
@@ -2218,7 +2156,7 @@ async def _open_or_refresh_investigation_page(
     ]
 
     if not matching_tabs and open_if_missing:
-        tab = await browser.get(page_url, new_tab=True)
+        tab = await get_browser_service(browser).open_tab(page_url)
         if bring_to_front:
             await tab.bring_to_front()
         return
@@ -2246,21 +2184,20 @@ async def _set_home_status(
     for tab in tabs:
         if not _is_home_tab(tab, index_url):
             continue
-        try:
-            await tab.evaluate(
-                f"""
-                (() => {{
-                    if (
-                        window.synthesixHome &&
-                        typeof window.synthesixHome.setStatus === "function"
-                    ) {{
-                        window.synthesixHome.setStatus({message_json}, {error_json});
-                    }}
-                }})()
-                """,
-            )
-        except Exception:
-            logger.debug("Unable to update the home status", exc_info=True)
+        await eval_js(
+            tab,
+            f"""
+            (() => {{
+                if (
+                    window.synthesixHome &&
+                    typeof window.synthesixHome.setStatus === "function"
+                ) {{
+                    window.synthesixHome.setStatus({message_json}, {error_json});
+                }}
+            }})()
+            """,
+            category="eval_home",
+        )
 
 
 async def _set_home_search_running(
@@ -2274,21 +2211,20 @@ async def _set_home_search_running(
     for tab in tabs:
         if not _is_home_tab(tab, index_url):
             continue
-        try:
-            await tab.evaluate(
-                f"""
-                (() => {{
-                    if (
-                        window.synthesixHome &&
-                        typeof window.synthesixHome.setSearchRunning === "function"
-                    ) {{
-                        window.synthesixHome.setSearchRunning({running_json});
-                    }}
-                }})()
-                """,
-            )
-        except Exception:
-            logger.debug("Unable to update the home search state", exc_info=True)
+        await eval_js(
+            tab,
+            f"""
+            (() => {{
+                if (
+                    window.synthesixHome &&
+                    typeof window.synthesixHome.setSearchRunning === "function"
+                ) {{
+                    window.synthesixHome.setSearchRunning({running_json});
+                }}
+            }})()
+            """,
+            category="eval_home",
+        )
 
 
 async def _set_query_variant_suggestions(
@@ -2298,24 +2234,23 @@ async def _set_query_variant_suggestions(
 ) -> None:
     query_json = json.dumps(query, ensure_ascii=True)
     suggestions_json = json.dumps(suggestions, ensure_ascii=True)
-    try:
-        await tab.evaluate(
-            f"""
-            (() => {{
-                if (
-                    window.synthesixHome &&
-                    typeof window.synthesixHome.setQueryVariants === "function"
-                ) {{
-                    window.synthesixHome.setQueryVariants(
-                        {query_json},
-                        {suggestions_json}
-                    );
-                }}
-            }})()
-            """,
-        )
-    except Exception:
-        logger.debug("Unable to update query variant suggestions", exc_info=True)
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            if (
+                window.synthesixHome &&
+                typeof window.synthesixHome.setQueryVariants === "function"
+            ) {{
+                window.synthesixHome.setQueryVariants(
+                    {query_json},
+                    {suggestions_json}
+                );
+            }}
+        }})()
+        """,
+        category="eval_home",
+    )
 
 
 async def _set_home_investigation_selection(
@@ -2328,26 +2263,22 @@ async def _set_home_investigation_selection(
     for tab in tabs:
         if not _is_home_tab(tab, index_url):
             continue
-        try:
-            await tab.evaluate(
-                f"""
-                (() => {{
-                    if (
-                        window.synthesixHome &&
-                        typeof window.synthesixHome.setSelectedInvestigation === "function"
-                    ) {{
-                        window.synthesixHome.setSelectedInvestigation(
-                            {investigation_id_json}
-                        );
-                    }}
-                }})()
-                """,
-            )
-        except Exception:
-            logger.debug(
-                "Unable to update the selected investigation",
-                exc_info=True,
-            )
+        await eval_js(
+            tab,
+            f"""
+            (() => {{
+                if (
+                    window.synthesixHome &&
+                    typeof window.synthesixHome.setSelectedInvestigation === "function"
+                ) {{
+                    window.synthesixHome.setSelectedInvestigation(
+                        {investigation_id_json}
+                    );
+                }}
+            }})()
+            """,
+            category="eval_home",
+        )
 
 
 async def _focus_or_open_home_tab(
@@ -2367,7 +2298,10 @@ async def _focus_or_open_home_tab(
         except Exception:
             logger.debug("Unable to focus existing home tab", exc_info=True)
 
-    home_tab = await browser.get(index_url, new_tab=not reuse_current_tab)
+    home_tab = await get_browser_service(browser).open_tab(
+        index_url,
+        new_tab=not reuse_current_tab,
+    )
     await home_tab.bring_to_front()
     return home_tab
 
@@ -2381,6 +2315,7 @@ async def wait_for_home_action(
     overlay_investigation: dict | None = None,
 ):
     settings = settings or get_settings()
+    service = get_browser_service(browser)
     empty_since = None
     unreachable_since = None
     history_cache = {}
@@ -2467,6 +2402,7 @@ async def wait_for_home_action(
                 continue
             if _is_external_web_tab(tab):
                 action = await _install_and_consume_save_overlay(
+                    service,
                     tab,
                     overlay_investigation,
                 )
@@ -2771,9 +2707,8 @@ async def main():
                         base_dir=settings.base_dir,
                         investigation_pages_dir=settings.investigation_pages_dir,
                     )
-                    report_tab = await browser.get(
+                    report_tab = await get_browser_service(browser).open_tab(
                         output_path.resolve().as_uri(),
-                        new_tab=True,
                     )
                     await report_tab.bring_to_front()
                     await _set_home_status(
@@ -4198,7 +4133,9 @@ async def perform_search(
             )
 
     if search_result.output_path:
-        result_tab = await browser.get(Path(search_result.output_path).resolve().as_uri(), new_tab=True)
+        result_tab = await get_browser_service(browser).open_tab(
+            Path(search_result.output_path).resolve().as_uri()
+        )
         await result_tab.bring_to_front()
     return persistence_error
 

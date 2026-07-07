@@ -3606,3 +3606,53 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`.
 - **Prochaine action :** Phase 2 — T-020 (BrowserService) ; T-051 (QA bout
   en bout) et T-030/T-031 (extension Chrome) disponibles en parallèle.
+
+### AI-20260706-008 — T-020 : BrowserService, couche unique Zendriver/CDP
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-06 → 2026-07-07
+- **Branche :** feat/lit-frontend
+- **Résultat :**
+  - Nouveau paquet `browser/` (`service.py`) : `BrowserService` par
+    navigateur (`tabs()` = ancien `_open_tabs` + purge du registre de
+    scripts armés, `open_tab`, `arm_new_document_script` idempotent par
+    target, `on_event` minimal pour T-021) + wrappers module-level sans
+    état (`eval_js`, `screenshot`, `mhtml`, `outer_html`).
+    `get_browser_service(browser)` : instance partagée
+    (WeakKeyDictionary ; doubles de test non weakref-ables → instance
+    fraîche).
+  - `main.py` : zéro CDP direct (plus de `tab.send`, `tab.evaluate`,
+    `browser._get_targets`, `uc.cdp.`) ; ~20 evaluates migrés vers
+    `eval_js` avec catégories T-006 (échec → `None` + log DEBUG, sémantique
+    identique aux anciens try/except) ; `_open_tabs` conservé comme seam de
+    test ; `_install_and_consume_save_overlay(service, tab, ...)`.
+  - `evidence/capture.py` : 3 `tab.send` migrés, signatures inchangées.
+  - `browser_manager.py` : expose `self.service` (create /
+    clear_browser_data / stop).
+  - Garde anti-régression `tests/test_browser_service.py` : grep des
+    idiomes CDP bruts dans `main.py` et `evidence/capture.py` + 12 tests
+    unitaires service. Nouvelles catégories T-006 : `open_tab`,
+    `arm_script`, `capture_html`, `capture_mhtml`.
+  - Écarts assumés (documentés dans le fichier tâche) : pas de `TabInfo`,
+    pas de `close_tab` (aucun appelant), pas de timeout uniforme sur
+    `eval_js`, double requête targets conservée jusqu'à T-022.
+- **Tests exécutés :** `tests.test_browser_service` +
+  `tests.test_cdp_budget` + `tests.test_evidence` (28), `tests.test_main`
+  (42), `unittest discover` — **350 tests OK** ; `git diff --check` OK
+  (CRLF). Baseline T-006 inchangée.
+- **Smoke réel exécuté :** `python main.py --verbose` — démarrage, home via
+  `open_tab=1`, idle stable (1 `targets_poll` + 1 `eval_home` +
+  1 `eval_settings` par tick, push initial 8 KiB puis 0 octet), kill des
+  processus Chrome du profil zendriver → arrêt propre exit 0, aucun
+  processus résiduel.
+- **Non exécuté :** smoke live recherche/save page/capture région/archive
+  (session interactive requise) — comportement inchangé couvert par la
+  suite ; à observer au premier run interactif.
+- **Fichiers modifiés :** `browser/__init__.py` (nouveau),
+  `browser/service.py` (nouveau), `main.py`, `browser_manager.py`,
+  `evidence/capture.py`, `observability.py`, `tests/test_browser_service.py`
+  (nouveau), `tests/test_cdp_budget.py`, `tests/test_main.py`,
+  `docs/tasks/T-020-browserservice.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`.
+- **Prochaine action :** T-021 (push `Runtime.addBinding` pages locales) ;
+  T-022 ensuite ; T-051 et T-030/T-031 disponibles en parallèle.
