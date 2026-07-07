@@ -130,6 +130,9 @@ class _GoogleRobotTab:
         self.captcha_node = captcha_node
         self.url = url
         self.activated = False
+        # reCAPTCHA checkbox best-effort click (None => nothing to click).
+        self.checkbox_coords = None
+        self.clicks = 0
 
     async def query_selector(self, selector):
         assert selector == "#captcha-form"
@@ -137,6 +140,14 @@ class _GoogleRobotTab:
 
     async def activate(self):
         self.activated = True
+
+    async def evaluate(self, script):
+        return self.checkbox_coords
+
+    async def send(self, command, *args, **kwargs):
+        # click_at dispatches mouseMoved + mousePressed + mouseReleased.
+        self.clicks += 1
+        return None
 
 
 class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
@@ -181,6 +192,22 @@ class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(RobotChallengeError):
             await engine.robot_check()
+
+    async def test_recaptcha_checkbox_clicked_when_located(self):
+        tab = _GoogleRobotTab(captcha_node=object())
+        tab.checkbox_coords = {"x": 40.0, "y": 300.0}
+        engine = self._engine(tab, wait_result=True)
+
+        self.assertTrue(await engine.robot_check())
+        # A trusted click = mouseMoved + mousePressed + mouseReleased.
+        self.assertEqual(tab.clicks, 3)
+
+    async def test_no_checkbox_means_no_click(self):
+        tab = _GoogleRobotTab(captcha_node=object())  # checkbox_coords None
+        engine = self._engine(tab, wait_result=True)
+
+        self.assertTrue(await engine.robot_check())
+        self.assertEqual(tab.clicks, 0)
 
 
 class ProbePageStateTestCase(unittest.IsolatedAsyncioTestCase):

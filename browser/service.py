@@ -98,6 +98,41 @@ async def outer_html(tab) -> str:
     )
 
 
+async def click_at(tab, x: float, y: float) -> bool:
+    """Dispatch a trusted left-click at viewport coordinates ``(x, y)``.
+
+    Unlike a JS ``element.click()`` (``isTrusted == false``, which reCAPTCHA
+    flags), a CDP ``Input.dispatchMouseEvent`` produces a trusted event.
+    Best-effort like :func:`eval_js`: failures are logged and surface as
+    ``False`` so callers can fall back.
+    """
+    observability.count("input_click")
+    try:
+        await tab.send(cdp.input_.dispatch_mouse_event("mouseMoved", x=x, y=y))
+        await tab.send(
+            cdp.input_.dispatch_mouse_event(
+                "mousePressed",
+                x=x,
+                y=y,
+                button=cdp.input_.MouseButton.LEFT,
+                click_count=1,
+            )
+        )
+        await tab.send(
+            cdp.input_.dispatch_mouse_event(
+                "mouseReleased",
+                x=x,
+                y=y,
+                button=cdp.input_.MouseButton.LEFT,
+                click_count=1,
+            )
+        )
+        return True
+    except Exception:
+        logger.debug("Browser click failed", exc_info=True)
+        return False
+
+
 class BrowserService:
     """Browser-scoped CDP operations and per-target state.
 

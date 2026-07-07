@@ -2,6 +2,7 @@
 
 from browser.service import (
     BrowserService,
+    click_at,
     eval_js,
     get_browser_service,
     mhtml,
@@ -11,6 +12,7 @@ from browser.service import (
 
 __all__ = [
     "BrowserService",
+    "click_at",
     "eval_js",
     "get_browser_service",
     "mhtml",

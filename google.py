@@ -1,6 +1,7 @@
 import logging
 from urllib.parse import quote_plus, urlencode, urlsplit
 
+from browser import click_at
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
@@ -9,6 +10,39 @@ from search_regions import build_engine_region_params
 
 
 logger = logging.getLogger(__name__)
+
+# JS run in the top /sorry/ frame: locate the reCAPTCHA "I'm not a robot"
+# checkbox and return its centre in top-viewport CSS pixels. Reaches into the
+# anchor iframe when it is same-origin (google.com); otherwise falls back to
+# the checkbox's usual offset inside the iframe. Returns null when no
+# reCAPTCHA iframe is present.
+_RECAPTCHA_CHECKBOX_COORDS_JS = """
+(() => {
+    const iframe = document.querySelector(
+        'iframe[src*="/recaptcha/"][src*="anchor"], iframe[title="reCAPTCHA"]'
+    );
+    if (!iframe) return null;
+    const ir = iframe.getBoundingClientRect();
+    if (!ir.width || !ir.height) return null;
+    try {
+        const doc = iframe.contentDocument ||
+            (iframe.contentWindow && iframe.contentWindow.document);
+        if (doc) {
+            const anchor = doc.querySelector(
+                '#recaptcha-anchor, .recaptcha-checkbox, [role="checkbox"]'
+            );
+            if (anchor) {
+                const ar = anchor.getBoundingClientRect();
+                return {
+                    x: ir.left + ar.left + ar.width / 2,
+                    y: ir.top + ar.top + ar.height / 2
+                };
+            }
+        }
+    } catch (e) {}
+    return { x: ir.left + 30, y: ir.top + ir.height / 2 };
+})()
+"""
 
 
 class GoogleSearchEngine(SearchEngine):
@@ -83,6 +117,8 @@ class GoogleSearchEngine(SearchEngine):
         except Exception:
             logger.debug("Unable to focus the Google challenge tab", exc_info=True)
 
+        await self._try_click_recaptcha_checkbox()
+
         self._challenge_wait_active = True
         try:
             resolved = await self.wait_for_page_load(timeout=100)
@@ -99,3 +135,24 @@ class GoogleSearchEngine(SearchEngine):
             query=self.query,
             url=self.current_url,
         )
+
+    async def _try_click_recaptcha_checkbox(self) -> None:
+        """Best-effort: click the reCAPTCHA "I'm not a robot" checkbox with a
+        trusted mouse event, once, before waiting on the challenge.
+
+        If Google accepts it, the page reloads to results and
+        :meth:`wait_for_page_load` picks it up. If Google shows an image
+        challenge instead, the user solves it manually (unchanged behavior).
+        Any failure is swallowed — this must never break captcha handling."""
+        try:
+            coords = await self.tab.evaluate(_RECAPTCHA_CHECKBOX_COORDS_JS)
+        except Exception:
+            logger.debug("Unable to locate the reCAPTCHA checkbox", exc_info=True)
+            return
+        if not isinstance(coords, dict):
+            return
+        x, y = coords.get("x"), coords.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            return
+        logger.info("Attempting to tick the reCAPTCHA checkbox automatically.")
+        await click_at(self.tab, float(x), float(y))
