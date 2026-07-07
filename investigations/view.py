@@ -3477,8 +3477,15 @@ def generate_investigation_page(
             }});
 
             const queueAction = (action, payload = {{}}) => {{
-                actionQueue.push({{ action, investigationId, ...payload }});
-                persistActionQueue();
+                const item = {{ action, investigationId, ...payload }};
+                if (window.synthesixDispatch) {{
+                    // T-021: push transport — bypass the local poll queue
+                    // entirely so the action is never delivered twice.
+                    window.synthesixDispatch(JSON.stringify(item));
+                }} else {{
+                    actionQueue.push(item);
+                    persistActionQueue();
+                }}
             }};
             const viewStateKey = `synthesix:view-state:${{investigationId}}`;
             const storeViewState = (state = {{}}) => {{

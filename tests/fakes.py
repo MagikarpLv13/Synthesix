@@ -133,6 +133,9 @@ class FakeTab:
         self.journal = journal if journal is not None else CallJournal()
         self._side_effects: dict[str, list[Any]] = {}
         self._handlers: dict[str, Callable] = {}
+        # CDP event handlers registered via add_handler (T-021), keyed by
+        # event type (e.g. cdp.runtime.BindingCalled), fired with fire().
+        self._event_handlers: dict[Any, list[Callable]] = {}
 
     # -- programming -----------------------------------------------------
 
@@ -200,6 +203,22 @@ class FakeTab:
     async def close(self) -> None:
         self._resolve("close", (), {})
         self.closed = True
+
+    def add_handler(self, event_type: Any, handler: Callable) -> None:
+        """Mirror ``zendriver.core.connection.Connection.add_handler``."""
+        self._event_handlers.setdefault(event_type, []).append(handler)
+
+    async def fire(self, event_type: Any, event: Any) -> None:
+        """Invoke handlers registered for ``event_type`` with ``event``.
+
+        Awaits coroutine handlers directly (real zendriver schedules them
+        via ``asyncio.create_task``, but awaiting here keeps tests
+        deterministic without an extra loop tick).
+        """
+        for handler in self._event_handlers.get(event_type, []):
+            result = handler(event)
+            if asyncio.iscoroutine(result):
+                await result
 
 
 class _FakeCookies:

@@ -6,10 +6,13 @@ outside `browser/service.py`.
 """
 
 import base64
+import json
 import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+
+from zendriver import cdp
 
 import observability
 from browser import (
@@ -93,6 +96,81 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
         await service.arm_new_document_script(tab, "guard();")
 
         self.assertEqual(service.armed_script_targets, set())
+
+    async def test_arm_dispatch_binding_is_idempotent_per_target(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+
+        armed_first = await service.arm_dispatch_binding(tab)
+        armed_second = await service.arm_dispatch_binding(tab)
+
+        self.assertTrue(armed_first)
+        self.assertTrue(armed_second)
+        # One arming = Runtime.enable + Runtime.addBinding.
+        self.assertEqual(tab.journal.count("send"), 2)
+        self.assertEqual(service.armed_binding_targets, {"tab-1"})
+        self.assertEqual(observability.snapshot()["calls"]["arm_binding"], 1)
+
+    async def test_arm_dispatch_binding_skips_tab_without_target(self):
+        tab = SimpleNamespace(url="https://example.com")
+        service = BrowserService(None)
+
+        armed = await service.arm_dispatch_binding(tab)
+
+        self.assertFalse(armed)
+        self.assertEqual(service.armed_binding_targets, set())
+
+    async def test_arm_dispatch_binding_failure_leaves_target_unarmed(self):
+        tab = FakeTab(target_id="tab-1")
+        tab.program("send", RuntimeError("Runtime domain unavailable"))
+        service = BrowserService(FakeBrowser([tab]))
+
+        armed = await service.arm_dispatch_binding(tab)
+
+        self.assertFalse(armed)
+        self.assertEqual(service.armed_binding_targets, set())
+
+    async def test_dispatch_binding_handler_enqueues_valid_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        event = SimpleNamespace(
+            name="synthesixDispatch",
+            payload=json.dumps({"action": "cancel_search"}),
+        )
+        await tab.fire(cdp.runtime.BindingCalled, event)
+
+        action = service.dispatch_queue.get_nowait()
+        self.assertEqual(action["action"], "cancel_search")
+        self.assertIs(action["_source_tab"], tab)
+        self.assertEqual(observability.snapshot()["calls"]["push_action"], 1)
+
+    async def test_dispatch_binding_handler_ignores_other_bindings(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        event = SimpleNamespace(
+            name="someOtherBinding",
+            payload=json.dumps({"action": "cancel_search"}),
+        )
+        await tab.fire(cdp.runtime.BindingCalled, event)
+
+        self.assertTrue(service.dispatch_queue.empty())
+
+    async def test_dispatch_binding_handler_discards_malformed_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        for payload in ("not json", "42", json.dumps({"no_action": True})):
+            await tab.fire(
+                cdp.runtime.BindingCalled,
+                SimpleNamespace(name="synthesixDispatch", payload=payload),
+            )
+
+        self.assertTrue(service.dispatch_queue.empty())
 
     async def test_open_tab_delegates_and_counts(self):
         browser = FakeBrowser()

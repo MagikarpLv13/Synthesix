@@ -28,7 +28,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
-| 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 à faire) |
+| 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021 review ; T-022 à faire) |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
@@ -59,11 +59,12 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 2 entamée : T-020 livré (paquet `browser/` = seule couche CDP ;
-`main.py` et `evidence/capture.py` sans appel CDP direct, garde
-anti-régression par test ; smoke réel démarrage/idle/arrêt propre OK).
-Prochaines tâches : T-021 (push `Runtime.addBinding` pages locales) puis
-T-022 (découverte de tabs par événements Target) ; T-051 (test bout en bout
+Phase 2 : T-020 livré. T-021 livré en `review` (push `Runtime.addBinding` sur
+home + pages d'enquête ; poll existant en repli, throttlé une fois le
+binding confirmé ; overlay CDP http/https et scan de réglages inchangés —
+hors périmètre, cf. DEC-PLAN-04). Reste : smoke CDP live (latence perçue,
+taux `eval_home`/`eval_page` réduit) au premier run interactif, puis T-022
+(découverte de tabs par événements Target). T-051 (test bout en bout
 investigation) reste ouvert côté QA ; T-030/T-031 (extension Chrome)
 peuvent démarrer en parallèle. Smokes réels en attente au premier run
 interactif : mesure `engine_tab_open`/`eval_engine_wait` (T-006), fenêtre

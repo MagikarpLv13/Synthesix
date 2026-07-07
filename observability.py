@@ -16,6 +16,8 @@ Categories used across the codebase:
 - ``capture_mhtml``    : evidence MHTML snapshots (BrowserService)
 - ``open_tab``         : tabs opened by the app (home, reports, pages)
 - ``arm_script``       : new-document scripts armed on a target (once/tab)
+- ``arm_binding``      : ``synthesixDispatch`` push binding armed (once/tab, T-021)
+- ``push_action``      : UI action delivered via ``Runtime.bindingCalled`` (T-021)
 
 Counters are cheap (dict increments under a lock) and always on; the
 periodic dump only formats output when DEBUG logging is enabled

@@ -2306,6 +2306,31 @@ async def _focus_or_open_home_tab(
     return home_tab
 
 
+def _should_sync_local_tab(
+    service: BrowserService, tab, transport_mode: str, fallback_interval: float
+) -> bool:
+    """Whether the per-tick consume/sync evaluate should run for a local
+    page ``tab`` (T-021). Always ``True`` in poll mode, or while a tab's
+    push binding isn't confirmed armed yet (safety net); once confirmed, the
+    evaluate is only replayed every ``fallback_interval`` seconds, since
+    inbound actions arrive through :attr:`BrowserService.dispatch_queue`."""
+    if transport_mode != "push":
+        return True
+    target_id = getattr(tab, "target_id", None)
+    if not target_id or target_id not in service.armed_binding_targets:
+        return True
+    last_sync = service.last_local_sync_at.get(target_id)
+    if last_sync is None:
+        return True
+    return time.monotonic() - last_sync >= fallback_interval
+
+
+def _mark_local_tab_synced(service: BrowserService, tab) -> None:
+    target_id = getattr(tab, "target_id", None)
+    if target_id:
+        service.last_local_sync_at[target_id] = time.monotonic()
+
+
 async def wait_for_home_action(
     browser: uc.Browser,
     index_url: str,
@@ -2316,6 +2341,12 @@ async def wait_for_home_action(
 ):
     settings = settings or get_settings()
     service = get_browser_service(browser)
+    # T-021: "poll" (or older test doubles missing the attribute) keeps the
+    # pre-T-021 behavior byte for byte; only "push" arms bindings/throttles.
+    transport_mode = getattr(settings, "transport_mode", "poll")
+    push_fallback_interval = getattr(
+        settings, "home_push_fallback_interval", settings.home_poll_interval
+    )
     empty_since = None
     unreachable_since = None
     history_cache = {}
@@ -2371,7 +2402,14 @@ async def wait_for_home_action(
         if home_tabs:
             history_json, history_version = _cached_history_payload(settings, history_cache)
             for tab in home_tabs:
+                if transport_mode == "push":
+                    await service.arm_dispatch_binding(tab)
+                if not _should_sync_local_tab(
+                    service, tab, transport_mode, push_fallback_interval
+                ):
+                    continue
                 state = await _consume_home_tab_action(tab)
+                _mark_local_tab_synced(service, tab)
                 if state and state.get("ready"):
                     history_stale = state.get("historyVersion") != history_version
                     investigations_stale = (
@@ -2407,7 +2445,14 @@ async def wait_for_home_action(
                     overlay_investigation,
                 )
             else:
+                if transport_mode == "push":
+                    await service.arm_dispatch_binding(tab)
+                if not _should_sync_local_tab(
+                    service, tab, transport_mode, push_fallback_interval
+                ):
+                    continue
                 action = await _consume_page_tab_action(tab)
+                _mark_local_tab_synced(service, tab)
             if not action:
                 continue
             if action.get("action") == "focus_home":
@@ -2416,7 +2461,17 @@ async def wait_for_home_action(
             action["_source_tab"] = tab
             return action
 
-        await asyncio.sleep(settings.home_poll_interval)
+        try:
+            # T-021: races the fixed poll interval against the push queue —
+            # same wait duration as before when nothing is pushed (poll mode
+            # or an empty queue always times out here), but wakes up
+            # immediately once a bound page dispatches an action.
+            action = await asyncio.wait_for(
+                service.dispatch_queue.get(), timeout=settings.home_poll_interval
+            )
+            return action
+        except asyncio.TimeoutError:
+            pass
 
 
 async def _retry_search_combination(

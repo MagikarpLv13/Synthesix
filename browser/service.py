@@ -27,7 +27,9 @@ handles, not snapshots: callers keep using their public API directly
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 import logging
 import weakref
 from typing import Any, Callable, Mapping
@@ -109,6 +111,14 @@ class BrowserService:
         # armed. Re-arming on every poll tick would stack duplicate scripts
         # on the same target; pruned against live targets by :meth:`tabs`.
         self.armed_script_targets: set[str] = set()
+        # T-021: target ids with a confirmed `synthesixDispatch` binding, and
+        # the push queue it feeds. One queue per browser (shared across
+        # repeated `wait_for_home_action` calls via `get_browser_service`).
+        self.armed_binding_targets: set[str] = set()
+        self.dispatch_queue: asyncio.Queue = asyncio.Queue()
+        # Per-target last time the local-page consume/sync evaluate actually
+        # ran, so callers can throttle it once push delivery is confirmed.
+        self.last_local_sync_at: dict[str, float] = {}
 
     async def tabs(self) -> list | None:
         """Live page tabs, or ``None`` when the browser is unreachable.
@@ -136,6 +146,12 @@ class BrowserService:
             return None
 
         self.armed_script_targets.intersection_update(live_page_ids)
+        self.armed_binding_targets.intersection_update(live_page_ids)
+        self.last_local_sync_at = {
+            target_id: at
+            for target_id, at in self.last_local_sync_at.items()
+            if target_id in live_page_ids
+        }
         return [
             tab
             for tab in self.browser.tabs
@@ -169,6 +185,55 @@ class BrowserService:
             self.armed_script_targets.add(target_id)
         except Exception:
             logger.debug("Unable to arm new-document script", exc_info=True)
+
+    async def arm_dispatch_binding(self, tab, name: str = "synthesixDispatch") -> bool:
+        """Expose ``window.<name>(payload)`` on ``tab`` and route each call
+        into :attr:`dispatch_queue` (T-021 push transport for local pages).
+
+        Best-effort and idempotent per target, like
+        :meth:`arm_new_document_script`: on failure this silently returns
+        ``False`` and the caller keeps polling that tab.
+        """
+        target_id = getattr(tab, "target_id", None)
+        if not target_id:
+            return False
+        if target_id in self.armed_binding_targets:
+            return True
+        observability.count("arm_binding")
+        try:
+            await tab.send(cdp.runtime.enable())
+            await tab.send(cdp.runtime.add_binding(name=name))
+            tab.add_handler(
+                cdp.runtime.BindingCalled,
+                self._make_binding_handler(tab, name),
+            )
+            self.armed_binding_targets.add(target_id)
+            return True
+        except Exception:
+            logger.debug("Unable to arm dispatch binding", exc_info=True)
+            return False
+
+    def _make_binding_handler(self, tab, name: str) -> Callable:
+        # Must stay a coroutine function: zendriver dispatches plain
+        # callbacks via `asyncio.to_thread` (a worker thread), where touching
+        # `asyncio.Queue` is not safe. Coroutine handlers instead run as a
+        # plain task on the event loop itself (`asyncio.create_task`).
+        async def _on_binding_called(event) -> None:
+            if getattr(event, "name", None) != name:
+                return
+            try:
+                parsed = json.loads(event.payload)
+            except (TypeError, ValueError):
+                logger.debug("Discarding non-JSON dispatch payload", exc_info=True)
+                return
+            if not isinstance(parsed, dict) or not parsed.get("action"):
+                logger.debug("Discarding malformed dispatch payload: %r", parsed)
+                return
+            parsed["_source_tab"] = tab
+            observability.count("push_action")
+            self.dispatch_queue.put_nowait(parsed)
+
+        return _on_binding_called
 
     def on_event(self, tab, event_type, handler: Callable) -> None:
         """Register ``handler`` for a CDP event on ``tab`` (zendriver

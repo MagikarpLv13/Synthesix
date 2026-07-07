@@ -74,6 +74,10 @@ class CdpBudgetTestCase(unittest.IsolatedAsyncioTestCase):
                 {
                     "SYNTHESIX_BASE_DIR": temp_dir,
                     "SYNTHESIX_HOME_POLL_INTERVAL": "0",
+                    # T-021: this baseline locks the "poll" fallback path
+                    # (unchanged since T-006). The reduced push-mode budget
+                    # has its own dedicated lock in tests/test_transport_push.py.
+                    "SYNTHESIX_TRANSPORT": "poll",
                 },
             ):
                 settings = get_settings()

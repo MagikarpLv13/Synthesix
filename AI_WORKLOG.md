@@ -3656,3 +3656,97 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   `PROJECT_STATE.md`.
 - **Prochaine action :** T-021 (push `Runtime.addBinding` pages locales) ;
   T-022 ensuite ; T-051 et T-030/T-031 disponibles en parallèle.
+
+### AI-20260707-001 — T-021 : push `Runtime.addBinding` pour pages locales
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-07
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** remplacer le poll `evaluate` des pages locales (home,
+  enquête) par un push CDP `Runtime.addBinding("synthesixDispatch")`, le
+  poll existant devenant un filet de repli lent.
+- **Spike de risque levé en premier :** vérifié dans
+  `.venv/Lib/site-packages/zendriver` 0.15.3 que `cdp.runtime.add_binding` /
+  `cdp.runtime.BindingCalled` existent et que `Connection.add_handler`
+  route bien l'événement (callback coroutine planifié par
+  `asyncio.create_task`, jamais un thread) ; `Runtime.enable` n'est jamais
+  appelé nulle part par défaut.
+- **Périmètre réduit par rapport à la fiche** (vérifié dans le code réel) :
+  `investigations/search_view.py` (page statique, aucune action) et
+  `utils.py::_home_navigation_script` (code mort, aucun appelant) n'ont pas
+  été touchés ; chaque page vivante n'a qu'un seul point d'émission
+  d'action (`queueAction`), donc un seul endroit modifié par page côté JS.
+- **Changements :**
+  - `browser/service.py` : `BrowserService.arm_dispatch_binding` (idempotent
+    par target, best-effort comme `arm_new_document_script`), file
+    `dispatch_queue` (`asyncio.Queue`) alimentée par un handler **coroutine**
+    (obligatoire : les callbacks synchrones sont exécutés par zendriver via
+    `asyncio.to_thread`, où toucher `asyncio.Queue` n'est pas sûr), registre
+    `last_local_sync_at` pour le throttle ; purge des trois registres dans
+    `tabs()`.
+  - `main.py` (`wait_for_home_action`) : `transport_mode` lu via
+    `getattr(settings, "transport_mode", "poll")` (défaut `poll` si absent,
+    pour ne toucher aucune des ~40 fixtures `SimpleNamespace` existantes de
+    `tests/test_main.py`) ; armement du binding par tab locale ; nouveau
+    throttle `_should_sync_local_tab`/`_mark_local_tab_synced` (rejoue
+    l'évaluate de consommation/sync toutes les `home_push_fallback_interval`
+    une fois le binding confirmé, sinon comportement identique à avant) ;
+    fin de boucle : `asyncio.wait_for(dispatch_queue.get(),
+    timeout=home_poll_interval)` au lieu de `asyncio.sleep(...)` — même
+    durée d'attente qu'avant quand la file est vide, réveil immédiat sinon.
+    **Overlay CDP http/https et scan de changement de réglages : aucun
+    changement** (hors périmètre T-021, DEC-PLAN-04 ; ralentir la boucle
+    entière aurait régressé la réactivité de l'overlay).
+  - `settings.py` : `transport_mode` (`SYNTHESIX_TRANSPORT`, défaut `push`)
+    et `home_push_fallback_interval` (`SYNTHESIX_HOME_PUSH_FALLBACK_INTERVAL`,
+    défaut 2.0).
+  - `index.html` et `investigations/view.py` : `queueAction` pousse via
+    `window.synthesixDispatch(JSON.stringify(item))` s'il existe, sinon
+    conserve le comportement actuel (jamais les deux à la fois).
+  - `observability.py` : catégories `arm_binding` et `push_action`.
+  - `tests/fakes.py` : `FakeTab.add_handler`/`FakeTab.fire` pour simuler
+    `Runtime.bindingCalled` sans zendriver réel.
+- **Contrats ou décisions :** aucun contrat CDP existant modifié ; nouvelle
+  action interne uniquement (transport, pas de nouvelle action métier).
+  `home_poll_interval` garde son sens actuel (cadence mode `poll` et durée
+  d'attente de la course push/poll) ; `home_push_fallback_interval` est
+  strictement nouveau.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_transport_push` — OK,
+    4 tests (nouveau : livraison push immédiate home + page locale, throttle
+    vérifié via compteur d'appels réels < nombre de ticks, mode
+    `poll`/attribut absent n'arme jamais de binding).
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service` — OK,
+    20 tests (dont 6 nouveaux : armement idempotent/échec, handler
+    valide/nom différent/payload malformé).
+  - `.venv\Scripts\python.exe -m unittest tests.test_cdp_budget` — OK, 4
+    tests ; `test_idle_tick_budget_is_locked` ré-ancré en mode `poll`
+    explicite (le mode `push` par défaut faisait exploser le nombre de
+    ticks du test car son historique d'actions multi-tick n'était pas conçu
+    pour le throttle — comportement du throttle validé séparément dans
+    `test_transport_push.py`).
+  - `.venv\Scripts\python.exe -m unittest tests.test_main` — OK, 42 tests
+    (aucune régression, mode `poll` implicite car settings de test sans
+    `transport_mode`).
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, **360 tests**.
+  - `node --check` sur le script inline d'`investigations/view.py` (test
+    existant `test_inline_script_is_valid_javascript_when_node_is_available`)
+    et sur celui d'`index.html` (extrait et vérifié manuellement) — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke CDP live (session Chrome réelle confirmant la
+  latence perçue < 50 ms et la baisse réelle des taux `eval_home`/`eval_page`
+  sans régression sur `eval_overlay`) — nécessite une session interactive ;
+  comportement couvert par le harnais `FakeTab.fire`.
+- **Risque résiduel :** persistance du binding CDP à travers une navigation
+  complète (pas seulement un reload) documentée par le protocole mais non
+  vérifiée en direct ; si perdue, le repli poll (`_should_sync_local_tab`
+  retombe à confirmé=faux tant que non réarmé) évite la perte d'action, au
+  prix d'une latence dégradée temporaire.
+- **Fichiers modifiés :** `browser/service.py`, `main.py`, `settings.py`,
+  `index.html`, `investigations/view.py`, `observability.py`,
+  `tests/fakes.py`, `tests/test_browser_service.py`,
+  `tests/test_cdp_budget.py`, `tests/test_transport_push.py` (nouveau),
+  `docs/tasks/T-021-push-binding-pages-locales.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Prochaine action :** smoke CDP live au premier run interactif, puis
+  T-022 (découverte de tabs par événements Target).

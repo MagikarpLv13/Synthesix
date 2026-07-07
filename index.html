@@ -984,7 +984,14 @@
             };
 
             const queueAction = (action, payload = {}) => {
-                state.pendingActions.push({ action, ...payload });
+                const item = { action, ...payload };
+                if (window.synthesixDispatch) {
+                    // T-021: push transport — bypass the local poll queue
+                    // entirely so the action is never delivered twice.
+                    window.synthesixDispatch(JSON.stringify(item));
+                } else {
+                    state.pendingActions.push(item);
+                }
                 closeHistory();
                 setStatus("Processing...");
             };

@@ -49,7 +49,7 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
 | [T-020](T-020-browserservice.md) | BrowserService : couche unique Zendriver/CDP | P1 | Claude | done |
-| [T-021](T-021-push-binding-pages-locales.md) | Push `Runtime.addBinding` pour pages locales | P1 | Claude | todo |
+| [T-021](T-021-push-binding-pages-locales.md) | Push `Runtime.addBinding` pour pages locales | P1 | Claude | review |
 | [T-022](T-022-decouverte-tabs-evenementielle.md) | Découverte de tabs par événements Target | P2 | Claude | todo |
 
 ### Phase 3 — Extension Chrome (migration overlay)

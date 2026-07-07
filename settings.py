@@ -87,6 +87,13 @@ class AppSettings:
     default_history_limit: int
     default_max_results: int
     home_poll_interval: float
+    # T-021: "push" arms a `Runtime.addBinding` on local pages (home,
+    # investigation) so UI actions reach `wait_for_home_action` without
+    # waiting for the next poll tick; "poll" keeps the pre-T-021 behavior
+    # unchanged. `home_push_fallback_interval` throttles the local-page
+    # consume/sync evaluate once its binding is confirmed armed.
+    transport_mode: str
+    home_push_fallback_interval: float
     empty_tabs_grace_seconds: float
     page_load_timeout: float
     page_load_interval: float
@@ -205,6 +212,10 @@ def _build_settings() -> AppSettings:
         default_history_limit=_env_int("SYNTHESIX_HISTORY_LIMIT", 25),
         default_max_results=_env_int("SYNTHESIX_DEFAULT_MAX_RESULTS", 20),
         home_poll_interval=_env_float("SYNTHESIX_HOME_POLL_INTERVAL", 0.25),
+        transport_mode=_env_str("SYNTHESIX_TRANSPORT", "push"),
+        home_push_fallback_interval=_env_float(
+            "SYNTHESIX_HOME_PUSH_FALLBACK_INTERVAL", 2.0
+        ),
         empty_tabs_grace_seconds=_env_float("SYNTHESIX_EMPTY_TABS_GRACE_SECONDS", 2.0),
         page_load_timeout=_env_float("SYNTHESIX_PAGE_LOAD_TIMEOUT", 2.5),
         page_load_interval=_env_float("SYNTHESIX_PAGE_LOAD_INTERVAL", 0.1),
