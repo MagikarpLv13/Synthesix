@@ -104,9 +104,9 @@ class AppSettings:
     page_load_interval: float
     brave_results_timeout: float
     brave_results_interval: float
-    # Brave renders results client-side after a reveal animation (~3s); once
-    # the results container appears, wait this long for the snippets to hydrate
-    # before reading the page.
+    # Brave renders results client-side; once the results container appears,
+    # read as soon as the snippet count stabilizes. This only caps that
+    # hydration wait so a genuinely empty result page can't stall.
     brave_results_settle: float
     brave_robot_find_timeout: float
     duckduckgo_results_timeout: float

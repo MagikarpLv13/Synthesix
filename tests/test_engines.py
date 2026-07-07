@@ -236,6 +236,37 @@ class BraveResultsWaitTestCase(unittest.IsolatedAsyncioTestCase):
         with patch.object(brave_module, "get_settings", self._fake_settings):
             self.assertFalse(await engine._wait_for_results_container())
 
+    async def test_wait_reads_as_soon_as_snippets_stabilize(self):
+        # Snippet count grows 5 -> 10 -> 10; the wait must return on the stable
+        # reading rather than sleeping out the full settle budget.
+        engine = BraveSearchEngine()
+        engine.query = "x"
+        engine.set_selector()
+        counts = iter([5, 10, 10])
+        probes = {"n": 0}
+
+        class Tab:
+            async def evaluate(self, expression):
+                if "snippet[data-pos]" in expression:  # the snippet counter
+                    return next(counts, 10)
+                probes["n"] += 1  # the composite probe
+                return json.dumps(
+                    {"found": True, "resultCount": 1, "challenge": False,
+                     "ready": "complete", "bodyLength": 10, "forbidden": False,
+                     "noResults": False, "url": "", "title": ""}
+                )
+
+        engine.tab = Tab()
+        fake = SimpleNamespace(
+            brave_results_timeout=1.0,
+            brave_results_interval=0.001,
+            brave_results_settle=1.0,  # generous cap; must break out well before
+        )
+        with patch.object(brave_module, "get_settings", lambda: fake):
+            self.assertTrue(await engine.wait_for_page_load())
+        # Exhausted the 3 scripted counts (5,10,10) then stopped on stability.
+        self.assertEqual(next(counts, "done"), "done")
+
 
 class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
     """T-004: captcha detection uses query_selector and the /sorry/ URL,

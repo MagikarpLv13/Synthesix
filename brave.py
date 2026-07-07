@@ -335,29 +335,48 @@ class BraveSearchEngine(SearchEngine):
             await asyncio.sleep(interval)
         return False
 
+    async def _count_result_snippets(self) -> int:
+        """Live count of hydrated result rows (``#results .snippet[data-pos]``)."""
+        try:
+            raw = await self.tab.evaluate(
+                "document.querySelectorAll('#results .snippet[data-pos]').length"
+            )
+            return int(raw or 0)
+        except Exception:
+            return 0
+
     async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
         """Wait for Brave's client-rendered results before reading.
 
-        Brave (SvelteKit) ships an empty shell, hides the body behind a ~3s
-        reveal animation, then injects the result snippets client-side. The
-        base 2.5s ``page_load_timeout`` reads that shell (0 results), so wait
-        on the results container with Brave's own budget, then let the
-        snippets hydrate (``brave_results_settle``) before returning."""
+        Brave (SvelteKit) ships an empty shell, then injects the result
+        snippets client-side (the base 2.5s ``page_load_timeout`` reads that
+        shell => 0 results). Wait for the results container, then read as soon
+        as the snippet count stops growing — hydration is usually done in ~1s,
+        so this is far faster than a blind fixed settle. ``brave_results_settle``
+        only caps the hydration wait so a genuinely empty result page (snippet
+        count stays 0) can't stall."""
         settings = get_settings()
-        if await self._wait_for_results_container(timeout, interval):
-            settle = settings.brave_results_settle
-            if settle > 0:
-                await asyncio.sleep(settle)
-            return True
+        interval = settings.brave_results_interval if interval is None else interval
+        if not await self._wait_for_results_container(timeout, interval):
+            try:
+                await self.read_page_content("load_timeout")
+            except Exception:
+                logger.debug(
+                    "Unable to capture Brave content after load timeout",
+                    exc_info=True,
+                )
+            return bool(await self.robot_check())
 
-        try:
-            await self.read_page_content("load_timeout")
-        except Exception:
-            logger.debug(
-                "Unable to capture Brave content after load timeout",
-                exc_info=True,
-            )
-        return bool(await self.robot_check())
+        budget = max(0.0, settings.brave_results_settle)
+        start = time.monotonic()
+        last_count = -1
+        while (time.monotonic() - start) < budget:
+            count = await self._count_result_snippets()
+            if count > 0 and count == last_count:
+                break  # snippets hydrated and stable
+            last_count = count
+            await asyncio.sleep(interval)
+        return True
 
     async def _click_robot_button_with_find(self):
         for text in BRAVE_ROBOT_FIND_PATTERNS:
