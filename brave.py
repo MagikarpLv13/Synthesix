@@ -325,8 +325,36 @@ class BraveSearchEngine(SearchEngine):
             state = await self.probe_page_state()
             if state["found"]:
                 return True
+            if state["challenge"]:
+                # Stop waiting for results; let robot_check take over now
+                # instead of burning the full results timeout on a captcha.
+                return False
             await asyncio.sleep(interval)
         return False
+
+    async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
+        """Wait for Brave's client-rendered results before reading.
+
+        Brave (SvelteKit) ships an empty shell, hides the body behind a ~3s
+        reveal animation, then injects the result snippets client-side. The
+        base 2.5s ``page_load_timeout`` reads that shell (0 results), so wait
+        on the results container with Brave's own budget, then let the
+        snippets hydrate (``brave_results_settle``) before returning."""
+        settings = get_settings()
+        if await self._wait_for_results_container(timeout, interval):
+            settle = settings.brave_results_settle
+            if settle > 0:
+                await asyncio.sleep(settle)
+            return True
+
+        try:
+            await self.read_page_content("load_timeout")
+        except Exception:
+            logger.debug(
+                "Unable to capture Brave content after load timeout",
+                exc_info=True,
+            )
+        return bool(await self.robot_check())
 
     async def _click_robot_button_with_find(self):
         for text in BRAVE_ROBOT_FIND_PATTERNS:

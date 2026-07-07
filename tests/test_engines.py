@@ -195,6 +195,46 @@ class BraveEmptyResultsDumpTestCase(unittest.TestCase):
             self.assertEqual(len(list(Path(tmp).glob("*.html"))), 1)
 
 
+class BraveResultsWaitTestCase(unittest.IsolatedAsyncioTestCase):
+    """Brave renders results client-side after a reveal; the wait must hold
+    for the results container (not the base 2.5s) and bail early on a captcha."""
+
+    def _fake_settings(self):
+        return SimpleNamespace(
+            brave_results_timeout=5.0,
+            brave_results_interval=0.01,
+            brave_results_settle=0.0,
+        )
+
+    def _engine(self, probe_state):
+        engine = BraveSearchEngine()
+        engine.query = "x"
+        engine.set_selector()
+
+        class Tab:
+            async def evaluate(self, expression):
+                return json.dumps(probe_state)
+
+        engine.tab = Tab()
+        return engine
+
+    async def test_wait_returns_once_results_container_present(self):
+        engine = self._engine(
+            {"found": True, "resultCount": 5, "challenge": False, "ready": "complete",
+             "bodyLength": 10, "forbidden": False, "noResults": False, "url": "", "title": ""}
+        )
+        with patch.object(brave_module, "get_settings", self._fake_settings):
+            self.assertTrue(await engine.wait_for_page_load())
+
+    async def test_results_wait_bails_out_on_challenge(self):
+        engine = self._engine(
+            {"found": False, "resultCount": 0, "challenge": True, "ready": "complete",
+             "bodyLength": 10, "forbidden": False, "noResults": False, "url": "", "title": ""}
+        )
+        with patch.object(brave_module, "get_settings", self._fake_settings):
+            self.assertFalse(await engine._wait_for_results_container())
+
+
 class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
     """T-004: captcha detection uses query_selector and the /sorry/ URL,
     and an unresolved captcha surfaces as RobotChallengeError (coverage
