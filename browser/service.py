@@ -134,6 +134,25 @@ class BrowserService:
             if (target_id := getattr(tab, "target_id", None))
         }
 
+    def _browser_unhealthy(self) -> bool:
+        """Cheap per-tick liveness signal (no CDP round-trip).
+
+        The event-maintained registry can go stale when Chrome dies: no
+        ``TargetDestroyed`` is delivered, so ``browser.tabs`` keeps listing
+        gone tabs. zendriver's browser-connection ``Listener`` loop breaks on
+        that dropped websocket, so a stopped listener (or a stopped process)
+        means the registry can no longer be trusted and an authoritative
+        resync must run now instead of waiting out the interval — otherwise
+        the "all tabs closed => quit" path never fires (T-022 regression).
+        """
+        if getattr(self.browser, "stopped", False):
+            return True
+        connection = getattr(self.browser, "connection", None)
+        listener = getattr(connection, "listener", None)
+        # Only trust an explicit "not running": a missing listener (never
+        # opened, or a test double) must not be read as unhealthy.
+        return listener is not None and not getattr(listener, "running", True)
+
     async def _resync_targets(self) -> set[str] | None:
         """Authoritative `getTargets` round-trip: refresh the registry and
         report the live page-target ids. Returns ``None`` when the browser
@@ -170,8 +189,16 @@ class BrowserService:
         registry_ids = self._live_page_ids()
         now = time.monotonic()
         first_resync = self._last_target_resync == 0.0
-        resync_due = now - self._last_target_resync >= self.target_resync_interval
-        if resync_due or not registry_ids:
+        # Resync on the slow interval, but also immediately whenever the
+        # registry can't be trusted: empty (a transient event gap must not
+        # read as "no tabs => quit") or the browser looks gone (so the
+        # quit/unreachable path fires without waiting out the interval).
+        resync_due = (
+            now - self._last_target_resync >= self.target_resync_interval
+            or not registry_ids
+            or self._browser_unhealthy()
+        )
+        if resync_due:
             live_page_ids = await self._resync_targets()
             if live_page_ids is None:
                 return None

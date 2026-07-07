@@ -91,6 +91,40 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 2)
 
+    async def test_tabs_resyncs_when_browser_connection_dropped(self):
+        # T-022 regression guard: when Chrome dies the event registry can go
+        # stale (no TargetDestroyed), so a stopped browser-connection listener
+        # must force an authoritative resync even mid-interval — otherwise the
+        # "all tabs closed => quit" path never fires.
+        browser = FakeBrowser([FakeTab("https://example.com", "live")])
+        browser.connection = SimpleNamespace(
+            listener=SimpleNamespace(running=False)
+        )
+        service = BrowserService(browser)
+        service._last_target_resync = float("inf")  # time interval never due
+
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 1)
+
+    async def test_tabs_none_when_dropped_connection_resync_fails(self):
+        class DroppedBrowser:
+            stopped = False
+            # Stale registry entry a missed TargetDestroyed left behind.
+            tabs = [SimpleNamespace(target_id="stale")]
+            connection = SimpleNamespace(listener=SimpleNamespace(running=False))
+
+            async def update_targets(self):
+                raise ConnectionError("chrome is gone")
+
+            async def _get_targets(self):
+                raise ConnectionError("chrome is gone")
+
+        service = BrowserService(DroppedBrowser())
+        service._last_target_resync = float("inf")
+
+        self.assertIsNone(await service.tabs())
+
     async def test_eval_js_returns_value_and_counts_category(self):
         tab = FakeTab()
         tab.program("evaluate", {"ready": True})
