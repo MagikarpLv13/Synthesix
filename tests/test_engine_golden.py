@@ -28,6 +28,7 @@ class EngineGoldenParsingTestCase(unittest.TestCase):
             (BingSearchEngine, "bing_2026-06.html"),
             (DuckDuckGoSearchEngine, "duckduckgo_2026-06.html"),
             (BraveSearchEngine, "brave_2026-06.html"),
+            (BraveSearchEngine, "brave_2026-07.html"),
         )
 
         for engine_cls, filename in cases:

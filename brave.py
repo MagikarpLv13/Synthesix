@@ -163,7 +163,10 @@ class BraveSearchEngine(SearchEngine):
             "result": "//div[contains(@class, 'snippet') and @data-pos]",
             "title": ".//div[contains(@class, 'title')]",
             "link": ".//a[@href]",
-            "desc": ".//div[contains(@class, 'snippet-description')]",
+            # Brave moved the description from `.snippet-description` to a
+            # `.content` node inside `.generic-snippet`; accept both so older
+            # captures and the current SERP markup both parse.
+            "desc": ".//div[contains(@class, 'snippet-description') or contains(@class, 'generic-snippet')]",
         }
 
     def _parse_results_embedded_json(self, raw_results):
