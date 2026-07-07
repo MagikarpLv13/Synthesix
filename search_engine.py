@@ -152,9 +152,13 @@ class EngineTabPool:
             if getattr(tab, "closed", False):
                 continue
             try:
-                await tab.close()
+                # tab.close() sends Target.closeTarget then waits up to 10s
+                # for the TargetDestroyed event; if that event is missed the
+                # wait would stall cleanup and leave the tab visible. The close
+                # command is already sent, so bound the confirmation wait.
+                await asyncio.wait_for(tab.close(), timeout=5.0)
             except Exception as exc:
-                logger.warning("Unable to close pooled %s tab: %s", engine_name, exc)
+                logger.warning("Unable to close pooled %s tab cleanly: %s", engine_name, exc)
 
 
 class SearchEngine(ABC):
