@@ -160,6 +160,11 @@ class BrowserService:
         # slow authoritative resync. Overridable from settings by the caller.
         self.target_resync_interval: float = 10.0
         self._last_target_resync: float = 0.0
+        # A dead Chrome makes zendriver's `send` await a response that never
+        # arrives (the CDP transaction has no timeout of its own), which would
+        # hang the whole action loop. Bound the resync so `tabs()` reports the
+        # browser as unreachable instead of freezing.
+        self.target_resync_timeout: float = 5.0
 
     def _live_page_ids(self) -> set[str]:
         """Page-target ids from zendriver's event-maintained registry."""
@@ -199,9 +204,12 @@ class BrowserService:
         """
         observability.count("targets_poll")
         try:
-            await self.browser.update_targets()
-            targets = await self.browser._get_targets()
+            targets = await asyncio.wait_for(
+                self._fetch_targets(), timeout=self.target_resync_timeout
+            )
         except Exception:
+            # Includes asyncio.TimeoutError: a dead browser whose CDP response
+            # never comes must read as unreachable, not hang the loop.
             logger.debug("Unable to update browser targets", exc_info=True)
             return None
         return {
@@ -209,6 +217,10 @@ class BrowserService:
             for target in targets
             if target.type_ == "page"
         }
+
+    async def _fetch_targets(self):
+        await self.browser.update_targets()
+        return await self.browser._get_targets()
 
     async def tabs(self) -> list | None:
         """Live page tabs, or ``None`` when the browser is unreachable.

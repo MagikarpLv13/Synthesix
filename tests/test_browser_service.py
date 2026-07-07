@@ -5,6 +5,7 @@ edit cannot quietly reintroduce `tab.send(...)`/`browser._get_targets`
 outside `browser/service.py`.
 """
 
+import asyncio
 import base64
 import json
 import re
@@ -121,6 +122,27 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
                 raise ConnectionError("chrome is gone")
 
         service = BrowserService(DroppedBrowser())
+        service._last_target_resync = float("inf")
+
+        self.assertIsNone(await service.tabs())
+
+    async def test_tabs_none_when_resync_hangs(self):
+        # A dead Chrome makes zendriver's CDP send await a reply that never
+        # arrives; the resync must time out to unreachable instead of freezing
+        # the whole action loop (so the browser.stopped quit check is reached).
+        class HangingBrowser:
+            stopped = False
+            tabs = [SimpleNamespace(target_id="stale")]
+            connection = SimpleNamespace(listener=SimpleNamespace(running=False))
+
+            async def update_targets(self):
+                await asyncio.sleep(3600)  # never returns
+
+            async def _get_targets(self):
+                return []
+
+        service = BrowserService(HangingBrowser())
+        service.target_resync_timeout = 0.05
         service._last_target_resync = float("inf")
 
         self.assertIsNone(await service.tabs())

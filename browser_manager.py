@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -407,7 +408,11 @@ class HeadlessBrowserManager:
     async def stop(self):
         try:
             if self.browser is not None:
-                await self.browser.stop()
+                # zendriver's stop() first sends `Browser.close` and awaits a
+                # reply; against an already-dead Chrome that reply never comes
+                # and the await hangs, keeping the process alive. Bound it so
+                # shutdown always completes.
+                await asyncio.wait_for(self.browser.stop(), timeout=10.0)
         except Exception:
             logger.warning("Unable to stop browser cleanly", exc_info=True)
         finally:
