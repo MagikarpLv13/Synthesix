@@ -224,16 +224,16 @@ class BraveSearchEngine(SearchEngine):
         """Save the raw page once when Brave yields zero results, so its
         current markup can be inspected and the parser updated.
 
-        Skipped for anti-robot pages (``robot_check`` captures those already)
-        and guarded to one dump per search, independent of the
-        ``SYNTHESIX_DEBUG_HTML`` flag — a silently empty Brave means the site
+        Always dumps (guarded to one per search, independent of the
+        ``SYNTHESIX_DEBUG_HTML`` flag): a silently empty Brave means the site
         layout drifted from both the embedded-JSON regex and the XPath
-        fallback, and the raw page is the only way to diagnose it."""
+        fallback, and the raw page is the only way to diagnose it. It is NOT
+        gated on ``looks_like_brave_robot_challenge`` — a fully rendered SERP
+        routinely contains the bare words "bot"/"robot", which would false-
+        positive and silently skip the capture we need most."""
         if self._empty_results_dumped:
             return
         raw_results = str(raw_results)
-        if looks_like_brave_robot_challenge(raw_results):
-            return
         self._empty_results_dumped = True
         try:
             capture_dir = get_settings().debug_html_dir

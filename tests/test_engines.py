@@ -176,14 +176,16 @@ class BraveEmptyResultsDumpTestCase(unittest.TestCase):
             dumped = list(Path(tmp).glob("brave_empty_results_*.html"))
             self.assertEqual(len(dumped), 1)
 
-    def test_skips_dump_for_robot_challenge(self):
+    def test_dumps_even_when_page_mentions_robot(self):
+        # A fully rendered SERP routinely contains the bare word "robot"; the
+        # dump must NOT be skipped for it (that hid the capture we needed).
         with tempfile.TemporaryDirectory() as tmp:
             fake = SimpleNamespace(debug_html_dir=Path(tmp))
             with patch.object(brave_module, "get_settings", lambda: fake):
                 self._engine().parse_results(
-                    "<html><body>blockRobots:true</body></html>"
+                    "<html><body>result about a chatbot robot</body></html>"
                 )
-            self.assertEqual(list(Path(tmp).glob("*.html")), [])
+            self.assertEqual(len(list(Path(tmp).glob("*.html"))), 1)
 
     def test_dumps_only_once_per_search(self):
         with tempfile.TemporaryDirectory() as tmp:
