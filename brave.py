@@ -136,6 +136,7 @@ class BraveSearchEngine(SearchEngine):
         self.offset = 1
         self.query = None
         self.nb_results_per_page = 0
+        self._empty_results_dumped = False
 
     def construct_url(self):
         url = f"{self.base_url}/search?q={quote_plus(self.construct_query(self.query))}&spellcheck=0"
@@ -216,7 +217,37 @@ class BraveSearchEngine(SearchEngine):
             logger.warning("Brave XPath fallback parsed %d results.", len(fallback_results))
         else:
             logger.warning("Brave parsing failed: embedded JSON and XPath fallback returned no results.")
+            self._dump_empty_results_html(raw_results)
         return fallback_results
+
+    def _dump_empty_results_html(self, raw_results) -> None:
+        """Save the raw page once when Brave yields zero results, so its
+        current markup can be inspected and the parser updated.
+
+        Skipped for anti-robot pages (``robot_check`` captures those already)
+        and guarded to one dump per search, independent of the
+        ``SYNTHESIX_DEBUG_HTML`` flag — a silently empty Brave means the site
+        layout drifted from both the embedded-JSON regex and the XPath
+        fallback, and the raw page is the only way to diagnose it."""
+        if self._empty_results_dumped:
+            return
+        raw_results = str(raw_results)
+        if looks_like_brave_robot_challenge(raw_results):
+            return
+        self._empty_results_dumped = True
+        try:
+            capture_dir = get_settings().debug_html_dir
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            stem = f"brave_empty_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_path = capture_dir / f"{stem}.html"
+            output_path.write_text(raw_results, encoding="utf-8")
+        except OSError:
+            logger.debug("Unable to save the empty Brave results page", exc_info=True)
+            return
+        logger.warning(
+            "Brave returned 0 results; saved the raw page for diagnosis: %s",
+            output_path.resolve(),
+        )
 
     async def post_execute_search(self):
         if self.num_results >= self.max_results:

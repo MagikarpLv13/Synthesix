@@ -1,9 +1,14 @@
 import asyncio
 import base64
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
+import brave as brave_module
 from bing import BingSearchEngine, resolve_bing_redirect
 from brave import (
     BraveSearchEngine,
@@ -148,6 +153,46 @@ class _GoogleRobotTab:
         # click_at dispatches mouseMoved + mousePressed + mouseReleased.
         self.clicks += 1
         return None
+
+
+class BraveEmptyResultsDumpTestCase(unittest.TestCase):
+    """A silently empty Brave (both embedded-JSON and XPath parsing miss)
+    saves the raw page so the drifted markup can be diagnosed."""
+
+    def _engine(self):
+        engine = BraveSearchEngine()
+        engine.max_results = 10
+        engine.num_results = 0
+        return engine
+
+    def test_dumps_raw_page_when_zero_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = SimpleNamespace(debug_html_dir=Path(tmp))
+            with patch.object(brave_module, "get_settings", lambda: fake):
+                results = self._engine().parse_results(
+                    "<html><body>totally different layout</body></html>"
+                )
+            self.assertEqual(results, [])
+            dumped = list(Path(tmp).glob("brave_empty_results_*.html"))
+            self.assertEqual(len(dumped), 1)
+
+    def test_skips_dump_for_robot_challenge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = SimpleNamespace(debug_html_dir=Path(tmp))
+            with patch.object(brave_module, "get_settings", lambda: fake):
+                self._engine().parse_results(
+                    "<html><body>blockRobots:true</body></html>"
+                )
+            self.assertEqual(list(Path(tmp).glob("*.html")), [])
+
+    def test_dumps_only_once_per_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = SimpleNamespace(debug_html_dir=Path(tmp))
+            engine = self._engine()
+            with patch.object(brave_module, "get_settings", lambda: fake):
+                engine.parse_results("<html><body>page one</body></html>")
+                engine.parse_results("<html><body>page two</body></html>")
+            self.assertEqual(len(list(Path(tmp).glob("*.html"))), 1)
 
 
 class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
