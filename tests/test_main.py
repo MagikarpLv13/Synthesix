@@ -1450,6 +1450,32 @@ class BackgroundSearchTaskTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIs(search.await_args.kwargs["report_browser"], user_browser)
         provider.cleanup_idle_tabs.assert_awaited_once()
 
+    async def test_run_search_action_clears_running_before_cleanup(self):
+        events: list[str] = []
+        provider = SimpleNamespace(
+            get_browser=AsyncMock(return_value=object()),
+            cleanup_idle_tabs=AsyncMock(side_effect=lambda: events.append("cleanup")),
+        )
+
+        async def clear_running(*_args):
+            events.append("running:false")
+
+        with (
+            patch("main.perform_search", new=AsyncMock(return_value=None)),
+            patch(
+                "main._set_home_search_running",
+                new=AsyncMock(side_effect=clear_running),
+            ),
+        ):
+            await _run_search_action(
+                object(),
+                "file:///index.html",
+                {"original_query": "query"},
+                provider,
+            )
+
+        self.assertEqual(events, ["running:false", "cleanup"])
+
     async def test_headless_robot_challenge_opens_captured_artifact(self):
         with TemporaryDirectory() as temp_dir:
             artifact_path = Path(temp_dir) / "history" / "robot_challenges" / "challenge.html"

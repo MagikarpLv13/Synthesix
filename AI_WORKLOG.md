@@ -4627,3 +4627,48 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   - `git diff --check` — OK, avertissements CRLF uniquement
 - **Non exécuté :** smoke visuel navigateur du loader.
 - **Relais :** aucun.
+
+### AI-20260708-011 — Contour lumineux pendant recherche
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 23:05-23:08
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** remplacer le double indicateur de chargement par un seul
+  contour lumineux animé autour de la box de recherche.
+- **Résultat :**
+  - `index.html` retire le spinner du bouton et l'élément de progression sous
+    la barre.
+  - `theme.css` anime un liseré conique autour de `.search-form` quand
+    `setSearchRunning(true)` applique `is-search-running`.
+  - La hauteur de la barre de recherche ne change plus pendant la recherche.
+- **Fichiers modifiés :** `index.html`, `theme.css`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `node -e ...` — syntaxe des 4 scripts inline de `index.html` OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :**
+  - smoke visuel navigateur : Playwright n'est pas disponible dans ce
+    workspace.
+- **Relais :** aucun.
+
+### AI-20260708-012 — Arrêt immédiat du loader search
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 23:09-23:11
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** éviter que le contour lumineux continue 1-2 secondes après
+  l'ouverture de l'onglet résultats.
+- **Résultat :**
+  - `_run_search_action()` appelle maintenant `_set_home_search_running(false)`
+    avant `search_browser_provider.cleanup_idle_tabs()`.
+  - Le nettoyage du navigateur de recherche peut continuer en arrière-plan de
+    l'état visuel : l'accueil n'affiche plus une recherche active quand le
+    résultat est déjà ouvert.
+  - Test ajouté pour figer cet ordre.
+- **Fichiers modifiés :** `main.py`, `tests/test_main.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py tests\test_main.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_main.BackgroundSearchTaskTestCase`
+    — 15 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke app réel.
+- **Relais :** aucun.

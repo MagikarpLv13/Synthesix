@@ -3103,9 +3103,9 @@ async def _run_search_action(
             is_error=True,
         )
     finally:
+        await _set_home_search_running(browser, index_url, False)
         if search_browser_provider is not None:
             await search_browser_provider.cleanup_idle_tabs()
-        await _set_home_search_running(browser, index_url, False)
 
 
 async def _run_retry_search_action(
