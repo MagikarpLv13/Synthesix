@@ -83,6 +83,9 @@ class AppSettings:
     browser_executable_path: Path | None
     browser_connection_timeout: float
     browser_connection_max_tries: int
+    extension_dir: Path
+    extension_mode: str
+    overlay_mode: str
     default_engines: Dict[str, bool]
     default_history_limit: int
     default_max_results: int
@@ -213,6 +216,9 @@ def _build_settings() -> AppSettings:
         browser_executable_path=_env_optional_path("SYNTHESIX_BROWSER_EXECUTABLE_PATH", base_dir),
         browser_connection_timeout=_env_float("SYNTHESIX_BROWSER_CONNECTION_TIMEOUT", 0.25),
         browser_connection_max_tries=_env_int("SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES", 10),
+        extension_dir=_env_path("SYNTHESIX_EXTENSION_DIR", "extension", base_dir),
+        extension_mode=_env_str("SYNTHESIX_EXTENSION_MODE", "auto").lower(),
+        overlay_mode=_env_str("SYNTHESIX_OVERLAY_MODE", "auto").lower(),
         default_engines=_env_engines(),
         default_history_limit=_env_int("SYNTHESIX_HISTORY_LIMIT", 25),
         default_max_results=_env_int("SYNTHESIX_DEFAULT_MAX_RESULTS", 20),

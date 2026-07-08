@@ -70,6 +70,9 @@ class SettingsTestCase(unittest.TestCase):
             self.assertIsNone(settings.browser_executable_path)
             self.assertEqual(settings.browser_connection_timeout, 0.25)
             self.assertEqual(settings.browser_connection_max_tries, 10)
+            self.assertEqual(settings.extension_dir, base_dir / "extension")
+            self.assertEqual(settings.extension_mode, "auto")
+            self.assertEqual(settings.overlay_mode, "auto")
             self.assertEqual(settings.default_engines, {
                 "google": True,
                 "bing": True,
@@ -111,6 +114,9 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "runtime/brave.exe",
                 "SYNTHESIX_BROWSER_CONNECTION_TIMEOUT": "0.75",
                 "SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES": "20",
+                "SYNTHESIX_EXTENSION_DIR": "runtime/extension",
+                "SYNTHESIX_EXTENSION_MODE": "off",
+                "SYNTHESIX_OVERLAY_MODE": "extension",
                 "SYNTHESIX_DEFAULT_ENGINES": "google,duckduckgo",
                 "SYNTHESIX_HISTORY_LIMIT": "7",
                 "SYNTHESIX_DEFAULT_MAX_RESULTS": "12",
@@ -156,6 +162,9 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.browser_executable_path, base_dir / "runtime" / "brave.exe")
             self.assertEqual(settings.browser_connection_timeout, 0.75)
             self.assertEqual(settings.browser_connection_max_tries, 20)
+            self.assertEqual(settings.extension_dir, base_dir / "runtime" / "extension")
+            self.assertEqual(settings.extension_mode, "off")
+            self.assertEqual(settings.overlay_mode, "extension")
             self.assertEqual(settings.default_engines, {
                 "google": True,
                 "bing": False,

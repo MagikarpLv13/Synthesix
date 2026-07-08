@@ -19,12 +19,14 @@ from main import (
     _consume_settings_change,
     _create_graph_entity_from_selection,
     _default_capture_name,
+    _extension_overlay_context_payload,
     _slugify,
     _delete_evidence_capture,
     _delete_investigation_export,
     _install_and_consume_save_overlay,
     _investigation_payload,
     _is_external_web_tab,
+    _normalize_dispatch_action,
     _overlay_injection_blocked,
     _log_level_from_args,
     _open_or_refresh_investigation_page,
@@ -33,14 +35,16 @@ from main import (
     _run_retry_search_action,
     _run_search_action,
     _search_task_running,
+    _set_overlay_save_status,
     _start_search_task,
+    _sync_extension_overlay_context,
     _verify_evidence_capture,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
     parse_cli_args,
     wait_for_home_action,
 )
-from browser import BrowserService
+from browser import BrowserService, get_browser_service
 from exceptions import InvestigationValidationError
 from settings import get_settings
 
@@ -255,6 +259,83 @@ class InvestigationPayloadTestCase(unittest.TestCase):
 
         self.assertNotEqual(changed_payload, payload)
         self.assertNotEqual(changed_version, version)
+
+
+class ExtensionOverlayContextTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_context_sync_sends_only_when_payload_changes(self):
+        service = SimpleNamespace(
+            send_extension_backend_message=AsyncMock(return_value=True)
+        )
+        cache = {}
+        payload = _extension_overlay_context_payload(
+            {
+                "id": "case-1",
+                "title": "Case One",
+                "tags": ["Prioritaire"],
+                "graph_entities": [
+                    {
+                        "id": "entity-1",
+                        "label": "Jane Doe",
+                        "tags": ["Personne"],
+                        "properties": {"Alias": "J. Doe"},
+                    }
+                ],
+            }
+        )
+
+        first = await _sync_extension_overlay_context(
+            service,
+            "ext-1",
+            payload,
+            cache,
+        )
+        second = await _sync_extension_overlay_context(
+            service,
+            "ext-1",
+            payload,
+            cache,
+        )
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        service.send_extension_backend_message.assert_awaited_once()
+        message = service.send_extension_backend_message.await_args.args[1]
+        self.assertEqual(message["type"], "synthesix:context-update")
+        self.assertEqual(message["payload"]["id"], "case-1")
+        self.assertIn("Personne", message["payload"]["baseTagsets"])
+        self.assertIn("Alias", message["payload"]["graphEntities"][0]["propertyKeys"])
+
+    async def test_extension_save_status_uses_backend_message(self):
+        tab = SimpleNamespace(evaluate=AsyncMock())
+        service = SimpleNamespace(
+            send_extension_backend_message=AsyncMock(return_value=True)
+        )
+        settings = SimpleNamespace(overlay_mode="extension")
+
+        await _set_overlay_save_status(
+            service,
+            settings,
+            "ext-1",
+            {
+                "_extension_tab_id": 42,
+                "_source_tab": tab,
+            },
+            "Saved",
+        )
+
+        tab.evaluate.assert_not_awaited()
+        service.send_extension_backend_message.assert_awaited_once()
+        message = service.send_extension_backend_message.await_args.args[1]
+        self.assertEqual(
+            message,
+            {
+                "type": "synthesix:button-status",
+                "tabId": 42,
+                "kind": "save",
+                "state": "saved",
+                "message": "Saved",
+            },
+        )
 
 
 class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
@@ -1015,6 +1096,193 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(action["action"], "update_investigation_result")
         self.assertIs(action["_source_tab"], tab)
+
+    async def test_extension_overlay_action_is_returned_with_source_tab(self):
+        from tests.fakes import FakeBrowser, FakeTab
+
+        tab = FakeTab(url="https://example.com/profile", target_id="external-1")
+        tab.on(
+            "evaluate",
+            lambda script, *_args: (
+                "synthesixOverlayToken" in script and '"token-1"' in script
+            ),
+        )
+        browser = FakeBrowser([tab])
+        service = get_browser_service(browser)
+        service.dispatch_queue.put_nowait(
+            {
+                "v": 1,
+                "action": "extension_overlay_action",
+                "tabId": 42,
+                "url": "https://example.com/profile",
+                "payload": {
+                    "message": {
+                        "type": "synthesix:overlay-action",
+                        "href": "https://example.com/profile",
+                        "sourceToken": "token-1",
+                        "action": {
+                            "action": "save_page_to_investigation",
+                            "investigationId": "case-1",
+                            "page": {"url": "https://example.com/profile"},
+                        },
+                    },
+                    "sender": {
+                        "tabId": 42,
+                        "tabUrl": "https://example.com/profile",
+                    },
+                },
+            }
+        )
+        settings = SimpleNamespace(
+            overlay_mode="extension",
+            home_poll_interval=5,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+
+        action = await asyncio.wait_for(
+            wait_for_home_action(
+                browser,
+                "file:///tmp/index.html",
+                settings=settings,
+                extension_available=True,
+                extension_id=None,
+            ),
+            timeout=1,
+        )
+
+        self.assertEqual(action["action"], "save_page_to_investigation")
+        self.assertEqual(action["investigationId"], "case-1")
+        self.assertIs(action["_source_tab"], tab)
+        self.assertEqual(action["_extension_tab_id"], 42)
+
+    async def test_extension_focus_home_does_not_require_source_tab(self):
+        action = await _normalize_dispatch_action(
+            {
+                "v": 1,
+                "action": "extension_overlay_action",
+                "tabId": 42,
+                "url": "https://example.com/profile",
+                "payload": {
+                    "message": {
+                        "type": "synthesix:overlay-action",
+                        "href": "https://example.com/profile",
+                        "sourceToken": "token-1",
+                        "action": {"action": "focus_home"},
+                    },
+                    "sender": {
+                        "tabId": 42,
+                        "tabUrl": "https://example.com/profile",
+                    },
+                },
+            },
+            tabs=[],
+        )
+
+        self.assertEqual(action, {"action": "focus_home"})
+
+    async def test_extension_spike_message_is_ignored(self):
+        action = await _normalize_dispatch_action(
+            {
+                "v": 1,
+                "action": "extension_spike_message",
+                "payload": {
+                    "message": {
+                        "type": "synthesix:spike",
+                        "payload": {"ok": True},
+                    },
+                },
+            },
+            tabs=[],
+        )
+
+        self.assertIsNone(action)
+
+    async def test_extension_focus_home_opens_home_without_source_tab(self):
+        from tests.fakes import FakeBrowser, FakeTab
+
+        tab = FakeTab(url="https://example.com/profile", target_id="external-1")
+        browser = FakeBrowser([tab])
+        service = get_browser_service(browser)
+        service.dispatch_queue.put_nowait(
+            {
+                "v": 1,
+                "action": "extension_overlay_action",
+                "tabId": 42,
+                "url": "https://example.com/profile",
+                "payload": {
+                    "message": {
+                        "type": "synthesix:overlay-action",
+                        "href": "https://example.com/profile",
+                        "sourceToken": "unknown-token",
+                        "action": {"action": "focus_home"},
+                    },
+                    "sender": {
+                        "tabId": 42,
+                        "tabUrl": "https://example.com/profile",
+                    },
+                },
+            }
+        )
+        settings = SimpleNamespace(
+            overlay_mode="extension",
+            home_poll_interval=5,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+        focus_home = AsyncMock()
+
+        with patch("main._focus_or_open_home_tab", new=focus_home):
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    wait_for_home_action(
+                        browser,
+                        "file:///tmp/index.html",
+                        settings=settings,
+                        extension_available=True,
+                        extension_id=None,
+                    ),
+                    timeout=0.05,
+                )
+
+        focus_home.assert_awaited_once()
+
+    async def test_extension_spike_message_does_not_leave_action_loop(self):
+        from tests.fakes import FakeBrowser, FakeTab
+
+        tab = FakeTab(url="https://example.com/profile", target_id="external-1")
+        browser = FakeBrowser([tab])
+        service = get_browser_service(browser)
+        service.dispatch_queue.put_nowait(
+            {
+                "v": 1,
+                "action": "extension_spike_message",
+                "payload": {
+                    "message": {
+                        "type": "synthesix:spike",
+                        "payload": {"ok": True},
+                    },
+                },
+            }
+        )
+        settings = SimpleNamespace(
+            overlay_mode="extension",
+            home_poll_interval=5,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                wait_for_home_action(
+                    browser,
+                    "file:///tmp/index.html",
+                    settings=settings,
+                    extension_available=True,
+                    extension_id=None,
+                ),
+                timeout=0.05,
+            )
 
     async def test_home_page_action_is_returned_with_source_tab(self):
         class FakeTab:

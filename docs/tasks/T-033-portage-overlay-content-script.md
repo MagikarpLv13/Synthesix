@@ -1,6 +1,6 @@
 # T-033 — Portage de l'overlay en content scripts
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : élevé
 - **Outil recommandé** : Les deux (Claude : architecture mondes/injection ;
   Codex : portage mécanique des composants et du bootstrap)
@@ -102,3 +102,48 @@ Smoke manuel listé ci-dessus (au minimum CSP stricte + SPA), consigné.
   profondeur) — déjà meilleur que les globals actuels.
 - Sites qui suppriment les nœuds étrangers : le content script observe et
   ré-insère (MutationObserver léger, max 1 ré-insertion/5 s).
+
+## Résultat 2026-07-07 — AI-20260707-008
+
+- `extension/src/overlay-main.ts` porte le bootstrap DOM de l'overlay dans le
+  main world : mêmes IDs publics (`#__synthesix-save-overlay`,
+  `#__synthesix-evidence-selection`), mêmes attributs `data-*`, mêmes actions
+  métier et mêmes composants Lit (`sx-overlay-root`, actions, menu capture,
+  menu entité, sélection de région).
+- `extension/src/content/bootstrap.ts` injecte `dist/overlay-main.js` via
+  `chrome.runtime.getURL`, transmet un token aléatoire par `data-*`, relaie les
+  actions `postMessage` vers le service worker, garde le spike T-031 et
+  réinstalle l'overlay si la page supprime le nœud (throttle 5 s).
+- `extension/src/content/focus-guard.ts` reprend le guard CDP avec le même
+  drapeau `window.__synthesixFocusGuardInstalled` pour la coexistence.
+- `extension/src/background.ts` distingue les messages de spike
+  (`extension_spike_message`) et les actions overlay
+  (`extension_overlay_action`) tout en conservant la file et la réponse
+  `backendBinding`.
+- `extension/manifest.json` exclut les patterns Chrome valides pour Lens/Maps ;
+  le bootstrap runtime conserve le filtre étendu pour les domaines Google
+  régionaux non exprimables en match pattern.
+- Le JS Python de `main.py` n'a pas été modifié ; le chemin CDP existant reste
+  en place jusqu'à T-036.
+
+Tests exécutés :
+
+- `cd frontend; npm run typecheck`
+- `cd frontend; npm run build`
+- `node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8')); console.log('manifest ok')"`
+- `$env:SYNTHESIX_BROWSER='brave'; .venv\Scripts\python.exe tests\manual\spike_ext_transport.py`
+- Smoke Brave T-033 inline : overlay présent sur `https://example.com/`,
+  clic save sans enquête active livré comme `extension_overlay_action` /
+  `focus_home`, overlay présent sur `https://github.com/` (site CSP stricte).
+
+Vérifications non exécutées :
+
+- Smoke SPA/navigation interne répétée et page à scroll infini.
+- Smoke focus guard sur site à hotkeys type TikTok/YouTube.
+- Smoke Chrome stable brandé, toujours en mode dégradé connu car
+  `--load-extension` y est ignoré dans l'environnement testé.
+
+Prochaine action :
+
+- T-034 : câbler `extension_overlay_action` vers les handlers backend derrière
+  le flag de bascule.

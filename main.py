@@ -14,11 +14,11 @@ import os
 import shutil
 import time
 import sys
-from typing import Mapping
+from typing import Any, Mapping
 from urllib.parse import urlsplit
 from uuid import uuid4
 from browser import BrowserService, eval_js, get_browser_service
-from browser_manager import HeadlessBrowserManager
+from browser_manager import HeadlessBrowserManager, _expected_extension_revision
 from evidence import (
     build_evidence_manifest,
     capture_html,
@@ -376,6 +376,365 @@ def _is_external_web_tab(tab) -> bool:
         }
     except ValueError:
         return False
+
+
+_OVERLAY_MODES = {"auto", "cdp", "extension"}
+_EXTENSION_OVERLAY_ACTION = "extension_overlay_action"
+_EXTENSION_SPIKE_ACTION = "extension_spike_message"
+_EXTENSION_CONTEXT_UPDATE = "synthesix:context-update"
+_EXTENSION_BUTTON_STATUS = "synthesix:button-status"
+
+
+def _overlay_mode(settings: AppSettings | object) -> str:
+    mode = str(getattr(settings, "overlay_mode", "auto") or "auto").strip().lower()
+    if mode not in _OVERLAY_MODES:
+        logger.warning("Invalid SYNTHESIX_OVERLAY_MODE=%r; using auto.", mode)
+        return "auto"
+    return mode
+
+
+def _use_extension_overlay(settings: AppSettings | object, available: bool) -> bool:
+    mode = _overlay_mode(settings)
+    return available and mode in {"auto", "extension"}
+
+
+def _use_cdp_overlay(settings: AppSettings | object, available: bool) -> bool:
+    mode = _overlay_mode(settings)
+    return mode == "cdp" or (mode == "auto" and not available)
+
+
+def _http_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if len(raw) > 4096:
+        return ""
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return ""
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return ""
+    return raw
+
+
+def _extension_overlay_message(dispatch: Mapping) -> Mapping | None:
+    if dispatch.get("action") != _EXTENSION_OVERLAY_ACTION:
+        return None
+    payload = dispatch.get("payload")
+    if not isinstance(payload, Mapping):
+        logger.debug("Discarding extension overlay action without payload")
+        return None
+    message = payload.get("message")
+    if not isinstance(message, Mapping):
+        logger.debug("Discarding extension overlay action without message")
+        return None
+    if message.get("type") != "synthesix:overlay-action":
+        logger.debug("Discarding unexpected extension message: %r", message)
+        return None
+    action = message.get("action")
+    if not isinstance(action, Mapping):
+        logger.debug("Discarding extension overlay action without action body")
+        return None
+    if not isinstance(action.get("action"), str) or not action.get("action"):
+        logger.debug("Discarding extension overlay action without action name")
+        return None
+    url = _http_url(message.get("href"))
+    if not url:
+        sender = payload.get("sender")
+        if isinstance(sender, Mapping):
+            url = _http_url(sender.get("tabUrl") or sender.get("url"))
+    if not url:
+        logger.debug("Discarding extension overlay action with invalid URL")
+        return None
+    return message
+
+
+def _extension_overlay_tab_id(dispatch: Mapping, message: Mapping) -> int | None:
+    candidates = [dispatch.get("tabId")]
+    payload = dispatch.get("payload")
+    if isinstance(payload, Mapping):
+        sender = payload.get("sender")
+        if isinstance(sender, Mapping):
+            candidates.append(sender.get("tabId"))
+    candidates.append(message.get("tabId"))
+    for candidate in candidates:
+        if isinstance(candidate, bool):
+            continue
+        if isinstance(candidate, int) and candidate >= 0:
+            return candidate
+    return None
+
+
+def _extension_overlay_context_payload(
+    investigation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    investigation = investigation or {}
+    tagset_properties = {
+        tag: [
+            str(property_.get("key", "") or "")
+            for property_ in zeroneurone_tagset_suggested_properties(tag)
+            if str(property_.get("key", "") or "").strip()
+        ]
+        for tag in ZERONEURONE_TAGSETS
+    }
+    tagset_property_types = {
+        tag: {
+            str(property_.get("key", "") or ""): str(
+                property_.get("type", "") or ""
+            )
+            for property_ in zeroneurone_tagset_suggested_properties(tag)
+            if str(property_.get("key", "") or "").strip()
+        }
+        for tag in ZERONEURONE_TAGSETS
+    }
+    return {
+        "id": str(investigation.get("id", "")),
+        "title": str(investigation.get("title", "")),
+        "baseTagsets": list(ZERONEURONE_TAGSETS),
+        "tagsetProperties": tagset_properties,
+        "tagsetPropertyTypes": tagset_property_types,
+        "existingTags": sorted(
+            {
+                str(tag).strip()
+                for tag in (
+                    *investigation.get("tags", []),
+                    *(
+                        tag
+                        for entity in investigation.get("graph_entities", [])
+                        for tag in entity.get("tags", [])
+                    ),
+                )
+                if str(tag).strip()
+            },
+            key=str.casefold,
+        ),
+        "graphEntities": [
+            {
+                "id": str(entity.get("id", "")),
+                "label": str(entity.get("label", "")),
+                "tags": [
+                    str(tag)
+                    for tag in entity.get("tags", [])
+                    if str(tag).strip()
+                ],
+                "propertyKeys": [
+                    str(key)
+                    for key in (
+                        entity.get("properties", {})
+                        if isinstance(entity.get("properties", {}), Mapping)
+                        else {}
+                    )
+                    if str(key).strip()
+                ],
+            }
+            for entity in investigation.get("graph_entities", [])
+            if str(entity.get("id", "")).strip()
+        ],
+    }
+
+
+def _extension_overlay_context_version(payload: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+async def _sync_extension_overlay_context(
+    service: BrowserService,
+    extension_id: str | None,
+    payload: Mapping[str, Any],
+    cache: dict[str, str],
+) -> bool:
+    version = _extension_overlay_context_version(payload)
+    if cache.get("version") == version:
+        return False
+    sent = await service.send_extension_backend_message(
+        extension_id,
+        {
+            "type": _EXTENSION_CONTEXT_UPDATE,
+            "payload": payload,
+        },
+    )
+    if sent:
+        cache["version"] = version
+    return sent
+
+
+async def _set_extension_overlay_button_status(
+    service: BrowserService,
+    extension_id: str | None,
+    tab_id: int | None,
+    *,
+    kind: str,
+    state: str,
+    message: str,
+) -> bool:
+    if not isinstance(tab_id, int) or isinstance(tab_id, bool):
+        return False
+    return await service.send_extension_backend_message(
+        extension_id,
+        {
+            "type": _EXTENSION_BUTTON_STATUS,
+            "tabId": tab_id,
+            "kind": kind,
+            "state": state,
+            "message": message,
+        },
+    )
+
+
+async def _set_overlay_save_status(
+    service: BrowserService,
+    settings: AppSettings,
+    extension_id: str | None,
+    result: Mapping[str, Any],
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    sent = False
+    if _use_extension_overlay(settings, True):
+        sent = await _set_extension_overlay_button_status(
+            service,
+            extension_id,
+            result.get("_extension_tab_id"),
+            kind="save",
+            state="error" if is_error else "saved",
+            message=message,
+        )
+    if not sent:
+        await _set_save_overlay_status(
+            result.get("_source_tab"),
+            message,
+            is_error=is_error,
+        )
+
+
+async def _set_overlay_capture_status(
+    service: BrowserService,
+    settings: AppSettings,
+    extension_id: str | None,
+    result: Mapping[str, Any],
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    sent = False
+    if _use_extension_overlay(settings, True):
+        sent = await _set_extension_overlay_button_status(
+            service,
+            extension_id,
+            result.get("_extension_tab_id"),
+            kind="capture",
+            state="error" if is_error else "captured",
+            message=message,
+        )
+    if not sent:
+        await _set_evidence_overlay_status(
+            result.get("_source_tab"),
+            message,
+            is_error=is_error,
+        )
+
+
+async def _set_overlay_archive_status(
+    service: BrowserService,
+    settings: AppSettings,
+    extension_id: str | None,
+    result: Mapping[str, Any],
+    message: str,
+    *,
+    is_error: bool = False,
+) -> None:
+    sent = False
+    if _use_extension_overlay(settings, True):
+        sent = await _set_extension_overlay_button_status(
+            service,
+            extension_id,
+            result.get("_extension_tab_id"),
+            kind="archive",
+            state="error" if is_error else "archived",
+            message=message,
+        )
+    if not sent:
+        await _set_archive_overlay_status(
+            result.get("_source_tab"),
+            message,
+            is_error=is_error,
+        )
+
+
+async def _tab_has_extension_token(tab, token: str) -> bool:
+    if not token:
+        return False
+    matched = await eval_js(
+        tab,
+        f"""
+        (() => (
+            document.documentElement.dataset.synthesixOverlayToken
+            === {json.dumps(token)}
+        ))()
+        """,
+        category="eval_overlay",
+    )
+    return bool(matched)
+
+
+async def _resolve_extension_source_tab(
+    tabs: list,
+    message: Mapping,
+) -> object | None:
+    token = str(message.get("sourceToken", "") or "")
+    if token:
+        for tab in tabs:
+            if _is_external_web_tab(tab) and await _tab_has_extension_token(tab, token):
+                return tab
+
+    url = _http_url(message.get("href"))
+    matches = [
+        tab
+        for tab in tabs
+        if _is_external_web_tab(tab)
+        and _normalize_tab_url(getattr(tab, "url", None)) == _normalize_tab_url(url)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        logger.warning(
+            "Ambiguous extension overlay source for %s (%s tabs); action discarded.",
+            url,
+            len(matches),
+        )
+    return None
+
+
+async def _normalize_dispatch_action(dispatch: dict, tabs: list) -> dict | None:
+    if dispatch.get("action") == _EXTENSION_SPIKE_ACTION:
+        payload = dispatch.get("payload")
+        message = payload.get("message") if isinstance(payload, Mapping) else None
+        message_type = message.get("type") if isinstance(message, Mapping) else None
+        logger.debug("Ignoring internal extension message type=%r", message_type)
+        return None
+    if dispatch.get("action") != _EXTENSION_OVERLAY_ACTION:
+        return dispatch
+
+    message = _extension_overlay_message(dispatch)
+    if message is None:
+        return None
+    action = dict(message["action"])
+    # `focus_home` is a global navigation request used when no investigation is
+    # selected. It must not depend on resolving the external page target first.
+    if action.get("action") == "focus_home":
+        return action
+    source_tab = await _resolve_extension_source_tab(tabs, message)
+    if source_tab is None:
+        logger.warning(
+            "Unable to resolve extension overlay source tab for %s",
+            message.get("href"),
+        )
+        return None
+    action["_source_tab"] = source_tab
+    action["_extension_tab_id"] = _extension_overlay_tab_id(dispatch, message)
+    return action
 
 
 _OVERLAY_BLOCKED_HOST_FRAGMENTS = ("lens.google.", "maps.google.")
@@ -2338,6 +2697,9 @@ async def wait_for_home_action(
     investigations_json: str = "[]",
     investigations_version: str = "",
     overlay_investigation: dict | None = None,
+    extension_available: bool = False,
+    extension_id: str | None = None,
+    extension_revision: str | None = None,
 ):
     settings = settings or get_settings()
     service = get_browser_service(browser)
@@ -2352,6 +2714,8 @@ async def wait_for_home_action(
     service.target_resync_interval = getattr(
         settings, "target_resync_interval", service.target_resync_interval
     )
+    use_extension_overlay = _use_extension_overlay(settings, extension_available)
+    use_cdp_overlay = _use_cdp_overlay(settings, extension_available)
     empty_since = None
     unreachable_since = None
     history_cache = {}
@@ -2390,6 +2754,11 @@ async def wait_for_home_action(
             continue
 
         empty_since = None
+
+        if use_extension_overlay:
+            await service.arm_extension_dispatch_binding(
+                extension_id, expected_revision=extension_revision
+            )
 
         for tab in tabs:
             if _is_external_web_tab(tab):
@@ -2443,12 +2812,14 @@ async def wait_for_home_action(
             # no focus-guard arming mid-scrape).
             if str(getattr(tab, "target_id", "")) in ACTIVE_ENGINE_TAB_TARGETS:
                 continue
-            if _is_external_web_tab(tab):
+            if _is_external_web_tab(tab) and use_cdp_overlay:
                 action = await _install_and_consume_save_overlay(
                     service,
                     tab,
                     overlay_investigation,
                 )
+            elif _is_external_web_tab(tab):
+                continue
             else:
                 if transport_mode == "push":
                     await service.arm_dispatch_binding(tab)
@@ -2474,6 +2845,20 @@ async def wait_for_home_action(
             action = await asyncio.wait_for(
                 service.dispatch_queue.get(), timeout=settings.home_poll_interval
             )
+            action = await _normalize_dispatch_action(action, tabs)
+            if not action:
+                continue
+            if action.get("action") == "home_ready":
+                # A local page just (re)loaded behind an armed push binding:
+                # drop its sync throttle so the next tick pushes fresh data
+                # instead of waiting out the push fallback interval.
+                target_id = getattr(action.get("_source_tab"), "target_id", None)
+                if target_id:
+                    service.last_local_sync_at.pop(target_id, None)
+                continue
+            if action.get("action") == "focus_home":
+                await _focus_or_open_home_tab(browser, index_url, home_tabs)
+                continue
             return action
         except asyncio.TimeoutError:
             pass
@@ -2627,13 +3012,25 @@ async def main():
     index_url = (settings.base_dir / "index.html").resolve().as_uri()
     browser_manager = await HeadlessBrowserManager.create(home_url=index_url, settings=settings)
     browser = await browser_manager.get_driver()
+    browser_service = get_browser_service(browser)
     home_tab = await _focus_or_open_home_tab(browser, index_url, reuse_current_tab=True)
     await home_tab.bring_to_front()
+    if (
+        getattr(settings, "extension_mode", "auto") != "off"
+        and not getattr(browser_manager, "extension_available", False)
+    ):
+        await _set_home_status(
+            browser,
+            index_url,
+            "Extension Chrome inactive. Install the unpacked extension from extension/README.md; CDP overlay remains active.",
+        )
     active_investigation = None
     # T-011: searches run as a background task so the action loop keeps
     # consuming actions; one search at a time, backend is the source of
     # truth for the "search running" state.
     active_search_task: asyncio.Task | None = None
+    extension_context_cache: dict[str, str] = {}
+    extension_revision = _expected_extension_revision(settings)
 
     try:
         while True:
@@ -2670,6 +3067,18 @@ async def main():
                         for entity in workspace.get("graph_entities", [])
                     ],
                 }
+            extension_available = getattr(browser_manager, "extension_available", False)
+            extension_id = getattr(browser_manager, "extension_id", None)
+            if _use_extension_overlay(settings, extension_available):
+                await browser_service.arm_extension_dispatch_binding(
+                    extension_id, expected_revision=extension_revision
+                )
+                await _sync_extension_overlay_context(
+                    browser_service,
+                    extension_id,
+                    _extension_overlay_context_payload(overlay_investigation),
+                    extension_context_cache,
+                )
             result = await wait_for_home_action(
                 browser,
                 index_url,
@@ -2677,6 +3086,9 @@ async def main():
                 investigations_json=investigations_json,
                 investigations_version=investigations_version,
                 overlay_investigation=overlay_investigation,
+                extension_available=extension_available,
+                extension_id=extension_id,
+                extension_revision=extension_revision,
             )
 
             # Quit the browser if the user wants to
@@ -2949,7 +3361,13 @@ async def main():
                             bring_to_front=False,
                             open_if_missing=False,
                         )
-                        await _set_save_overlay_status(source_tab, "Saved")
+                        await _set_overlay_save_status(
+                            browser_service,
+                            settings,
+                            extension_id,
+                            result,
+                            "Saved",
+                        )
                 except InvestigationError:
                     logger.debug(
                         "Unable to record a saved-page revisit",
@@ -2986,14 +3404,23 @@ async def main():
                         bring_to_front=False,
                         open_if_missing=False,
                     )
-                    await _set_save_overlay_status(source_tab, "Saved")
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
+                        "Saved",
+                    )
                     archive_message = (
                         "Archived and compared"
                         if comparison is not None
                         else "Page archived"
                     )
-                    await _set_archive_overlay_status(
-                        source_tab,
+                    await _set_overlay_archive_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         archive_message,
                     )
                     comparison_detail = (
@@ -3010,8 +3437,11 @@ async def main():
                         ),
                     )
                 except InvestigationError as exc:
-                    await _set_archive_overlay_status(
-                        source_tab,
+                    await _set_overlay_archive_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Archive failed",
                         is_error=True,
                     )
@@ -3078,9 +3508,18 @@ async def main():
                         bring_to_front=False,
                         open_if_missing=False,
                     )
-                    await _set_save_overlay_status(source_tab, "Saved")
-                    await _set_evidence_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
+                        "Saved",
+                    )
+                    await _set_overlay_capture_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Screenshot captured",
                     )
                     await _set_home_status(
@@ -3093,8 +3532,11 @@ async def main():
                         ),
                     )
                 except InvestigationError as exc:
-                    await _set_evidence_overlay_status(
-                        source_tab,
+                    await _set_overlay_capture_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Capture failed",
                         is_error=True,
                     )
@@ -3138,8 +3580,11 @@ async def main():
                         bring_to_front=False,
                         open_if_missing=False,
                     )
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Entity created",
                     )
                     await _set_home_status(
@@ -3151,8 +3596,11 @@ async def main():
                         ),
                     )
                 except InvestigationError as exc:
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Entity failed",
                         is_error=True,
                     )
@@ -3203,8 +3651,11 @@ async def main():
                         bring_to_front=False,
                         open_if_missing=False,
                     )
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Text attached",
                     )
                     await _set_home_status(
@@ -3216,8 +3667,11 @@ async def main():
                         ),
                     )
                 except InvestigationError as exc:
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Attach failed",
                         is_error=True,
                     )
@@ -3249,8 +3703,11 @@ async def main():
                         bring_to_front=False,
                         open_if_missing=False,
                     )
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Saved",
                     )
                     await _set_home_status(
@@ -3259,8 +3716,11 @@ async def main():
                         f'Page saved: {saved.title or saved.url}',
                     )
                 except InvestigationError as exc:
-                    await _set_save_overlay_status(
-                        source_tab,
+                    await _set_overlay_save_status(
+                        browser_service,
+                        settings,
+                        extension_id,
+                        result,
                         "Save failed",
                         is_error=True,
                     )

@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -78,6 +80,14 @@ BROWSER_PROFILE_DATA_PATHS = (
     "Default/SharedStorage",
     "Default/Shared Dictionary",
     "Default/Sessions",
+)
+
+# The background worker filename is revision-stamped by the frontend build
+# (dist/background-<revision>.js) and resolved from the manifest instead of
+# being listed here.
+SYNTHESIX_EXTENSION_REQUIRED_FILES = (
+    "manifest.json",
+    "dist/content.js",
 )
 
 
@@ -308,6 +318,94 @@ def _ensure_synthesix_bookmark(profile_dir: str, home_url: str) -> None:
         logger.debug("Unable to write Chrome bookmarks file: %s", bookmarks_path, exc_info=True)
 
 
+def _extension_enabled(settings: AppSettings) -> bool:
+    return settings.extension_mode.strip().lower() != "off"
+
+
+def _extension_build_ready(extension_dir: Path) -> bool:
+    if not all(
+        (extension_dir / rel_path).is_file()
+        for rel_path in SYNTHESIX_EXTENSION_REQUIRED_FILES
+    ):
+        return False
+    background = _extension_manifest(extension_dir).get("background")
+    worker_rel = (
+        background.get("service_worker") if isinstance(background, dict) else None
+    )
+    if not isinstance(worker_rel, str) or not worker_rel.strip():
+        return False
+    return (extension_dir / worker_rel).is_file()
+
+
+def _extension_manifest(extension_dir: Path) -> dict:
+    manifest_path = extension_dir / "manifest.json"
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _extension_id_from_key(manifest_key: str | None) -> str | None:
+    if not manifest_key:
+        return None
+    try:
+        digest = hashlib.sha256(base64.b64decode(manifest_key)).digest()
+    except (ValueError, TypeError):
+        return None
+    return "".join(chr(ord("a") + nibble) for byte in digest[:16] for nibble in (byte >> 4, byte & 0x0F))
+
+
+def _expected_extension_id(settings: AppSettings) -> str | None:
+    manifest = _extension_manifest(settings.extension_dir)
+    key = manifest.get("key")
+    return _extension_id_from_key(key if isinstance(key, str) else None)
+
+
+def _expected_extension_revision(settings: AppSettings) -> str | None:
+    """Build revision stamped into ``dist/background.js`` by the frontend
+    build. Lets the runtime spot a browser-cached stale MV3 worker."""
+    path = settings.extension_dir / "dist" / "revision.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    revision = data.get("revision") if isinstance(data, dict) else None
+    if isinstance(revision, str) and revision.strip():
+        return revision.strip()
+    return None
+
+
+def _configure_extension_launch(config: Config, settings: AppSettings) -> bool:
+    if not _extension_enabled(settings):
+        return False
+    if not _extension_build_ready(settings.extension_dir):
+        logger.info("Synthesix extension build not found: %s", settings.extension_dir)
+        return False
+
+    extension_arg = str(settings.extension_dir.resolve()).replace("\\", "/")
+    config.add_argument(f"--load-extension={extension_arg}")
+    # Chrome stable builds that still honor this feature flag need it after
+    # Zendriver's own default `--disable-features` entries.
+    config.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
+    return True
+
+
+async def detect_synthesix_extension(browser, settings: AppSettings) -> bool:
+    expected_id = _expected_extension_id(settings)
+    if not _extension_enabled(settings) or not expected_id:
+        return False
+    try:
+        targets = await browser._get_targets()
+    except Exception:
+        logger.debug("Unable to inspect extension targets", exc_info=True)
+        return False
+
+    expected_prefix = f"chrome-extension://{expected_id}/"
+    return any(str(getattr(target, "url", "")).startswith(expected_prefix) for target in targets)
+
+
 def _build_zendriver_config(settings: AppSettings) -> Config:
     browser_executable_path = _resolve_browser_executable(settings)
     if browser_executable_path is not None:
@@ -332,6 +430,7 @@ def _build_zendriver_config(settings: AppSettings) -> Config:
         ) from exc
 
     config.user_data_dir = str(settings.browser_profile_dir)
+    _configure_extension_launch(config, settings)
     return config
 
 
@@ -342,6 +441,8 @@ class HeadlessBrowserManager:
         self.profile_dir: str | None = None
         self.home_url: str | None = None
         self.settings: AppSettings | None = None
+        self.extension_id: str | None = None
+        self.extension_available: bool = False
 
     @classmethod
     async def create(cls, home_url: str | None = None, settings: AppSettings | None = None):
@@ -364,6 +465,14 @@ class HeadlessBrowserManager:
 
         self.browser = await uc.start(config=config)
         self.service = get_browser_service(self.browser)
+        self.extension_id = _expected_extension_id(settings)
+        self.extension_available = await detect_synthesix_extension(self.browser, settings)
+        if _extension_enabled(settings) and not self.extension_available:
+            logger.warning(
+                "Synthesix extension is not active in the browser profile. "
+                "Manual unpacked installation may be required: %s",
+                settings.extension_dir / "README.md",
+            )
         return self
 
     async def get_driver(self):
@@ -402,6 +511,8 @@ class HeadlessBrowserManager:
         config = _build_zendriver_config(self.settings)
         self.browser = await uc.start(config=config)
         self.service = get_browser_service(self.browser)
+        self.extension_id = _expected_extension_id(self.settings)
+        self.extension_available = await detect_synthesix_extension(self.browser, self.settings)
         logger.info("Browser profile data cleared (%s paths removed).", removed)
         return self.browser
 

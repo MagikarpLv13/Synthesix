@@ -56,12 +56,12 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
-| [T-030](T-030-extension-squelette.md) | Squelette extension MV3 + build | P1 | Claude | todo |
-| [T-031](T-031-spike-transport-extension.md) | Spike transport extension ↔ backend | P0 | Claude | todo |
-| [T-032](T-032-chargement-extension.md) | Chargement de l'extension par Synthesix | P1 | Claude | todo |
-| [T-033](T-033-portage-overlay-content-script.md) | Portage overlay en content scripts | P1 | Les deux | todo |
-| [T-034](T-034-cablage-actions-extension.md) | Câblage actions extension → backend (flag) | P1 | Claude | todo |
-| [T-035](T-035-contexte-et-statuts-extension.md) | Contexte investigation + statuts vers l'extension | P1 | Claude | todo |
+| [T-030](T-030-extension-squelette.md) | Squelette extension MV3 + build | P1 | Claude | done |
+| [T-031](T-031-spike-transport-extension.md) | Spike transport extension ↔ backend | P0 | Claude | done |
+| [T-032](T-032-chargement-extension.md) | Chargement de l'extension par Synthesix | P1 | Claude | done |
+| [T-033](T-033-portage-overlay-content-script.md) | Portage overlay en content scripts | P1 | Les deux | done |
+| [T-034](T-034-cablage-actions-extension.md) | Câblage actions extension → backend (flag) | P1 | Claude | done |
+| [T-035](T-035-contexte-et-statuts-extension.md) | Contexte investigation + statuts vers l'extension | P1 | Claude | review |
 | [T-036](T-036-bascule-retrait-overlay-cdp.md) | Bascule par défaut + retrait overlay CDP | P1 | Les deux | todo |
 
 ### Phase 4 — Isolation & données

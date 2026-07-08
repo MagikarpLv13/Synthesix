@@ -3,6 +3,8 @@ REM Lanceur Synthesix en mode debug (logs detailles).
 REM Affiche les logs a l'ecran ET les enregistre dans synthesix_debug.log.
 cd /d "%~dp0"
 
+set "SYNTHESIX_BROWSER=brave"
+
 set "PY=.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 

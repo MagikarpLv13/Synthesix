@@ -3,6 +3,8 @@ REM Lanceur Synthesix : se place dans le dossier du script puis lance l'app
 REM via le venv local. Garde la fenetre ouverte si une erreur survient.
 cd /d "%~dp0"
 
+set "SYNTHESIX_BROWSER=brave"
+
 if exist ".venv\Scripts\python.exe" (
     ".venv\Scripts\python.exe" main.py
 ) else (

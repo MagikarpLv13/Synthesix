@@ -52,7 +52,7 @@ Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `fr
 
 | Date UTC | Tâche | De | Vers | Blocage / contexte | État vérifié | Prochaine action exacte |
 |---|---|---|---|---|---|---|
-| _Aucun blocage ou relais_ |  |  |  |  |  |  |
+| 2026-07-07 16:11 | AI-20260707-005 / T-031 | Codex | Codex | `Runtime.addBinding` fonctionne sur un `service_worker` d'extension, mais l'extension Synthesix unpacked ne se charge pas dans le navigateur lancé par Zendriver via `--load-extension` ; le content marker reste absent. | Script `tests/manual/spike_ext_transport.py` lancé : targets visibles uniquement `nkeimhog.../background.html` et `fignfif.../service_worker.js`, `dataset.synthesixExt` = `None`. | Traiter T-032 : chargement réel de l'extension par Synthesix (flags ou installation unpacked persistante), puis relancer `tests/manual/spike_ext_transport.py`. |
 
 ## Décisions partagées
 
@@ -3808,3 +3808,538 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Prochaine action :** smoke CDP live phase 2 au premier run interactif ;
   la phase 2 n'a plus de tâche à coder — enchaîner sur la phase 3 (T-030/T-031,
   extension Chrome) ou T-051 (QA bout en bout).
+
+### AI-20260707-003 — Parsing Brave DOM nominal
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 15:45-15:46
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** expliquer et supprimer le warning Brave récurrent quand le
+  parser JSON embarqué retourne 0 mais que le DOM/XPath récupère bien les
+  résultats.
+- **Résultat :**
+  - `brave.py` : le parsing DOM/XPath devient le chemin nominal, car les
+    captures Brave récentes exposent les résultats hydratés dans le DOM sans
+    bloc JSON exploitable.
+  - `_parse_results_embedded_json` reste en repli legacy si le DOM ne contient
+    pas de résultats.
+  - Les réussites Brave via DOM ne journalisent plus de `WARNING` ; un warning
+    reste seulement si DOM et JSON retournent tous deux 0 résultat, avec dump
+    HTML de diagnostic.
+  - Tests et fiche T-013 alignés sur ce comportement.
+- **Fichiers modifiés :** `brave.py`, `tests/test_engines.py`,
+  `tests/test_engine_golden.py`, `docs/tasks/T-013-brave-fallback-parsing.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_engines tests.test_engine_golden`
+    — OK, 49 tests.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** recherche live 4 moteurs ; les fixtures Brave récentes
+  couvrent le cas qui déclenchait le warning.
+
+### AI-20260707-004 — T-030 : squelette extension MV3 + build
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 15:49-16:00
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** créer le squelette `extension/` et l'intégrer à la chaîne
+  de build frontend.
+- **Résultat :**
+  - `extension/manifest.json` : MV3, scripts `http/https` uniquement,
+    service worker ESM, permissions limitées à `storage`, ressource
+    `dist/overlay-main.js` préparée pour T-033.
+  - `extension/src/` : service worker avec file interne de messages,
+    bootstrap content script qui pose `dataset.synthesixExt`, focus-guard
+    main-world vide, placeholder `overlay-main` neutre, types Chrome locaux.
+  - `frontend/build.mjs` : génération de `background.js`, `content.js`,
+    `focus-guard.js` et `overlay-main.js` dans `extension/dist/`.
+  - `frontend/tsconfig.json` : typecheck strict des sources extension.
+  - `.gitignore` : `extension/dist/**` rendu versionnable malgré la règle
+    globale `dist/`.
+  - `docs/tasks/README.md`, fiche T-030 et `PROJECT_STATE.md` mis à jour ;
+    prochaine action : T-031.
+- **Tests exécutés :**
+  - `cd frontend; npm run typecheck`
+  - `cd frontend; npm run build`
+  - `node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8')); console.log('manifest ok')"`
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** chargement manuel de l'extension dans Chrome/Brave et
+  vérification live du marqueur sur `https://` vs absence sur `file://`.
+
+### AI-20260707-006 — T-032 : chargement et détection extension
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 16:11-16:20
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** charger l'extension Synthesix quand possible, détecter sa
+  présence et guider l'utilisateur quand Chrome ignore le chargement unpacked.
+- **Résultat :**
+  - `settings.py` : `extension_dir` et `extension_mode` (`auto|off`).
+  - `browser_manager.py` : flags `--load-extension` si build présent,
+    détection par target `chrome-extension://<id>/...`, ID stable dérivé du
+    `key` du manifest, `HeadlessBrowserManager.extension_available`.
+  - `main.py` : statut home non bloquant si l'extension n'est pas active ;
+    l'overlay CDP reste actif.
+  - `extension/manifest.json` : `key` public fixé pour ID déterministe.
+  - `extension/README.md` : mode auto/off et installation unpacked persistante.
+  - Fiches T-032, index tâches et `PROJECT_STATE.md` mis à jour.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_manager tests.test_settings`
+    — OK, 16 tests.
+  - `.venv\Scripts\python.exe -m unittest tests.test_main` — OK, 42 tests.
+  - `.venv\Scripts\python.exe -m py_compile browser_manager.py settings.py main.py tests\manual\spike_ext_transport.py`
+    — OK.
+  - `tests/manual/spike_ext_transport.py` — échec attendu/diagnostique sur
+    Chrome/Zendriver : extension Synthesix non chargée par `--load-extension`.
+- **Non exécuté :** smoke Brave/Chromium où `--load-extension` est encore
+  accepté ; reprise T-031 après installation unpacked persistante.
+
+### AI-20260707-007 — T-031 : transport extension validé avec Brave
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 16:37-16:41
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** reprendre T-031 après validation utilisateur du chargement
+  Brave et vérifier le transport complet extension ↔ Python.
+- **Résultat :**
+  - `tests/manual/spike_ext_transport.py` cible maintenant le service worker
+    Synthesix par ID stable (`bbapkjniopibpijgmmkhdbahkfjejhef`) au lieu
+    d'exclure une baseline de targets.
+  - Spike Brave court : deux pages `https://`, content marker `0.1.0`,
+    service worker Synthesix, binding `synthesixDispatch`, messages reçus en
+    ~1-3 ms.
+  - Spike Brave long : message reçu après 125 s d'inactivité MV3.
+  - T-031 passé en `done`, DEC-PLAN-07 et `PROJECT_STATE.md` mis à jour ;
+    prochaine action : T-033.
+- **Tests exécutés :**
+  - `$env:SYNTHESIX_BROWSER='brave'; .venv\Scripts\python.exe tests\manual\spike_ext_transport.py`
+    — OK.
+  - `$env:SYNTHESIX_BROWSER='brave'; .venv\Scripts\python.exe tests\manual\spike_ext_transport.py --sleep-seconds 125`
+    — OK.
+  - `.venv\Scripts\python.exe -m py_compile tests\manual\spike_ext_transport.py`
+    — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** portage overlay réel dans l'extension (T-033).
+
+### AI-20260707-008 — T-033 : portage overlay en content scripts
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 16:51-16:59
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** porter l'overlay http(s) depuis le bootstrap CDP Python vers
+  l'extension MV3, sans retirer le chemin CDP existant.
+- **Résultat :**
+  - `extension/src/overlay-main.ts` crée l'overlay en main world avec les
+    composants Lit existants, les IDs/attributs publics conservés, les boutons
+    save/archive/capture, le menu entité, le menu capture et la sélection de
+    région.
+  - `extension/src/content/bootstrap.ts` injecte `dist/overlay-main.js` via
+    `chrome.runtime.getURL`, transmet un token `postMessage`, relaie les
+    actions vers le service worker, garde le spike T-031 et réinsère l'overlay
+    si le nœud est supprimé (throttle 5 s).
+  - `extension/src/content/focus-guard.ts` reprend le focus guard avec le
+    drapeau partagé `window.__synthesixFocusGuardInstalled`.
+  - `extension/src/background.ts` distingue `extension_spike_message` et
+    `extension_overlay_action`, tout en conservant la file interne et la
+    réponse `backendBinding` pour les états locaux.
+  - `extension/manifest.json` ajoute des exclusions Lens/Maps valides côté
+    Chrome ; le bootstrap runtime garde le filtre Google régional.
+  - `docs/tasks/T-033-portage-overlay-content-script.md`,
+    `docs/tasks/README.md` et `PROJECT_STATE.md` mis à jour ; prochaine
+    action : T-034.
+- **Contrats ou décisions :**
+  - Aucun retrait de `main.py` ; coexistence avec l'overlay CDP jusqu'à T-036.
+  - Le contexte investigation reste vide côté extension jusqu'à T-035 ; les
+    boutons affichent l'état `Select investigation`.
+- **Tests exécutés :**
+  - `cd frontend; npm run typecheck` — OK.
+  - `cd frontend; npm run build` — OK.
+  - `node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8')); console.log('manifest ok')"` — OK.
+  - `$env:SYNTHESIX_BROWSER='brave'; .venv\Scripts\python.exe tests\manual\spike_ext_transport.py` — OK.
+  - Smoke Brave T-033 inline — OK : overlay présent sur `example.com`, clic
+    save sans enquête active livré comme `extension_overlay_action` /
+    `focus_home`, overlay présent sur `github.com` (CSP stricte).
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+  - `git diff --staged` — vide.
+- **Non exécuté :**
+  - Smoke SPA/navigation interne répétée et page à scroll infini.
+  - Smoke focus guard sur site à hotkeys type TikTok/YouTube.
+  - Smoke Chrome stable brandé, toujours en mode dégradé connu car
+    `--load-extension` y est ignoré dans l'environnement testé.
+
+### AI-20260707-009 — Lanceur Synthesix avec Brave
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 17:16-17:17
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** faire démarrer `launch_synthesix.bat` avec Brave.
+- **Résultat :**
+  - `launch_synthesix.bat` définit `SYNTHESIX_BROWSER=brave` avant d'appeler
+    `main.py`, en conservant le fallback Python existant et le `pause` en cas
+    d'erreur.
+- **Fichiers modifiés :** `launch_synthesix.bat`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - Relecture du batch — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** lancement interactif du batch.
+
+### AI-20260707-010 — T-034 : câblage actions extension vers backend
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 20:53-21:00
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** câbler les actions overlay émises par l'extension MV3 vers le
+  dispatcher backend existant derrière `SYNTHESIX_OVERLAY_MODE=auto|cdp|extension`.
+- **Résultat :**
+  - `settings.py` : ajout de `overlay_mode` / `SYNTHESIX_OVERLAY_MODE`.
+  - `browser/service.py` : attachement best-effort du binding
+    `synthesixDispatch` au `service_worker` Synthesix, connexion par websocket
+    debugger, conservation du binding worker hors pruning des pages, rejet des
+    payloads CDP trop gros.
+  - `main.py` : sélection overlay `auto|cdp|extension`, arrêt du poll overlay
+    CDP en mode extension, validation des enveloppes
+    `extension_overlay_action`, transformation vers les actions dispatcher
+    existantes et résolution de l'onglet source par token de page éphémère
+    avec repli URL exacte non ambiguë.
+  - `extension/src/background.ts`,
+    `extension/src/content/bootstrap.ts`, `extension/src/overlay-main.ts` :
+    enveloppe versionnée `v/tabId/url/payload`, transport du token de page et
+    pose de `data-synthesix-overlay-token`.
+  - Bundles régénérés par `npm run build`.
+  - `docs/tasks/T-034-cablage-actions-extension.md`, `docs/tasks/README.md`
+    et `PROJECT_STATE.md` mis à jour ; prochaine action : T-035.
+- **Contrats ou décisions :**
+  - Les handlers métier ne changent pas ; mêmes clés d'action après
+    normalisation.
+  - Le contexte investigation et les statuts riches côté extension restent
+    explicitement pour T-035.
+  - Le chemin CDP est inchangé en `SYNTHESIX_OVERLAY_MODE=cdp` et en `auto`
+    quand l'extension n'est pas détectée.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_settings tests.test_browser_service tests.test_main` — OK, 75 tests.
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py settings.py main.py` — OK.
+  - `cd frontend; npm run typecheck` — OK.
+  - `cd frontend; npm run build` — OK.
+  - `.venv\Scripts\python.exe -m unittest discover` — OK, 380 tests.
+  - Smoke Brave réel T-034 — OK : deux onglets HTTPS
+    `https://example.com/?synthesix-t034=1` et
+    `https://example.org/?synthesix-t034=2`, actions
+    `save_page_to_investigation` synthétiques émises via le content script,
+    reçues par `wait_for_home_action`, source tab correcte pour chaque action.
+- **Non exécuté :**
+  - Smoke DB complet save/archive/capture/entités depuis l'overlay réel :
+    l'extension n'affiche pas encore le contexte investigation, prévu en T-035.
+  - Smoke Chrome stable brandé : mode dégradé connu car `--load-extension` est
+    ignoré dans l'environnement testé.
+
+### AI-20260707-011 — T-035 : contexte et statuts vers l'extension
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 21:03-21:12
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** pousser le contexte investigation et les statuts boutons vers
+  l'extension MV3, sans transfert de contexte en régime stable.
+- **Résultat :**
+  - `browser/service.py` : ajout de
+    `send_extension_backend_message`, qui évalue un message backend dans le
+    `service_worker` Synthesix et réutilise la connexion worker attachée.
+  - `main.py` : contexte overlay extension compact (`id`, titre, tags,
+    entités, propriétés, tagsets ZeroNeurone) hashé et envoyé seulement au
+    changement ; statuts `save`/`capture`/`archive` envoyés au `tabId`
+    d'origine de l'action extension, avec fallback CDP.
+  - Extension : `background.ts` stocke le contexte dans
+    `chrome.storage.local` et route les statuts par `chrome.tabs.sendMessage` ;
+    `content/bootstrap.ts` lit le storage au chargement et écoute
+    `storage.onChanged` ; `overlay-main.ts` applique contexte, menus et états.
+  - `observe_saved_page` est actif côté extension via l'`observationKey`
+    existant.
+  - T-035 passée en `review` en attente du smoke réel utilisateur.
+- **Fichiers modifiés :** `browser/service.py`, `main.py`,
+  `extension/src/chrome-types.d.ts`, `extension/src/background.ts`,
+  `extension/src/content/bootstrap.ts`, `extension/src/overlay-main.ts`,
+  `extension/dist/background.js`, `extension/dist/content.js`,
+  `extension/dist/overlay-main.js`, `assets/synthesix-overlay.js`,
+  `tests/test_main.py`, `tests/test_browser_service.py`,
+  `docs/tasks/T-035-contexte-et-statuts-extension.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `cd frontend; npm run typecheck`
+  - `cd frontend; npm run build`
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py main.py tests\test_main.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_main` — 45 OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service` — 28 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 383 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke réel multi-tabs Brave/extension (prévu par
+  l'utilisateur) ; smoke Chrome stable brandé (mode dégradé connu).
+- **Prochaine action :** smoke T-035 : changement d'enquête avec plusieurs
+  tabs HTTPS ouverts, nouveau tab contextualisé depuis storage, save/capture/
+  archive et état erreur simulé.
+
+### AI-20260707-012 — Correctif smoke `Inspector.workerScriptLoaded`
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 22:39-22:40
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** supprimer le traceback `KeyError: Inspector.workerScriptLoaded`
+  déclenché au clic sur un bouton de l'overlay extension.
+- **Résultat :**
+  - `browser/service.py` enregistre un parser CDP minimal pour
+    `Inspector.workerScriptLoaded`, événement émis par Chrome sur la connexion
+    debugger du service worker MV3 mais absent des parsers Zendriver 0.15.3.
+  - Le transport extension n'est pas changé ; l'événement est simplement parsé
+    puis ignoré faute de handler.
+  - Test unitaire ajouté pour reproduire l'événement exact.
+- **Fichiers modifiés :** `browser/service.py`,
+  `tests/test_browser_service.py`,
+  `docs/tasks/T-035-contexte-et-statuts-extension.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service tests.test_main` — 74 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** relance interactive Brave après correctif ; le processus
+  Synthesix doit être redémarré pour charger le nouveau parser Python.
+
+### AI-20260707-013 — Correctif shutdown au clic overlay extension
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 22:43-22:44
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger le shutdown restant au clic overlay extension après
+  suppression du traceback `Inspector.workerScriptLoaded`.
+- **Résultat :**
+  - `browser/service.py` ne crée plus la connexion CDP du service worker MV3
+    avec `_owner=browser`.
+  - Motif : Zendriver utilise `_owner` pour exécuter des préparations de page
+    (`Page.*`, user-agent headless) avant les commandes ; ces préparations ne
+    sont pas adaptées à un service worker et peuvent déstabiliser la session
+    navigateur.
+  - Le binding `synthesixDispatch`, l'évaluation runtime et le routage backend
+    restent inchangés.
+- **Fichiers modifiés :** `browser/service.py`,
+  `tests/test_browser_service.py`,
+  `docs/tasks/T-035-contexte-et-statuts-extension.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service tests.test_main` — 75 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** relance interactive Brave après correctif ; redémarrer
+  Synthesix pour charger la nouvelle connexion worker.
+
+### AI-20260707-014 — Correctif focus home sans investigation
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 22:51-22:52
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger le shutdown au clic sur un bouton overlay extension
+  lorsqu'aucune investigation n'est sélectionnée.
+- **Résultat :**
+  - `main.py` traite `focus_home` comme une action globale de navigation :
+    elle ne dépend plus de la résolution de l'onglet source externe.
+  - Le cas attendu pour l'overlay sans investigation sélectionnée ouvre ou
+    ramène la page Synthesix au lieu de pouvoir sortir par le chemin `quit`.
+  - Tests ajoutés pour l'action extension `focus_home` sans source résoluble et
+    pour la boucle `wait_for_home_action`.
+- **Fichiers modifiés :** `main.py`, `tests/test_main.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_browser_service`
+    — OK, 77 tests.
+  - `.venv\Scripts\python.exe -m py_compile main.py tests\test_main.py` — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke interactif Brave/extension ; à valider par
+  l'utilisateur au prochain lancement.
+
+### AI-20260707-015 — Filtrage messages internes extension
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 23:02-23:03
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** empêcher les messages internes de l'extension de sortir de la
+  boucle d'action et de déclencher le fallback "recherche vide" qui ferme
+  Synthesix.
+- **Résultat :**
+  - `main.py` reconnaît `extension_spike_message` comme message interne et le
+    filtre dans `_normalize_dispatch_action`.
+  - Les vraies actions overlay (`extension_overlay_action`) restent inchangées.
+  - Tests ajoutés pour la normalisation directe et pour la boucle
+    `wait_for_home_action`.
+- **Fichiers modifiés :** `main.py`, `tests/test_main.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_browser_service`
+    — OK, 79 tests.
+  - `.venv\Scripts\python.exe -m py_compile main.py tests\test_main.py` — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke interactif Brave/extension ; à valider au prochain
+  lancement.
+
+### AI-20260707-016 — Pont actions overlay extension
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 23:07-23:09
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** rétablir le relais des clics overlay extension vers le
+  content script et le background MV3.
+- **Résultat :**
+  - `extension/src/overlay-main.ts` et `extension/src/content/bootstrap.ts`
+    utilisent un `targetOrigin` explicite basé sur `window.location.origin`,
+    avec fallback `*` pour les origines opaques.
+  - Les messages `synthesix:overlay-action`, ACK, contexte et statuts passent
+    par le même helper au lieu de dépendre de `window.origin`.
+  - Bundles `extension/dist/*` régénérés par `npm run build`.
+- **Fichiers modifiés :** `extension/src/overlay-main.ts`,
+  `extension/src/content/bootstrap.ts`, `extension/dist/content.js`,
+  `extension/dist/overlay-main.js`, `assets/synthesix-ui.js`,
+  `assets/synthesix-overlay.js`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `cd frontend; npm run typecheck` — OK.
+  - `cd frontend; npm run build` — OK.
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_browser_service`
+    — OK, 79 tests.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke interactif Brave/extension ; à valider au prochain
+  lancement.
+
+### AI-20260707-017 — Relais overlay Brave entre mondes JS
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-07 23:15-23:16
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger les clics overlay ignorés dans Brave alors que le
+  backend ne reçoit que des `extension_spike_message`.
+- **Résultat :**
+  - `extension/src/content/bootstrap.ts` ne dépend plus de
+    `event.source === window` pour relayer les actions du main world vers le
+    background MV3 ; le routage se fait par `source`, `token` et `type`.
+  - `extension/src/overlay-main.ts` applique la même règle pour les messages
+    retour contexte/statut/ACK du content script.
+  - `main.py` journalise le type de message interne filtré pour diagnostiquer
+    les prochains smokes Brave.
+  - Bundles `extension/dist/*` régénérés.
+- **Fichiers modifiés :** `extension/src/content/bootstrap.ts`,
+  `extension/src/overlay-main.ts`, `extension/dist/content.js`,
+  `extension/dist/overlay-main.js`, `assets/synthesix-ui.js`,
+  `assets/synthesix-overlay.js`, `main.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `cd frontend; npm run typecheck` — OK.
+  - `cd frontend; npm run build` — OK.
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_browser_service`
+    — OK, 79 tests.
+  - `.venv\Scripts\python.exe -m py_compile main.py tests\test_main.py` — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke interactif Brave/extension ; à valider au prochain
+  lancement.
+
+### AI-20260708-001 — Smoke automatisé overlay extension Brave + fix lenteur home
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-08
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** vérifier le rapport utilisateur « boutons overlay extension
+  morts dans Brave » et « investigations lentes à s'afficher après refresh de
+  la home », puis corriger.
+- **Diagnostic boutons extension :**
+  - `synthesix_debug.log` du dernier lancement utilisateur date de 23:13 UTC
+    le 2026-07-07, soit **avant** le correctif AI-20260707-017 (23:15) : le
+    log montre l'ancien wording `Ignoring internal extension spike message`
+    et confirme que les clics arrivaient encore mal typés pré-017.
+  - Nouveau smoke réel `tests/manual/smoke_ext_overlay_click.py` (Brave,
+    profil temporaire, `--load-extension`) : chaîne complète validée avec le
+    code actuel — marker content script, binding worker armé via
+    `BrowserService`, clic sans enquête → `focus_home`, contexte poussé par
+    `send_extension_backend_message` appliqué à l'overlay
+    (`investigationId` + `observe_saved_page`), clic avec enquête →
+    `save_page_to_investigation`. `SMOKE_RESULT OK`.
+  - Conclusion : les boutons fonctionnent avec l'état actuel du dépôt ; le
+    smoke utilisateur doit être rejoué après relance de Synthesix.
+- **Fix lenteur home après refresh :**
+  - Cause : en transport `push` (T-021), après un reload manuel le binding de
+    la home survit, donc `_should_sync_local_tab` throttle la resynchro à
+    `home_push_fallback_interval` (2 s par défaut) avant le premier push
+    d'investigations/historique.
+  - `index.html` : au boot, si `window.synthesixDispatch` existe, la home
+    émet `{action:"home_ready"}` par le binding.
+  - `main.py` (`wait_for_home_action`) : `home_ready` purge
+    `service.last_local_sync_at[target_id]` puis `continue` → push des
+    données au tick suivant (~0,3 s au lieu de ~2,3 s).
+  - Test ajouté : `test_home_ready_dispatch_clears_local_sync_throttle`
+    (fallback 30 s + throttle simulé ; échoue sans le fix).
+- **Fichiers modifiés :** `main.py`, `index.html`,
+  `tests/test_transport_push.py`, `tests/manual/smoke_ext_overlay_click.py`
+  (nouveau), `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `tests/manual/smoke_ext_overlay_click.py` (Brave réel) — SMOKE_RESULT OK.
+  - `.venv\Scripts\python.exe -m unittest tests.test_transport_push tests.test_main` — 54 OK.
+  - `.venv\Scripts\python.exe -m unittest discover` — 390 OK.
+  - Vérification syntaxe des scripts inline `index.html` (compile Node) — OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke live du refresh home dans l'app complète (mesure du
+  délai réel) ; statuts boutons backend→overlay (`synthesix:button-status`)
+  non couverts par le smoke (nécessitent le dispatcher complet) ; smoke
+  capture/archive extension.
+- **Relais :** T-035 reste en `review` : rejouer le smoke utilisateur
+  (relancer Synthesix, tester save/capture/archive multi-tabs et le
+  changement d'enquête).
+
+### AI-20260708-002 — Service worker extension périmé : cause racine et fix
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-08
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Contexte :** deuxième smoke utilisateur toujours en échec (overlay sans
+  contexte, clics morts) malgré des bundles à jour sur disque.
+- **Cause racine (prouvée par diagnostics Brave réels) :**
+  - Le nouveau `synthesix_debug.log` montre les clics arriver bien typés
+    (`type='synthesix:overlay-action'`) mais enveloppés en
+    `extension_spike_message`, et `synthesixReceiveBackendMessage` renvoyer
+    `false` : le service worker qui tourne est un **vieux build** (pré-T-034).
+  - Brave/Chromium met en cache le script du worker MV3 **par URL** dans le
+    profil et le sert tel quel d'une session à l'autre. Reproduit sur profil
+    persistant : rebuild sans changement d'URL → worker périmé ; **bump de
+    version manifest → toujours périmé** ; `chrome.runtime.reload()` → tue
+    l'extension chargée par `--load-extension` (aucun worker ne revient).
+  - Deux mécanismes vérifiés efficaces : **nouveau nom de fichier worker**
+    (cache par URL contourné) et suppression du dossier `Service Worker/` du
+    profil. Le premier est retenu (aucune mutation du profil).
+- **Fix :**
+  - `frontend/build.mjs` : le worker est émis en
+    `dist/background-<sha256-16>.js` (hash du bundle), le manifest est pointé
+    dessus, les anciens `background*.js` sont purgés, la révision est
+    stampée dans le bundle (`globalThis.synthesixBackgroundRevision`) et
+    exposée dans `dist/revision.json`. Mode watch : worker non rebuildé
+    (note dans le fichier).
+  - `browser/service.py` : `arm_extension_dispatch_binding(...,
+    expected_revision=...)` compare la révision du worker qui tourne à celle
+    du disque et log un warning une fois par target si périmé (armement
+    conservé). Pas de reload runtime (dangereux, cf. diagnostics).
+  - `browser_manager.py` : `_extension_build_ready` résout le fichier worker
+    depuis le manifest ; nouveau `_expected_extension_revision` lit
+    `dist/revision.json`.
+  - `main.py` : la révision attendue est lue au démarrage et passée aux deux
+    sites d'armement (boucle principale et `wait_for_home_action`).
+  - `tests/manual/spike_ext_transport.py` et `smoke_ext_overlay_click.py`
+    adaptés au nom de worker stampé.
+  - `extension/README.md` : section build mise à jour.
+- **Fichiers modifiés :** `frontend/build.mjs`, `browser/service.py`,
+  `browser_manager.py`, `main.py`, `extension/manifest.json` (par le build),
+  `extension/dist/*` (worker renommé + `revision.json`),
+  `tests/test_browser_service.py`, `tests/test_browser_manager.py`,
+  `tests/manual/smoke_ext_overlay_click.py`,
+  `tests/manual/spike_ext_transport.py`, `extension/README.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - Diagnostics Brave réels (profil persistant) : staleness reproduite,
+    bump version inefficace, `chrome.runtime.reload()` fatal, renommage
+    fichier → worker frais, purge `Service Worker/` → worker frais.
+  - `npm run typecheck` + `npm run build` — OK (worker
+    `background-ca5203a8cd0ecdf5.js` généré, manifest mis à jour).
+  - `.venv\Scripts\python.exe -m unittest discover` — 396 OK.
+  - `tests/manual/smoke_ext_overlay_click.py` (Brave réel) — SMOKE_RESULT OK,
+    aucun target périmé, chaîne complète clic→Python et contexte→overlay.
+  - `py_compile` fichiers touchés — OK ; `git diff --check` — OK (CRLF).
+- **Non exécuté :** smoke de l'app complète sur le profil `zendriver-profile`
+  de l'utilisateur (le profil guérit au prochain lancement : nouvelle URL de
+  worker = cache contourné) ; statuts boutons backend→overlay en conditions
+  réelles.
+- **Relais :** utilisateur : relancer Synthesix et rejouer le smoke T-035.
+  Après tout `npm run build`, redémarrer Synthesix pour charger le nouveau
+  worker (un warning « stale worker » apparaît sinon dans les logs).

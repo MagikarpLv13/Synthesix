@@ -1,4 +1,4 @@
-# T-013 — Parsing Brave : chaîne JSON → XPath
+# T-013 — Parsing Brave : DOM courant + repli JSON legacy
 
 - **Statut** : done
 - **Priorité** : P1 · **Effort** : faible
@@ -68,3 +68,13 @@ n'est plus branché. `js_like_to_json` (`utils.py:332`) est lui-même fragile
 - `num_results` et `nb_results_per_page` sont alimentés sur les deux chemins.
 - Fixtures ajoutées : `brave_2026-06.html` (JSON) et
   `brave_xpath_2026-06.html` (fallback XPath).
+
+## Ajustement 2026-07-07
+
+- Les captures Brave récentes exposent les résultats hydratés dans le DOM sans
+  bloc JSON exploitable ; le parser XPath/DOM devient donc le chemin nominal.
+- `_parse_results_embedded_json` reste disponible comme repli legacy pour les
+  anciennes captures ou variantes de bundle.
+- Les recherches Brave réussies via DOM ne journalisent plus de `WARNING`.
+  Un avertissement n'est conservé que lorsque le DOM et le JSON retournent tous
+  deux 0 résultat, avec dump HTML de diagnostic.

@@ -21,6 +21,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | DEC-PLAN-04 | L'extension couvre uniquement les pages http/https. Les pages locales `file://` (home, enquêtes, rapports) restent pilotées par CDP. |
 | DEC-PLAN-05 | Les captures (PNG/MHTML/HTML) restent réalisées côté Python via CDP ; l'extension ne transmet que les intentions et coordonnées. |
 | DEC-PLAN-06 | La recherche automatisée sera isolée dans une seconde instance navigateur avec profil dédié (`search-profile/`). |
+| DEC-PLAN-07 | Transport extension retenu : `Runtime.addBinding("synthesixDispatch")` armé sur le `service_worker` Synthesix, messages content script → service worker → Python via `chrome.runtime.sendMessage` puis binding CDP. Validé avec Brave ; Chrome stable brandé ignore `--load-extension` dans l'environnement testé. |
 
 ## Phases du plan (voir docs/tasks/README.md)
 
@@ -29,7 +30,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
 | 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 review, smoke live restant) |
-| 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | à faire |
+| 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | en cours (T-030/T-031/T-032/T-033/T-034 done ; T-035 review, smoke réel attendu) |
 | 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
 
@@ -41,6 +42,23 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 - Phase 0 livrée le 2026-07-06 (6 commits, 307 tests verts). Baseline CDP
   verrouillée par `tests/test_cdp_budget.py` : 1 inventaire targets +
   6 evaluates par tick idle ; payloads home à 0 octet en régime stable.
+- Phase 3 démarrée le 2026-07-07 : squelette extension MV3 `extension/`
+  livré par T-030, build intégré à `frontend/build.mjs`, permissions limitées
+  à `storage`. T-031 a validé le transport extension ↔ Python avec Brave :
+  target service worker Synthesix, binding CDP, deux pages `https://`, latence
+  ~1-3 ms et message reçu après 125 s d'inactivité MV3. T-032 ajoute les flags,
+  la détection, l'ID stable et le statut home ; Chrome stable brandé reste en
+  mode dégradé car il ignore `--load-extension` dans l'environnement testé.
+  T-033 porte l'overlay dans l'extension : injection `overlay-main.js`
+  CSP-safe, bootstrap DOM main-world, focus guard MV3, relais d'actions vers
+  le service worker ; smoke Brave OK sur `example.com` et `github.com`. T-034
+  câble les actions extension vers le dispatcher backend derrière
+  `SYNTHESIX_OVERLAY_MODE=auto|cdp|extension` ; smoke Brave réel OK sur deux
+  onglets HTTPS avec résolution correcte de l'onglet source. T-035 ajoute le
+  sens backend → extension : contexte investigation poussé sur changement
+  uniquement via `chrome.storage.local`, nouveaux tabs contextualisés depuis le
+  storage, statuts boutons routés par `chrome.tabs.sendMessage` au `tabId`
+  d'origine ; validation smoke multi-tabs à exécuter.
 
 ## Risques ouverts majeurs
 
@@ -59,18 +77,13 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 2 : T-020 livré. T-021 et T-022 livrés en `review`. T-021 : push
-`Runtime.addBinding` sur home + pages d'enquête (poll en repli, throttlé une
-fois le binding confirmé). T-022 : découverte de tabs par le registre
-événementiel de zendriver (`Target.*`), le `getTargets` autoritaire ne
-tournant plus qu'en resync lent (10 s, `SYNTHESIX_TARGET_RESYNC_INTERVAL`) qui
-sert aussi de sonde de liveness ; overlay CDP http/https et scan de réglages
-inchangés (hors périmètre, DEC-PLAN-04). Reste sur la phase 2 : smoke CDP live
-(latence perçue, `eval_home`/`eval_page` réduits, `targets_poll` ≈ 0,1/s,
-rafales d'ouverture/fermeture, kill Chrome, quit normal) au premier run
-interactif. La phase 2 n'a plus de tâche à coder ; enchaîner sur la phase 3
-(T-030/T-031, extension Chrome) ou T-051 (test bout en bout investigation, QA).
-Smokes réels en attente au premier run interactif : mesure
-`engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
-(T-014), annulation live (T-011), workflow complet
-recherche/save/capture/archive post-T-020.
+Phase 3 : T-030/T-031/T-032/T-033/T-034 livrés ; T-035 est prêt pour smoke
+réel multi-tabs (changement d'enquête, nouveau tab, save/capture/archive,
+erreur simulée). Garder Chrome stable en mode dégradé CDP tant que
+`--load-extension` y est ignoré. Smokes réels toujours en attente au premier
+run interactif : phase 2
+(`eval_home`/`eval_page`, `targets_poll`, rafales tabs, kill/quit Chrome),
+mesure `engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
+(T-014), annulation live (T-011), workflow complet recherche/save/capture/archive
+post-T-020, smoke SPA/scroll infini/focus guard T-033, smoke DB complet overlay
+extension T-035.

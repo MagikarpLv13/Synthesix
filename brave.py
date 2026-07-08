@@ -146,8 +146,8 @@ class BraveSearchEngine(SearchEngine):
             url += "&" + urlencode(extra_params)
         return url
 
-    # There is some cases where Brave does not display the Title in the HTML
-    def parse_results_old(self, raw_results):
+    # Some Brave pages expose only hydrated result rows in the HTML.
+    def _parse_results_dom(self, raw_results):
         xpaths = self.get_xpaths()
         return parse_with_xpath(
             raw_results,
@@ -201,27 +201,24 @@ class BraveSearchEngine(SearchEngine):
     def parse_results(self, raw_results):
         self.nb_results_per_page = 0
 
-        results = self._parse_results_embedded_json(raw_results)
+        results = self._parse_results_dom(raw_results)
         if results:
+            if self.max_results is not None:
+                remaining = max(0, self.max_results - self.num_results)
+                results = results[:remaining]
+            self.num_results += len(results)
+            self.nb_results_per_page = len(results)
             return results
 
-        logger.warning(
-            "Brave embedded results parsing returned no results; "
-            "falling back to XPath parsing."
-        )
-        fallback_results = self.parse_results_old(raw_results)
-        if self.max_results is not None:
-            remaining = max(0, self.max_results - self.num_results)
-            fallback_results = fallback_results[:remaining]
+        logger.debug("Brave DOM parsing returned no results; trying embedded JSON.")
+        results = self._parse_results_embedded_json(raw_results)
+        if results:
+            logger.debug("Brave embedded JSON fallback parsed %d results.", len(results))
+            return results
 
-        self.num_results += len(fallback_results)
-        self.nb_results_per_page = len(fallback_results)
-        if fallback_results:
-            logger.warning("Brave XPath fallback parsed %d results.", len(fallback_results))
-        else:
-            logger.warning("Brave parsing failed: embedded JSON and XPath fallback returned no results.")
-            self._dump_empty_results_html(raw_results)
-        return fallback_results
+        logger.warning("Brave parsing failed: DOM and embedded JSON returned no results.")
+        self._dump_empty_results_html(raw_results)
+        return []
 
     def _dump_empty_results_html(self, raw_results) -> None:
         """Save the raw page once when Brave yields zero results, so its

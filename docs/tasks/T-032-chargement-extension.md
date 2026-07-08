@@ -1,6 +1,6 @@
 # T-032 — Chargement de l'extension par Synthesix
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : faible-moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-030
@@ -80,3 +80,36 @@ Smoke réel : démarrage sur Brave (auto) + vérification détection.
 - `--disable-extensions-except` désactiverait les extensions personnelles de
   l'utilisateur dans ce profil : ne PAS l'ajouter par défaut (profil Synthesix
   dédié, mais rester conservateur) — flag documenté seulement.
+
+## Résultat 2026-07-07
+
+- `settings.py` expose `extension_dir` (`SYNTHESIX_EXTENSION_DIR`, défaut
+  `extension/`) et `extension_mode` (`SYNTHESIX_EXTENSION_MODE=auto|off`,
+  défaut `auto`).
+- `browser_manager.py` ajoute `--load-extension=<extension/>` quand le build
+  est présent et le mode actif, sans `--disable-extensions-except` par défaut.
+  Le flag `--disable-features=DisableLoadExtensionCommandLineSwitch` est ajouté
+  pour les builds Chrome qui l'honorent encore.
+- Détection ajoutée par target CDP `chrome-extension://<id>/...` ; l'ID est
+  dérivé du `key` fixé dans `extension/manifest.json`.
+- `HeadlessBrowserManager.extension_available` expose l'état détecté ; `main.py`
+  affiche un statut home non bloquant si l'extension n'est pas active, l'overlay
+  CDP restant le chemin actif jusqu'à T-036.
+- `extension/README.md` documente le mode auto/off et le repli d'installation
+  unpacked persistante dans `zendriver-profile/`.
+
+Tests :
+
+- `.venv\Scripts\python.exe -m unittest tests.test_browser_manager tests.test_settings`
+  — OK, 16 tests.
+- `.venv\Scripts\python.exe -m unittest tests.test_main` — OK, 42 tests.
+- `.venv\Scripts\python.exe -m py_compile browser_manager.py settings.py main.py tests\manual\spike_ext_transport.py`
+  — OK.
+
+Smoke réel :
+
+- `tests/manual/spike_ext_transport.py` confirme que Chrome/Zendriver dans cet
+  environnement ignore encore le chargement unpacked automatique : marqueur
+  `dataset.synthesixExt` absent et seuls les targets d'extensions internes sont
+  visibles. Le repli manuel persistant reste donc requis ici avant de reprendre
+  T-031.

@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Synthesix",
+  "version": "0.1.0",
+  "description": "Local Synthesix helper extension for http and https pages.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlA12Fb3SSH/E+Y6N7xWgF24Yh9G3YF9O3uhD10Jy45ZiPN830YFkDn0+U4LbURaT4nOy+gEDNwLiy9FfhHBDUP6bFNnfK8GIohJwgrWweCv3WbBDgBCACYL/NQLBoUq3c6aSMCI39mQ6udOH3c8p0a0zWNcVXsefFgjXNKxpWFcS80XmAycbmGGk1I7VD5Z4d39z3PmEmf3ekMMjDjc9cfAPHSp3w9ZXt2HO59n6aenmIXHBVNmdaEP5xtUQEq1Ai/NgJPCdtvkPBYtYogLqHZInit1aKM41f0DImzgu7pyXUSlvGnQLLce9L0ypr/saRCYXP38eZb/B784JekLIGQIDAQAB",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "dist/background-ca5203a8cd0ecdf5.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://lens.google.com/*",
+        "https://maps.google.com/*",
+        "https://www.google.com/maps*"
+      ],
+      "js": [
+        "dist/focus-guard.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://lens.google.com/*",
+        "https://maps.google.com/*",
+        "https://www.google.com/maps*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/overlay-main.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ]
+}

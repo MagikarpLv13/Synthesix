@@ -574,7 +574,7 @@ class BraveParsingTestCase(unittest.TestCase):
         self.assertEqual(engine.num_results, 2)
         self.assertEqual(engine.nb_results_per_page, 2)
 
-    def test_parse_falls_back_to_xpath_when_embedded_json_is_absent(self):
+    def test_parse_dom_results_when_embedded_json_is_absent(self):
         raw_html = """
         <html><body><main id="results">
             <div class="snippet" data-pos="1">
@@ -594,15 +594,13 @@ class BraveParsingTestCase(unittest.TestCase):
         engine = BraveSearchEngine()
         engine.max_results = 10
 
-        with self.assertLogs("brave", level="WARNING") as logs:
+        with patch.object(brave_module.logger, "warning") as warning:
             results = engine.parse_results(raw_html)
 
         self.assertEqual([result["title"] for result in results], ["One", "Two"])
         self.assertEqual(engine.num_results, 2)
         self.assertEqual(engine.nb_results_per_page, 2)
-        self.assertTrue(
-            any("XPath fallback parsed 2 results" in message for message in logs.output)
-        )
+        warning.assert_not_called()
 
 
 class DuckDuckGoParsingTestCase(unittest.TestCase):

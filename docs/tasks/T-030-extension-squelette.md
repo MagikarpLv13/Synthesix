@@ -1,6 +1,6 @@
 # T-030 — Squelette extension MV3 + build
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : aucune (peut démarrer en parallèle des phases 0-2)
@@ -89,3 +89,16 @@ Vérification manuelle de chargement (documentée dans `extension/README.md`).
   évitée en réutilisant le même `frontend/package.json` et le même build.
 - Choisir trop de permissions « pour plus tard » : refusé — chaque permission
   arrive avec la tâche qui l'exige.
+
+## Résultat 2026-07-07
+
+- `extension/` créé avec manifest MV3, service worker, content script de
+  bootstrap, focus-guard main-world vide et placeholder `overlay-main`.
+- `frontend/build.mjs` produit `extension/dist/background.js`,
+  `content.js`, `focus-guard.js` et `overlay-main.js`.
+- `frontend/tsconfig.json` inclut les sources TypeScript de l'extension.
+- `.gitignore` laisse `extension/dist/**` versionnable malgré la règle
+  globale `dist/`.
+- Vérification manuelle de chargement non exécutée dans cette passe ; elle
+  reste à faire avant T-031/T-032 si une session Chrome interactive est
+  disponible.

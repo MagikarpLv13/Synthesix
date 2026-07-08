@@ -12,6 +12,7 @@ import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 from zendriver import cdp
 
@@ -25,6 +26,35 @@ from browser import (
     screenshot,
 )
 from tests.fakes import FakeBrowser, FakeTab
+
+
+class FakeWorkerConnection:
+    """Extension service-worker CDP connection double.
+
+    Answers the revision probe with ``revision`` and records every evaluated
+    expression, so tests can assert whether ``chrome.runtime.reload()`` ran.
+    """
+
+    def __init__(self, revision: str = ""):
+        self.revision = revision
+        self.expressions: list[str] = []
+        self.handlers: list = []
+
+    def add_handler(self, event_type, handler) -> None:
+        self.handlers.append((event_type, handler))
+
+    async def send(self, command):
+        # zendriver CDP commands are generators; the first yield is the
+        # request dict ({"method": ..., "params": ...}).
+        request = command.send(None)
+        method = str(request.get("method", ""))
+        if method != "Runtime.evaluate":
+            return None
+        expression = str(request.get("params", {}).get("expression", ""))
+        self.expressions.append(expression)
+        if "synthesixBackgroundRevision" in expression:
+            return SimpleNamespace(value=self.revision), None
+        return SimpleNamespace(value=True), None
 
 
 class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
@@ -264,6 +294,140 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(service.dispatch_queue.empty())
+
+    async def test_dispatch_binding_handler_discards_oversized_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        await tab.fire(
+            cdp.runtime.BindingCalled,
+            SimpleNamespace(
+                name="synthesixDispatch",
+                payload=json.dumps({"action": "cancel_search", "blob": "x" * 300000}),
+            ),
+        )
+
+        self.assertTrue(service.dispatch_queue.empty())
+
+    async def test_arm_extension_binding_warns_on_stale_worker(self):
+        connection = FakeWorkerConnection(revision="old-revision")
+        service = BrowserService(FakeBrowser([]))
+        service._find_extension_service_worker_target = AsyncMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(target_id="worker-1")
+        )
+        service._extension_connection = Mock(return_value=connection)  # type: ignore[method-assign]
+
+        with self.assertLogs("browser.service", level="WARNING") as logs:
+            armed = await service.arm_extension_dispatch_binding(
+                "ext-1", expected_revision="disk-revision"
+            )
+
+        # A stale worker is armed anyway (better than a dead overlay); the
+        # mismatch is surfaced once so the operator restarts the browser.
+        self.assertTrue(armed)
+        self.assertIn("worker-1", service.armed_extension_binding_targets)
+        self.assertIn("worker-1", service.stale_extension_worker_targets)
+        self.assertTrue(any("old-revision" in line for line in logs.output))
+
+    async def test_arm_extension_binding_arms_matching_revision(self):
+        connection = FakeWorkerConnection(revision="disk-revision")
+        service = BrowserService(FakeBrowser([]))
+        service._find_extension_service_worker_target = AsyncMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(target_id="worker-1")
+        )
+        service._extension_connection = Mock(return_value=connection)  # type: ignore[method-assign]
+
+        with self.assertNoLogs("browser.service", level="WARNING"):
+            armed = await service.arm_extension_dispatch_binding(
+                "ext-1", expected_revision="disk-revision"
+            )
+
+        self.assertTrue(armed)
+        self.assertIn("worker-1", service.armed_extension_binding_targets)
+        self.assertNotIn("worker-1", service.stale_extension_worker_targets)
+
+    async def test_arm_extension_binding_warns_only_once_per_worker(self):
+        connection = FakeWorkerConnection(revision="old-revision")
+        service = BrowserService(FakeBrowser([]))
+        service._find_extension_service_worker_target = AsyncMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(target_id="worker-1")
+        )
+        service._extension_connection = Mock(return_value=connection)  # type: ignore[method-assign]
+        service.stale_extension_worker_targets.add("worker-1")
+
+        with self.assertNoLogs("browser.service", level="WARNING"):
+            armed = await service.arm_extension_dispatch_binding(
+                "ext-1", expected_revision="disk-revision"
+            )
+
+        self.assertTrue(armed)
+        self.assertIn("worker-1", service.armed_extension_binding_targets)
+
+    async def test_arm_extension_binding_skips_revision_check_without_expectation(self):
+        connection = FakeWorkerConnection(revision="anything")
+        service = BrowserService(FakeBrowser([]))
+        service._find_extension_service_worker_target = AsyncMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(target_id="worker-1")
+        )
+        service._extension_connection = Mock(return_value=connection)  # type: ignore[method-assign]
+
+        armed = await service.arm_extension_dispatch_binding("ext-1")
+
+        self.assertTrue(armed)
+        self.assertEqual(connection.expressions, [])
+        self.assertIn("worker-1", service.armed_extension_binding_targets)
+
+    async def test_send_extension_backend_message_evaluates_in_worker(self):
+        class FakeConnection:
+            async def send(self, _command):
+                return SimpleNamespace(value=True), None
+
+        service = BrowserService(FakeBrowser([]))
+        target = SimpleNamespace(target_id="worker-1")
+        connection = FakeConnection()
+        service._find_extension_service_worker_target = AsyncMock(  # type: ignore[method-assign]
+            return_value=target
+        )
+        service._extension_connection = Mock(return_value=connection)  # type: ignore[method-assign]
+
+        sent = await service.send_extension_backend_message(
+            "ext-1",
+            {"type": "synthesix:context-update", "payload": {"id": "case-1"}},
+        )
+
+        self.assertTrue(sent)
+        self.assertIs(service.extension_worker_connections["worker-1"], connection)
+        self.assertEqual(
+            observability.snapshot()["calls"]["extension_backend_message"],
+            1,
+        )
+
+    def test_extension_connection_is_not_browser_owned(self):
+        service = BrowserService(FakeBrowser([]))
+        service._target_websocket_url = Mock(return_value="ws://127.0.0.1/devtools/page/worker-1")  # type: ignore[method-assign]
+        target = SimpleNamespace(
+            target_id="worker-1",
+            type_="service_worker",
+            title="",
+            url="chrome-extension://ext/background.js",
+            attached=True,
+        )
+
+        connection = service._extension_connection(target, "worker-1")
+
+        self.assertIsNone(connection._owner)
+        self.assertEqual(connection.target_id, "worker-1")
+
+    def test_inspector_worker_script_loaded_event_is_registered(self):
+        event = cdp.util.parse_json_event(
+            {
+                "method": "Inspector.workerScriptLoaded",
+                "params": {},
+            }
+        )
+
+        self.assertEqual(type(event).__name__, "_InspectorWorkerScriptLoaded")
 
     async def test_open_tab_delegates_and_counts(self):
         browser = FakeBrowser()

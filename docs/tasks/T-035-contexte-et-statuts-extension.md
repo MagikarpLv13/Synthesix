@@ -1,6 +1,6 @@
 # T-035 — Contexte investigation + statuts vers l'extension
 
-- **Statut** : todo
+- **Statut** : review
 - **Priorité** : P1 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-034
@@ -81,3 +81,43 @@ Smoke réel multi-tabs consigné.
   sinon ne pousser que les champs utilisés par les menus.
 - Ordre des messages après réveil du SW : le contexte est relu du storage,
   pas rejoué — pas de dépendance à l'ordre.
+
+## Résultat 2026-07-07
+
+- Backend → extension ajouté via `BrowserService.send_extension_backend_message`
+  (`Runtime.evaluate` dans le service worker).
+- Contexte overlay poussé uniquement quand son hash change, stocké dans
+  `chrome.storage.local`, relu par les nouveaux content scripts et diffusé via
+  `chrome.storage.onChanged`.
+- Statuts `save` / `capture` / `archive` routés par `chrome.tabs.sendMessage`
+  au `tabId` d'origine de l'action extension, avec fallback CDP si le canal
+  extension n'est pas disponible.
+- `observe_saved_page` fonctionne côté extension via le même
+  `observationKey` que le portage overlay.
+- Bundles `assets/*` et `extension/dist/*` régénérés.
+
+## Tests 2026-07-07
+
+- `cd frontend; npm run typecheck`
+- `cd frontend; npm run build`
+- `.venv\Scripts\python.exe -m py_compile browser\service.py main.py tests\test_main.py`
+- `.venv\Scripts\python.exe -m unittest tests.test_main`
+- `.venv\Scripts\python.exe -m unittest tests.test_browser_service`
+
+## Non exécuté 2026-07-07
+
+- Smoke réel multi-tabs Brave : à valider par l'utilisateur avant passage
+  `done`.
+
+## Correctif smoke 2026-07-08
+
+- Clic overlay extension : Chrome émet parfois `Inspector.workerScriptLoaded`
+  sur la connexion debugger du service worker MV3. Zendriver 0.15.3 ne
+  déclare pas ce parser CDP et journalisait un `KeyError` avec traceback.
+- Ajout d'un parser local minimal dans `browser/service.py` pour cet événement
+  précis, sans changer le transport ni masquer les autres événements inconnus.
+- Shutdown après suppression du traceback : la connexion manuelle au service
+  worker ne doit pas être créée avec `_owner=browser`, car Zendriver lance
+  alors des préparations de page (`Page.*`, user-agent headless) avant les
+  commandes du worker. La connexion extension est maintenant sans propriétaire
+  navigateur ; les bindings et messages runtime restent inchangés.

@@ -1336,6 +1336,13 @@
                 checkVpnStatus,
                 consumeAction
             };
+            // After a reload the push binding survives, so the backend only
+            // re-syncs this tab on its slow fallback interval. Announce the
+            // (re)load so it pushes history/investigations immediately. Only
+            // meaningful when the binding exists; poll mode syncs every tick.
+            if (window.synthesixDispatch) {
+                window.synthesixDispatch(JSON.stringify({ action: "home_ready" }));
+            }
             checkVpnStatus();
         })();
     </script>

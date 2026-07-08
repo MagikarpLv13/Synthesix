@@ -1,6 +1,6 @@
 # T-031 — Spike : transport extension ↔ backend Python
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P0 (bloquant pour T-034/T-035/T-036) · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-030 (squelette chargeable)
@@ -90,3 +90,63 @@ A et C échouent — documenter pourquoi le cas échéant.
   que le spike doit trancher — ne pas construire T-034 avant.
 - Conclusion « option C » = acceptable ; « option B » = re-planifier T-034
   avec un lot d'installation dédié.
+
+## Résultat partiel 2026-07-07
+
+Prototype conservé : `tests/manual/spike_ext_transport.py`.
+
+Constats vérifiés :
+
+- Le chargement manuel de T-030 a été validé par l'utilisateur : marqueur
+  `document.documentElement.dataset.synthesixExt === "0.1.0"` sur `https://`,
+  absent sur `file://`.
+- Dans un navigateur lancé par Zendriver avec `--load-extension=<extension/>`
+  (avec et sans `--disable-extensions-except`, avec chemin Windows normalisé
+  en slashs), le content script Synthesix ne s'injecte pas :
+  `dataset.synthesixExt` reste `None`.
+- Les targets d'extension visibles dans ce navigateur sont uniquement des
+  extensions internes/profil :
+  `chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/background.html` et
+  `chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js`.
+- Zendriver expose bien les targets `service_worker` d'extension via
+  `/json/list` et `Runtime.addBinding` fonctionne dans un service worker
+  d'extension : `typeof globalThis.synthesixDispatch === "function"` après
+  armement CDP.
+
+Points non prouvés :
+
+- Binding CDP sur le service worker **Synthesix** lui-même, car l'extension
+  unpacked n'est pas chargée dans le navigateur Zendriver.
+- Chemin content script Synthesix → service worker Synthesix → Python.
+- Cycle de vie MV3 après sommeil et latence réelle du transport produit.
+
+Décision provisoire :
+
+- L'option A reste techniquement viable côté CDP (`Runtime.addBinding` sur un
+  `service_worker` d'extension fonctionne).
+- T-031 est bloquée par le chargement de l'extension dans le navigateur piloté.
+  Prochaine action exacte : traiter T-032 en priorité, avec une stratégie
+  d'installation unpacked persistante si `--load-extension` reste ignoré.
+
+## Résultat final 2026-07-07
+
+Après bascule sur Brave (`SYNTHESIX_BROWSER=brave`), le spike est validé :
+
+- Brave charge automatiquement l'extension unpacked via `--load-extension`.
+- Le content script pose `dataset.synthesixExt === "0.1.0"` sur deux pages
+  `https://`.
+- Le service worker Synthesix est visible comme target CDP :
+  `chrome-extension://bbapkjniopibpijgmmkhdbahkfjejhef/dist/background.js`.
+- `Runtime.addBinding("synthesixDispatch")` fonctionne dans ce service worker.
+- Chemin validé : content script → `chrome.runtime.sendMessage` → service
+  worker → `synthesixDispatch(json)` → Python.
+- Latence mesurée : environ 1 à 3 ms sur les messages testés.
+- Cycle MV3 vérifié après 125 s d'inactivité : message post-attente reçu, sans
+  perte.
+
+Décision :
+
+- Option A retenue : binding CDP sur le service worker d'extension.
+- Chrome stable brandé reste non retenu pour le chargement automatique, car il
+  ignore `--load-extension` dans l'environnement testé ; Brave/Chromium ou une
+  installation persistante restent les chemins opérationnels.

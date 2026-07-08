@@ -1,6 +1,6 @@
 # T-034 — Câblage actions extension → backend (flag de bascule)
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-031 (décision transport), T-032 (chargement + ID),
@@ -89,3 +89,39 @@ Smoke réel obligatoire (liste ci-dessus), consigné avec versions navigateur.
   1 seule cible — le reste de la tâche est inchangé.
 - Validation d'entrée : l'extension réduit la surface de spoof mais le backend
   garde la validation stricte (défense en profondeur, données OSINT hostiles).
+
+## Résultat 2026-07-07 — AI-20260707-010
+
+- `SYNTHESIX_OVERLAY_MODE=auto|cdp|extension` ajouté. `auto` utilise
+  l'extension quand elle est détectée, sinon garde le chemin CDP existant ;
+  `cdp` force l'ancien chemin ; `extension` coupe le poll overlay CDP.
+- `BrowserService` sait attacher `Runtime.addBinding("synthesixDispatch")`
+  au `service_worker` MV3 Synthesix et rejette les payloads CDP trop gros.
+- Le service worker envoie une enveloppe versionnée avec `tabId`, `url` et le
+  payload original ; le backend valide l'action, son URL http(s), et transforme
+  l'enveloppe en action dispatcher existante.
+- La résolution d'onglet ne dépend pas de `tabId` Chrome : l'overlay pose un
+  token éphémère sur la page, transmis avec l'action, puis relu côté CDP au
+  moment de l'action. Repli par URL exacte si le token manque et qu'un seul
+  onglet correspond.
+- Les handlers métier ne changent pas. Les statuts riches et le contexte
+  investigation côté extension restent pour T-035.
+
+### Tests exécutés
+
+- `.venv\Scripts\python.exe -m unittest tests.test_settings tests.test_browser_service tests.test_main`
+- `.venv\Scripts\python.exe -m py_compile browser\service.py settings.py main.py`
+- `cd frontend; npm run typecheck`
+- `cd frontend; npm run build`
+- `.venv\Scripts\python.exe -m unittest discover` — 380 tests OK.
+- Smoke Brave réel T-034 : deux onglets `https://example.com/` et
+  `https://example.org/`, actions `save_page_to_investigation` émises via le
+  content script, reçues par `wait_for_home_action`, source tab correcte pour
+  chaque action.
+
+### Non exécuté
+
+- Smoke DB complet save/archive/capture/entités depuis l'overlay réel :
+  l'extension n'affiche pas encore le contexte investigation, prévu en T-035.
+- Smoke Chrome stable brandé : mode dégradé connu car `--load-extension` est
+  ignoré dans l'environnement testé.

@@ -57,20 +57,16 @@ class EngineGoldenParsingTestCase(unittest.TestCase):
                         any("duckduckgo.com/l/" in result["link"] for result in results)
                     )
 
-    def test_brave_xpath_fallback_fixture_parses_when_json_is_absent(self):
+    def test_brave_dom_fixture_parses_when_json_is_absent(self):
         engine = BraveSearchEngine()
         engine.max_results = 5
 
-        with self.assertLogs("brave", level="WARNING") as logs:
-            results = engine.parse_results(
-                (FIXTURE_DIR / "brave_xpath_2026-06.html").read_text(encoding="utf-8")
-            )
+        results = engine.parse_results(
+            (FIXTURE_DIR / "brave_xpath_2026-06.html").read_text(encoding="utf-8")
+        )
 
         self.assertGreaterEqual(len(results), 5)
         self.assertEqual(engine.nb_results_per_page, 5)
-        self.assertTrue(
-            any("XPath fallback parsed 5 results" in message for message in logs.output)
-        )
 
 
 if __name__ == "__main__":

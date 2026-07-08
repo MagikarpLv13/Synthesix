@@ -29,6 +29,8 @@ search_results_*.html
 
 # Build outputs
 dist/
+!extension/dist/
+!extension/dist/**
 build/
 out/
 .next/

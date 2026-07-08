@@ -32,14 +32,31 @@ import base64
 import json
 import logging
 import time
+import urllib.request
 import weakref
 from typing import Any, Callable, Mapping
 
 from zendriver import cdp
+from zendriver.core.connection import Connection
 
 import observability
 
 logger = logging.getLogger(__name__)
+MAX_DISPATCH_PAYLOAD_BYTES = 256 * 1024
+
+
+@cdp.util.event_class("Inspector.workerScriptLoaded")
+class _InspectorWorkerScriptLoaded:
+    """Zendriver 0.15.3 misses this Inspector event on extension workers.
+
+    Chrome can emit it while the Synthesix MV3 service worker is debug-attached.
+    Without a registered parser, Zendriver logs a noisy KeyError stack trace
+    from its listener loop even though Synthesix does not need the event.
+    """
+
+    @classmethod
+    def from_json(cls, _json: Mapping[str, Any]) -> "_InspectorWorkerScriptLoaded":
+        return cls()
 
 
 async def eval_js(tab, script: str, *, category: str) -> Any:
@@ -151,6 +168,11 @@ class BrowserService:
         # the push queue it feeds. One queue per browser (shared across
         # repeated `wait_for_home_action` calls via `get_browser_service`).
         self.armed_binding_targets: set[str] = set()
+        self.armed_extension_binding_targets: set[str] = set()
+        self.extension_worker_connections: dict[str, Any] = {}
+        # Worker target ids already reported as running a build revision that
+        # differs from the one on disk (warn once per target, not per tick).
+        self.stale_extension_worker_targets: set[str] = set()
         self.dispatch_queue: asyncio.Queue = asyncio.Queue()
         # Per-target last time the local-page consume/sync evaluate actually
         # ran, so callers can throttle it once push delivery is confirmed.
@@ -260,7 +282,12 @@ class BrowserService:
             live_page_ids = registry_ids
 
         self.armed_script_targets.intersection_update(live_page_ids)
-        self.armed_binding_targets.intersection_update(live_page_ids)
+        self.armed_binding_targets.intersection_update(
+            live_page_ids | self.armed_extension_binding_targets
+        )
+        self.armed_extension_binding_targets.intersection_update(
+            self.armed_binding_targets
+        )
         self.last_local_sync_at = {
             target_id: at
             for target_id, at in self.last_local_sync_at.items()
@@ -327,6 +354,179 @@ class BrowserService:
             logger.debug("Unable to arm dispatch binding", exc_info=True)
             return False
 
+    async def arm_extension_dispatch_binding(
+        self,
+        extension_id: str | None,
+        name: str = "synthesixDispatch",
+        expected_revision: str | None = None,
+    ) -> bool:
+        """Expose the dispatch binding on Synthesix' MV3 service worker.
+
+        The worker is not a page tab, so zendriver does not list it in
+        ``browser.tabs``. We attach directly to its debugger websocket and
+        then reuse :meth:`arm_dispatch_binding`.
+
+        When ``expected_revision`` is given, the running worker is compared to
+        the on-disk build (``dist/revision.json``) and a mismatch is logged
+        once per worker target. Arming still proceeds: an out-of-date worker
+        beats a dead one, and the browser picks up the rebuilt bundles at the
+        next launch (the build stamps the worker filename, which defeats the
+        Chromium service-worker script cache).
+        """
+        if not extension_id:
+            return False
+        target = await self._find_extension_service_worker_target(extension_id)
+        if target is None:
+            return False
+        target_id = str(getattr(target, "target_id", "") or "")
+        if not target_id:
+            return False
+        if target_id in self.armed_extension_binding_targets:
+            return True
+        try:
+            connection = self._extension_connection(target, target_id)
+        except Exception:
+            logger.debug("Unable to attach to extension service worker", exc_info=True)
+            return False
+        # zendriver's Connection exposes target metadata, but make the id
+        # explicit for fakes and future versions.
+        try:
+            setattr(connection, "target_id", target_id)
+        except Exception:
+            pass
+        if expected_revision:
+            running = await self._extension_worker_revision(connection)
+            if (
+                running != expected_revision
+                and target_id not in self.stale_extension_worker_targets
+            ):
+                self.stale_extension_worker_targets.add(target_id)
+                logger.warning(
+                    "Extension service worker runs build revision %r but the "
+                    "build on disk is %r; restart the browser (or reload the "
+                    "extension) to pick up the new bundles. Arming anyway.",
+                    running,
+                    expected_revision,
+                )
+        armed = await self.arm_dispatch_binding(connection, name=name)
+        if armed:
+            self.armed_extension_binding_targets.add(target_id)
+            self.extension_worker_connections[target_id] = connection
+        return armed
+
+    async def _extension_worker_revision(self, connection) -> str:
+        try:
+            remote, exception = await connection.send(
+                cdp.runtime.evaluate(
+                    expression='String(globalThis.synthesixBackgroundRevision || "")',
+                    return_by_value=True,
+                )
+            )
+        except Exception:
+            logger.debug("Unable to read extension worker revision", exc_info=True)
+            return ""
+        if exception is not None:
+            logger.debug("Extension worker revision read rejected: %r", exception)
+            return ""
+        return str(getattr(remote, "value", "") or "")
+
+    async def send_extension_backend_message(
+        self,
+        extension_id: str | None,
+        message: Mapping[str, Any],
+    ) -> bool:
+        """Deliver a backend-originated message to Synthesix' service worker.
+
+        T-035 uses the same worker CDP attachment as the extension action
+        binding, but in the opposite direction: Python evaluates a small
+        promise in the MV3 worker, which then updates extension storage or
+        relays a targeted tab message.
+        """
+        if not extension_id:
+            return False
+        target = await self._find_extension_service_worker_target(extension_id)
+        if target is None:
+            return False
+        target_id = str(getattr(target, "target_id", "") or "")
+        if not target_id:
+            return False
+        connection = self.extension_worker_connections.get(target_id)
+        if connection is None:
+            try:
+                connection = self._extension_connection(target, target_id)
+            except Exception:
+                logger.debug(
+                    "Unable to attach to extension service worker",
+                    exc_info=True,
+                )
+                return False
+            try:
+                setattr(connection, "target_id", target_id)
+            except Exception:
+                pass
+            self.extension_worker_connections[target_id] = connection
+        payload_json = json.dumps(message, ensure_ascii=True)
+        observability.count("extension_backend_message")
+        observability.observe_bytes("extension_backend_message", len(payload_json))
+        try:
+            remote, exception = await connection.send(
+                cdp.runtime.evaluate(
+                    expression=(
+                        "globalThis.synthesixReceiveBackendMessage"
+                        "? globalThis.synthesixReceiveBackendMessage"
+                        f"({payload_json}) : false"
+                    ),
+                    await_promise=True,
+                    return_by_value=True,
+                )
+            )
+        except Exception:
+            logger.debug("Unable to send extension backend message", exc_info=True)
+            return False
+        if exception is not None:
+            logger.debug("Extension backend message rejected: %r", exception)
+            return False
+        return bool(getattr(remote, "value", False))
+
+    async def _find_extension_service_worker_target(self, extension_id: str):
+        expected_prefix = f"chrome-extension://{extension_id}/"
+        try:
+            targets = await self.browser._get_targets()
+        except Exception:
+            logger.debug("Unable to inspect extension service worker", exc_info=True)
+            return None
+        return next(
+            (
+                target
+                for target in targets
+                if getattr(target, "type_", None) == "service_worker"
+                and str(getattr(target, "url", "")).startswith(expected_prefix)
+            ),
+            None,
+        )
+
+    def _extension_connection(self, target, target_id: str):
+        websocket_url = self._target_websocket_url(target_id)
+        # Do not pass the browser as owner here. Zendriver uses `_owner` to run
+        # page-specific preparation commands before every send; those commands
+        # are invalid/noisy on MV3 service workers and can destabilize the
+        # browser-level session during overlay clicks.
+        return Connection(websocket_url, target=target)
+
+    def _target_websocket_url(self, target_id: str) -> str:
+        config = getattr(self.browser, "config", None)
+        host = getattr(config, "host", None)
+        port = getattr(config, "port", None)
+        if not host or not port:
+            raise RuntimeError("Browser debugger endpoint is unavailable.")
+        url = f"http://{host}:{port}/json/list"
+        with urllib.request.urlopen(url, timeout=5.0) as response:
+            targets = json.loads(response.read().decode("utf-8"))
+        for target in targets:
+            if target.get("id") == target_id and target.get("webSocketDebuggerUrl"):
+                return str(target["webSocketDebuggerUrl"])
+        raise RuntimeError(f"WebSocket debugger URL not found for {target_id}")
+
     def _make_binding_handler(self, tab, name: str) -> Callable:
         # Must stay a coroutine function: zendriver dispatches plain
         # callbacks via `asyncio.to_thread` (a worker thread), where touching
@@ -334,6 +534,11 @@ class BrowserService:
         # plain task on the event loop itself (`asyncio.create_task`).
         async def _on_binding_called(event) -> None:
             if getattr(event, "name", None) != name:
+                return
+            if len(str(getattr(event, "payload", "") or "").encode("utf-8")) > (
+                MAX_DISPATCH_PAYLOAD_BYTES
+            ):
+                logger.warning("Discarding oversized dispatch payload")
                 return
             try:
                 parsed = json.loads(event.payload)

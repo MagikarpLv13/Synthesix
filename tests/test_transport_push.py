@@ -12,6 +12,7 @@ like before this task.
 
 import asyncio
 import json
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -144,6 +145,45 @@ class PushTransportTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(
             observability.snapshot()["calls"].get("eval_settings", 0), len(calls)
         )
+
+    async def test_home_ready_dispatch_clears_local_sync_throttle(self):
+        def home_scripts(script, *_args):
+            if "consumeSettingsChange" in script:
+                return None
+            return _ready_state({"action": "probe"})
+
+        tab = FakeTab(url=INDEX_URL, target_id="home")
+        tab.on("evaluate", home_scripts)
+        browser = FakeBrowser([tab])
+        service = get_browser_service(browser)
+
+        self.assertTrue(await service.arm_dispatch_binding(tab))
+        # Simulate a consume right before a reload: without `home_ready`, the
+        # throttle below (30s fallback) would block the sync past the test
+        # timeout, so a pass proves the dispatch cleared it.
+        service.last_local_sync_at["home"] = time.monotonic()
+        await tab.fire(
+            cdp.runtime.BindingCalled,
+            SimpleNamespace(
+                name="synthesixDispatch",
+                payload=json.dumps({"action": "home_ready"}),
+            ),
+        )
+
+        settings = SimpleNamespace(
+            transport_mode="push",
+            home_poll_interval=0.01,
+            home_push_fallback_interval=30.0,
+            empty_tabs_grace_seconds=0,
+            default_history_limit=25,
+        )
+        with patch("main._cached_history_payload", return_value=("[]", "")):
+            action = await asyncio.wait_for(
+                wait_for_home_action(browser, INDEX_URL, settings=settings),
+                timeout=2,
+            )
+
+        self.assertEqual(action["action"], "probe")
 
     async def test_poll_mode_never_arms_binding(self):
         tab = FakeTab(url=INDEX_URL, target_id="home")
