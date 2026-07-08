@@ -61,14 +61,14 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 | [T-032](T-032-chargement-extension.md) | Chargement de l'extension par Synthesix | P1 | Claude | done |
 | [T-033](T-033-portage-overlay-content-script.md) | Portage overlay en content scripts | P1 | Les deux | done |
 | [T-034](T-034-cablage-actions-extension.md) | Câblage actions extension → backend (flag) | P1 | Claude | done |
-| [T-035](T-035-contexte-et-statuts-extension.md) | Contexte investigation + statuts vers l'extension | P1 | Claude | review |
+| [T-035](T-035-contexte-et-statuts-extension.md) | Contexte investigation + statuts vers l'extension | P1 | Claude | done |
 | [T-036](T-036-bascule-retrait-overlay-cdp.md) | Bascule par défaut + retrait overlay CDP | P1 | Les deux | todo |
 
 ### Phase 4 — Isolation & données
 
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
-| [T-040](T-040-navigateur-recherche-separe.md) | Navigateur de recherche séparé | P1 | Claude | todo |
+| [T-040](T-040-navigateur-recherche-separe.md) | Navigateur de recherche séparé | P1 | Claude | review |
 | [T-041](T-041-sqlite-hors-event-loop.md) | Écritures SQLite lourdes hors event loop | P2 | Codex | todo |
 | [T-042](T-042-hydratation-json-page-enquete.md) | Page enquête hydratée par workspace.json | P2 | Les deux | todo |
 | [T-043](T-043-retrait-pandas-agregation.md) | Retrait de pandas de l'agrégation | P3 | Codex | todo |

@@ -30,8 +30,8 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
 | 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 review, smoke live restant) |
-| 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | en cours (T-030/T-031/T-032/T-033/T-034 done ; T-035 review, smoke réel attendu) |
-| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | à faire |
+| 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | en cours (T-030..T-035 done ; T-036 attend une semaine d'usage extension) |
+| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | en cours (T-040 review ; T-041..T-043 à faire) |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
 
 ## État courant
@@ -58,7 +58,24 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
   sens backend → extension : contexte investigation poussé sur changement
   uniquement via `chrome.storage.local`, nouveaux tabs contextualisés depuis le
   storage, statuts boutons routés par `chrome.tabs.sendMessage` au `tabId`
-  d'origine ; validation smoke multi-tabs à exécuter.
+  d'origine. Smoke Brave renforcé OK le 2026-07-08 sur contexte, clics,
+  `observe_saved_page` et statuts boutons backend → overlay ; smoke app
+  complète validé par l'utilisateur le 2026-07-08.
+- Phase 4 démarrée le 2026-07-08 : T-040 isole les recherches dans une
+  seconde instance Zendriver lancée paresseusement avec profil
+  `search-profile/`, sans extension ni bookmark. Le mode
+  `SYNTHESIX_SEARCH_BROWSER=shared` restaure le comportement historique. Les
+  tabs idle `about:blank` sont nettoyés après recherche/retry et l'instance
+  search est stoppée s'il ne reste que des tabs vides. La fenêtre recherche
+  est hors écran par défaut (`SYNTHESIX_SEARCH_WINDOW_MODE=offscreen`) avec
+  modes `visible`, `minimized` et `headless` disponibles ; Brave headless
+  démarre et navigue, mais DuckDuckGo a déclenché un challenge anti-robot en
+  smoke moteur, donc headless reste opt-in. En mode headless, un
+  `RobotChallengeError` ouvre automatiquement l'artefact capturé dans le
+  navigateur UI pour inspection. En mode fenêtre, un captcha manuel Google,
+  Brave ou DuckDuckGo replace temporairement la fenêtre de recherche à l'écran
+  pour résolution humaine. Les tests unitaires et la suite complète sont verts ;
+  le smoke réel focus/challenge reste à exécuter avant passage `done`.
 
 ## Risques ouverts majeurs
 
@@ -77,13 +94,14 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
-Phase 3 : T-030/T-031/T-032/T-033/T-034 livrés ; T-035 est prêt pour smoke
-réel multi-tabs (changement d'enquête, nouveau tab, save/capture/archive,
-erreur simulée). Garder Chrome stable en mode dégradé CDP tant que
-`--load-extension` y est ignoré. Smokes réels toujours en attente au premier
-run interactif : phase 2
+Phase 3 : T-030..T-035 livrés et validés. Ne pas démarrer T-036 avant une
+semaine d'usage quotidien en mode extension sans régression signalée. Garder
+Chrome stable en mode dégradé CDP tant que `--load-extension` y est ignoré.
+Prochaine validation prioritaire : smoke réel T-040 (recherche complète pendant
+navigation dans la fenêtre principale, aucun tab moteur côté UI, challenge
+simulé qui remonte la fenêtre recherche, quit sans process orphelin). Smokes
+réels toujours en attente au premier run interactif : phase 2
 (`eval_home`/`eval_page`, `targets_poll`, rafales tabs, kill/quit Chrome),
 mesure `engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
 (T-014), annulation live (T-011), workflow complet recherche/save/capture/archive
-post-T-020, smoke SPA/scroll infini/focus guard T-033, smoke DB complet overlay
-extension T-035.
+post-T-020, smoke SPA/scroll infini/focus guard T-033.

@@ -74,13 +74,27 @@
                             aria-controls="history-panel"
                             placeholder="What are you investigating?"
                         >
-                        <button id="search-button" class="search-button" type="button">Search</button>
+                        <button id="search-button" class="search-button" type="button">
+                            <span class="search-button__spinner" aria-hidden="true"></span>
+                            <span class="search-button__label">Search</span>
+                        </button>
                         <button
                             id="cancel-search-button"
                             class="danger-button search-cancel-button"
                             type="button"
                             hidden
                         >Cancel search</button>
+                    </div>
+                    <div
+                        id="search-progress"
+                        class="search-progress"
+                        role="status"
+                        aria-live="polite"
+                        hidden
+                    >
+                        <span class="search-progress__spinner" aria-hidden="true"></span>
+                        <span>Search in progress...</span>
+                        <span class="search-progress__bar" aria-hidden="true"></span>
                     </div>
                     <div id="history-panel" class="history-panel" role="listbox" aria-label="Previous searches"></div>
                 </div>
@@ -467,6 +481,7 @@
 
             const searchButton = document.getElementById("search-button");
             const cancelSearchButton = document.getElementById("cancel-search-button");
+            const searchProgress = document.getElementById("search-progress");
             const searchField = document.getElementById("search-field");
             const historyPanel = document.getElementById("history-panel");
             const actionStatus = document.getElementById("action-status");
@@ -1010,6 +1025,11 @@
             // Backend is the source of truth for the "search running" state
             // (T-011); the home only mirrors it.
             const setSearchRunning = (running) => {
+                const isRunning = Boolean(running);
+                searchButton.disabled = isRunning;
+                searchButton.setAttribute("aria-busy", String(isRunning));
+                searchProgress.hidden = !isRunning;
+                searchProgress.parentElement?.classList.toggle("is-search-running", isRunning);
                 cancelSearchButton.hidden = !running;
             };
 

@@ -18,7 +18,11 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 from uuid import uuid4
 from browser import BrowserService, eval_js, get_browser_service
-from browser_manager import HeadlessBrowserManager, _expected_extension_revision
+from browser_manager import (
+    HeadlessBrowserManager,
+    _expected_extension_revision,
+    clear_browser_profile_data,
+)
 from evidence import (
     build_evidence_manifest,
     capture_html,
@@ -34,6 +38,8 @@ from exceptions import (
     EvidenceCaptureError,
     InvestigationError,
     InvestigationValidationError,
+    RobotChallengeError,
+    SearchEngineError,
     SynthesixError,
 )
 from exports import export_zeroneurone_bundle
@@ -76,6 +82,81 @@ _MISSING_HISTORY_SIGNATURE = object()
 _OVERLAY_BUNDLE_PATH = (
     Path(__file__).resolve().parent / "assets" / "synthesix-overlay.js"
 )
+
+
+class SearchBrowserProvider:
+    _BLANK_URLS = {"", "about:blank", "chrome://newtab/"}
+
+    def __init__(
+        self,
+        settings: AppSettings,
+        user_browser_manager: HeadlessBrowserManager,
+    ) -> None:
+        self.settings = settings
+        self.user_browser_manager = user_browser_manager
+        self.search_browser_manager: HeadlessBrowserManager | None = None
+
+    @property
+    def separate(self) -> bool:
+        return self.settings.search_browser_mode == "separate"
+
+    async def get_browser(self):
+        if not self.separate:
+            return await self.user_browser_manager.get_driver()
+
+        manager = self.search_browser_manager
+        if manager is not None and manager.browser is not None:
+            if await self._is_browser_alive(manager.browser):
+                return manager.browser
+            logger.warning("Search browser is not reachable; restarting it.")
+            await manager.stop()
+            self.search_browser_manager = None
+
+        self.search_browser_manager = await HeadlessBrowserManager.create_search(
+            self.settings
+        )
+        return await self.search_browser_manager.get_driver()
+
+    async def stop(self) -> None:
+        if self.search_browser_manager is not None:
+            await self.search_browser_manager.stop()
+            self.search_browser_manager = None
+
+    async def cleanup_idle_tabs(self) -> None:
+        if not self.separate or self.search_browser_manager is None:
+            return
+        browser = self.search_browser_manager.browser
+        if browser is None:
+            self.search_browser_manager = None
+            return
+        # zendriver's ``Tab.closed`` means "no websocket attached" — true for
+        # the untouched initial ``about:blank`` tab — so it cannot detect
+        # closed tabs. Ask the service for the resynced live tab list instead.
+        service = get_browser_service(browser)
+        live_tabs = await service.tabs()
+        if live_tabs is None or all(
+            str(getattr(tab, "url", "") or "").strip().lower() in self._BLANK_URLS
+            for tab in live_tabs
+        ):
+            await self.search_browser_manager.stop()
+            self.search_browser_manager = None
+            return
+        await service.close_blank_tabs()
+
+    async def clear_browser_data(self) -> int:
+        if not self.separate:
+            return 0
+        if self.search_browser_manager is not None:
+            await self.search_browser_manager.stop()
+            self.search_browser_manager = None
+        return clear_browser_profile_data(self.settings.search_profile_dir)
+
+    @staticmethod
+    async def _is_browser_alive(browser) -> bool:
+        try:
+            return await get_browser_service(browser).ping()
+        except Exception:
+            return False
 
 
 def _overlay_bundle_script() -> str:
@@ -2869,6 +2950,7 @@ async def _retry_search_combination(
     browser: uc.Browser,
     settings: AppSettings,
     investigation_service: InvestigationService,
+    report_browser: uc.Browser | None = None,
 ) -> tuple[str, bool]:
     query = str(result.get("query", "") or "").strip()
     engine = str(result.get("engine", "") or "").strip().lower()
@@ -2902,6 +2984,7 @@ async def _retry_search_combination(
         investigation_service=investigation_service,
         investigation_id=investigation_id,
         query_variants=(query,),
+        report_browser=report_browser,
     )
     if retry_error:
         return retry_error, True
@@ -2934,14 +3017,74 @@ def _start_search_task(coro) -> asyncio.Task:
     return task
 
 
+def _robot_challenge_errors(error: Exception) -> list[RobotChallengeError]:
+    if isinstance(error, RobotChallengeError):
+        return [error]
+    if isinstance(error, SearchEngineError):
+        return [
+            engine_error
+            for engine_error in error.engine_errors.values()
+            if isinstance(engine_error, RobotChallengeError)
+        ]
+    return []
+
+
+def _preferred_robot_challenge_artifact(
+    error: Exception,
+    *,
+    base_dir: Path,
+) -> Path | None:
+    for challenge_error in _robot_challenge_errors(error):
+        artifacts = getattr(challenge_error, "captured_artifacts", {}) or {}
+        for key in ("html", "screenshot", "text"):
+            raw_path = artifacts.get(key)
+            if not raw_path:
+                continue
+            path = Path(raw_path)
+            if not path.is_absolute():
+                path = base_dir / path
+            if path.exists():
+                return path
+    return None
+
+
+async def _open_robot_challenge_artifact(
+    browser,
+    error: Exception,
+    settings: AppSettings,
+) -> Path | None:
+    artifact_path = _preferred_robot_challenge_artifact(
+        error,
+        base_dir=settings.base_dir,
+    )
+    if artifact_path is None:
+        return None
+    try:
+        tab = await get_browser_service(browser).open_tab(
+            artifact_path.resolve().as_uri()
+        )
+        await tab.bring_to_front()
+    except Exception:
+        logger.debug("Unable to open robot challenge artifact.", exc_info=True)
+        return artifact_path
+    return artifact_path
+
+
 async def _run_search_action(
     browser: uc.Browser,
     index_url: str,
     search_kwargs: dict,
+    search_browser_provider: SearchBrowserProvider | None = None,
 ) -> None:
     """Background home search; owns the final home statuses."""
     try:
-        persistence_error = await perform_search(**search_kwargs)
+        effective_kwargs = dict(search_kwargs)
+        if search_browser_provider is not None:
+            effective_kwargs["browser"] = await search_browser_provider.get_browser()
+            effective_kwargs.setdefault("report_browser", browser)
+        else:
+            effective_kwargs.setdefault("browser", browser)
+        persistence_error = await perform_search(**effective_kwargs)
         if persistence_error:
             await _set_home_status(
                 browser,
@@ -2960,6 +3103,8 @@ async def _run_search_action(
             is_error=True,
         )
     finally:
+        if search_browser_provider is not None:
+            await search_browser_provider.cleanup_idle_tabs()
         await _set_home_search_running(browser, index_url, False)
 
 
@@ -2969,15 +3114,22 @@ async def _run_retry_search_action(
     index_url: str,
     settings: AppSettings,
     investigation_service: InvestigationService,
+    search_browser_provider: SearchBrowserProvider | None = None,
 ) -> None:
     """Background retry of one query/engine cell; reports to its page tab."""
     source_tab = result.get("_source_tab")
     try:
+        search_browser = (
+            await search_browser_provider.get_browser()
+            if search_browser_provider is not None
+            else browser
+        )
         message, is_error = await _retry_search_combination(
             result,
-            browser,
+            search_browser,
             settings,
             investigation_service,
+            report_browser=browser,
         )
     except asyncio.CancelledError:
         await _set_page_status(source_tab, "Search cancelled.", is_error=True)
@@ -2992,6 +3144,8 @@ async def _run_retry_search_action(
     else:
         await _set_page_status(source_tab, message, is_error=is_error)
     finally:
+        if search_browser_provider is not None:
+            await search_browser_provider.cleanup_idle_tabs()
         await _set_home_search_running(browser, index_url, False)
 
 
@@ -3012,6 +3166,7 @@ async def main():
     index_url = (settings.base_dir / "index.html").resolve().as_uri()
     browser_manager = await HeadlessBrowserManager.create(home_url=index_url, settings=settings)
     browser = await browser_manager.get_driver()
+    search_browser_provider = SearchBrowserProvider(settings, browser_manager)
     browser_service = get_browser_service(browser)
     home_tab = await _focus_or_open_home_tab(browser, index_url, reuse_current_tab=True)
     await home_tab.bring_to_front()
@@ -3140,6 +3295,7 @@ async def main():
                         index_url,
                         settings,
                         investigation_service,
+                        search_browser_provider,
                     )
                 )
                 continue
@@ -4466,8 +4622,18 @@ async def main():
                 )
                 continue
             if result["action"] == "clear_browser_data":
+                if _search_task_running(active_search_task):
+                    await _set_home_status(
+                        browser,
+                        index_url,
+                        "A search is running. Cancel it before clearing browser data.",
+                        is_error=True,
+                    )
+                    continue
                 try:
+                    await search_browser_provider.clear_browser_data()
                     browser = await browser_manager.clear_browser_data()
+                    browser_service = get_browser_service(browser)
                     home_tab = await _focus_or_open_home_tab(
                         browser,
                         index_url,
@@ -4551,7 +4717,6 @@ async def main():
                     {
                         "original_query": original_query,
                         "parsed_query": parsed_query,
-                        "browser": browser,
                         "engines": engines,
                         "num_results": num_results,
                         "filters": filters,
@@ -4560,6 +4725,7 @@ async def main():
                         "investigation_id": investigation_id,
                         "query_variants": parsed_query_variants,
                     },
+                    search_browser_provider,
                 )
             )
 
@@ -4567,6 +4733,7 @@ async def main():
         if _search_task_running(active_search_task):
             active_search_task.cancel()
             await asyncio.gather(active_search_task, return_exceptions=True)
+        await search_browser_provider.stop()
         await browser_manager.stop()
         logger.info("Goodbye!")
 
@@ -4582,6 +4749,7 @@ async def perform_search(
     investigation_service: InvestigationService | None = None,
     investigation_id: str | None = None,
     query_variants: tuple[str, ...] | None = None,
+    report_browser: uc.Browser | None = None,
 ):
     started_at = utc_now()
     try:
@@ -4596,8 +4764,20 @@ async def perform_search(
             investigation_id=investigation_id,
             query_variants=query_variants,
         )
-    except SynthesixError:
+    except SynthesixError as exc:
         logger.error("Search failed.", exc_info=True)
+        settings = get_settings()
+        if settings.search_window_mode == "headless":
+            artifact_path = await _open_robot_challenge_artifact(
+                report_browser or browser,
+                exc,
+                settings,
+            )
+            if artifact_path is not None:
+                return (
+                    "Search stopped by an anti-robot challenge. "
+                    f"Captured challenge opened: {artifact_path.name}."
+                )
         return "Search failed. Check the logs for details."
 
     if investigation_service is not None:
@@ -4641,7 +4821,7 @@ async def perform_search(
                 investigation_id,
             )
             await _open_or_refresh_investigation_page(
-                browser,
+                report_browser or browser,
                 page_path,
                 bring_to_front=False,
                 open_if_missing=False,
@@ -4653,7 +4833,7 @@ async def perform_search(
             )
 
     if search_result.output_path:
-        result_tab = await get_browser_service(browser).open_tab(
+        result_tab = await get_browser_service(report_browser or browser).open_tab(
             Path(search_result.output_path).resolve().as_uri()
         )
         await result_tab.bring_to_front()

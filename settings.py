@@ -38,6 +38,11 @@ def _env_str(name: str, default: str) -> str:
     return os.getenv(name, default).strip() or default
 
 
+def _env_choice(name: str, default: str, choices: set[str]) -> str:
+    value = _env_str(name, default).lower()
+    return value if value in choices else default
+
+
 def _env_optional_path(name: str, base_dir: Path) -> Path | None:
     value = os.getenv(name)
     if not value:
@@ -79,6 +84,9 @@ class AppSettings:
     debug_html: bool
     debug_html_dir: Path
     browser_profile_dir: Path
+    search_profile_dir: Path
+    search_browser_mode: str
+    search_window_mode: str
     browser_type: str
     browser_executable_path: Path | None
     browser_connection_timeout: float
@@ -178,6 +186,7 @@ def _build_settings() -> AppSettings:
         base_dir,
     )
     browser_profile_dir = _env_path("SYNTHESIX_BROWSER_PROFILE_DIR", "zendriver-profile", base_dir)
+    search_profile_dir = _env_path("SYNTHESIX_SEARCH_PROFILE_DIR", "search-profile", base_dir)
 
     return AppSettings(
         base_dir=base_dir,
@@ -212,6 +221,17 @@ def _build_settings() -> AppSettings:
             base_dir,
         ),
         browser_profile_dir=browser_profile_dir,
+        search_profile_dir=search_profile_dir,
+        search_browser_mode=_env_choice(
+            "SYNTHESIX_SEARCH_BROWSER",
+            "separate",
+            {"shared", "separate"},
+        ),
+        search_window_mode=_env_choice(
+            "SYNTHESIX_SEARCH_WINDOW_MODE",
+            "offscreen",
+            {"visible", "minimized", "offscreen", "headless"},
+        ),
         browser_type=_env_str("SYNTHESIX_BROWSER", "auto"),
         browser_executable_path=_env_optional_path("SYNTHESIX_BROWSER_EXECUTABLE_PATH", base_dir),
         browser_connection_timeout=_env_float("SYNTHESIX_BROWSER_CONNECTION_TIMEOUT", 0.25),

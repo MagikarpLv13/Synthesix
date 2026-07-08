@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from browser_manager import (
     FLATPAK_BRAVE_APP_ID,
+    SEARCH_BROWSER_OFFSCREEN_ARGS,
     _build_zendriver_config,
     _clear_profile_browsing_data,
     _ensure_synthesix_bookmark,
@@ -18,6 +19,7 @@ from browser_manager import (
     _find_native_browser_executable,
     _mark_profile_exited_cleanly,
     _resolve_browser_executable,
+    _search_browser_args,
     detect_synthesix_extension,
 )
 from settings import get_settings
@@ -177,6 +179,67 @@ class BrowserManagerTestCase(unittest.TestCase):
             "--disable-features=DisableLoadExtensionCommandLineSwitch",
             config.browser_args,
         )
+
+    def test_search_zendriver_config_uses_search_profile_without_extension(self):
+        with TemporaryDirectory() as temp_dir:
+            self._write_extension_build(Path(temp_dir))
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_PROFILE_DIR": "search-profile",
+                "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "bin/chrome.exe",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            config = _build_zendriver_config(
+                settings,
+                profile_dir=settings.search_profile_dir,
+                load_extension=False,
+                browser_args=_search_browser_args(settings),
+            )
+
+        self.assertEqual(config.user_data_dir, str(settings.search_profile_dir))
+        self.assertFalse(any(arg.startswith("--load-extension=") for arg in config.browser_args))
+        self.assertFalse(config.headless)
+        for argument in SEARCH_BROWSER_OFFSCREEN_ARGS:
+            self.assertIn(argument, config.browser_args)
+
+    def test_search_zendriver_config_supports_headless_mode(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_WINDOW_MODE": "headless",
+                "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "bin/chrome.exe",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            config = _build_zendriver_config(
+                settings,
+                profile_dir=settings.search_profile_dir,
+                load_extension=False,
+                browser_args=_search_browser_args(settings),
+                headless=settings.search_window_mode == "headless",
+        )
+
+        self.assertTrue(config.headless)
+        self.assertFalse(
+            any(
+                argument.startswith("--window-") or argument == "--start-minimized"
+                for argument in config.browser_args
+            )
+        )
+
+    def test_search_browser_args_support_offscreen_mode(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_WINDOW_MODE": "offscreen",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+        self.assertIn("--window-position=-32000,-32000", _search_browser_args(settings))
 
     def test_zendriver_config_skips_extension_when_mode_off(self):
         with TemporaryDirectory() as temp_dir:

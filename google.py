@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import quote_plus, urlencode, urlsplit
 
-from browser import click_at
+from browser import click_at, get_browser_service
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
@@ -113,7 +113,9 @@ class GoogleSearchEngine(SearchEngine):
 
         logger.warning("Robot detected by Google, captcha resolution is required.")
         try:
-            await self.tab.activate()
+            await get_browser_service(self.browser).show_tab_window_for_manual_interaction(
+                self.tab
+            )
         except Exception:
             logger.debug("Unable to focus the Google challenge tab", exc_info=True)
 

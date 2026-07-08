@@ -82,6 +82,30 @@ BROWSER_PROFILE_DATA_PATHS = (
     "Default/Sessions",
 )
 
+SEARCH_BROWSER_VISIBLE_ARGS = (
+    "--window-size=1280,900",
+    "--window-position=1600,80",
+)
+SEARCH_BROWSER_MINIMIZED_ARGS = (
+    *SEARCH_BROWSER_VISIBLE_ARGS,
+    "--start-minimized",
+)
+SEARCH_BROWSER_OFFSCREEN_ARGS = (
+    "--window-size=1280,900",
+    "--window-position=-32000,-32000",
+)
+
+
+def _search_browser_args(settings: AppSettings) -> tuple[str, ...]:
+    mode = getattr(settings, "search_window_mode", "offscreen")
+    if mode == "visible":
+        return SEARCH_BROWSER_VISIBLE_ARGS
+    if mode == "offscreen":
+        return SEARCH_BROWSER_OFFSCREEN_ARGS
+    if mode == "headless":
+        return ()
+    return SEARCH_BROWSER_MINIMIZED_ARGS
+
 # The background worker filename is revision-stamped by the frontend build
 # (dist/background-<revision>.js) and resolved from the manifest instead of
 # being listed here.
@@ -406,7 +430,14 @@ async def detect_synthesix_extension(browser, settings: AppSettings) -> bool:
     return any(str(getattr(target, "url", "")).startswith(expected_prefix) for target in targets)
 
 
-def _build_zendriver_config(settings: AppSettings) -> Config:
+def _build_zendriver_config(
+    settings: AppSettings,
+    *,
+    profile_dir: Path | None = None,
+    load_extension: bool = True,
+    browser_args: tuple[str, ...] = (),
+    headless: bool = False,
+) -> Config:
     browser_executable_path = _resolve_browser_executable(settings)
     if browser_executable_path is not None:
         logger.info("Using browser executable: %s", browser_executable_path)
@@ -429,9 +460,22 @@ def _build_zendriver_config(settings: AppSettings) -> Config:
             "browser executable or an executable wrapper."
         ) from exc
 
-    config.user_data_dir = str(settings.browser_profile_dir)
-    _configure_extension_launch(config, settings)
+    config.user_data_dir = str(profile_dir or settings.browser_profile_dir)
+    config.headless = headless
+    for argument in browser_args:
+        config.add_argument(argument)
+    if load_extension:
+        _configure_extension_launch(config, settings)
     return config
+
+
+def clear_browser_profile_data(profile_dir: str | Path, home_url: str | None = None) -> int:
+    profile_path = Path(profile_dir)
+    removed = _clear_profile_browsing_data(str(profile_path))
+    _mark_profile_exited_cleanly(str(profile_path))
+    if home_url:
+        _ensure_synthesix_bookmark(str(profile_path), home_url)
+    return removed
 
 
 class HeadlessBrowserManager:
@@ -443,37 +487,73 @@ class HeadlessBrowserManager:
         self.settings: AppSettings | None = None
         self.extension_id: str | None = None
         self.extension_available: bool = False
+        self.ensure_bookmark: bool = True
+        self.load_extension: bool = True
+        self.browser_args: tuple[str, ...] = ()
+        self.headless: bool = False
 
     @classmethod
-    async def create(cls, home_url: str | None = None, settings: AppSettings | None = None):
+    async def create(
+        cls,
+        home_url: str | None = None,
+        settings: AppSettings | None = None,
+        *,
+        profile_dir: Path | None = None,
+        ensure_bookmark: bool = True,
+        load_extension: bool = True,
+        browser_args: tuple[str, ...] = (),
+        headless: bool = False,
+    ):
         self = cls()
         settings = settings or get_settings()
         self.settings = settings
         self.home_url = home_url
-        custom_profile = settings.browser_profile_dir
+        self.ensure_bookmark = ensure_bookmark
+        self.load_extension = load_extension
+        self.browser_args = tuple(browser_args)
+        self.headless = headless
+        custom_profile = profile_dir or settings.browser_profile_dir
         os.makedirs(custom_profile, exist_ok=True)
         self.profile_dir = str(custom_profile)
         _mark_profile_exited_cleanly(str(custom_profile))
-        if home_url:
+        if home_url and ensure_bookmark:
             _ensure_synthesix_bookmark(str(custom_profile), home_url)
 
-        config = _build_zendriver_config(settings)
-
-        """⚠️ Headless mode is not working with Brave, instant flag as a robot 🤖.
-        """
-        # config.headless = True
+        config = _build_zendriver_config(
+            settings,
+            profile_dir=custom_profile,
+            load_extension=load_extension,
+            browser_args=self.browser_args,
+            headless=headless,
+        )
 
         self.browser = await uc.start(config=config)
         self.service = get_browser_service(self.browser)
-        self.extension_id = _expected_extension_id(settings)
-        self.extension_available = await detect_synthesix_extension(self.browser, settings)
-        if _extension_enabled(settings) and not self.extension_available:
+        self.extension_id = _expected_extension_id(settings) if load_extension else None
+        self.extension_available = (
+            await detect_synthesix_extension(self.browser, settings)
+            if load_extension
+            else False
+        )
+        if load_extension and _extension_enabled(settings) and not self.extension_available:
             logger.warning(
                 "Synthesix extension is not active in the browser profile. "
                 "Manual unpacked installation may be required: %s",
                 settings.extension_dir / "README.md",
             )
         return self
+
+    @classmethod
+    async def create_search(cls, settings: AppSettings | None = None):
+        settings = settings or get_settings()
+        return await cls.create(
+            settings=settings,
+            profile_dir=settings.search_profile_dir,
+            ensure_bookmark=False,
+            load_extension=False,
+            browser_args=_search_browser_args(settings),
+            headless=getattr(settings, "search_window_mode", "offscreen") == "headless",
+        )
 
     async def get_driver(self):
         return self.browser
@@ -503,16 +583,28 @@ class HeadlessBrowserManager:
 
         await self._clear_live_browser_data()
         await self.stop()
-        removed = _clear_profile_browsing_data(self.profile_dir)
-        _mark_profile_exited_cleanly(self.profile_dir)
-        if self.home_url:
-            _ensure_synthesix_bookmark(self.profile_dir, self.home_url)
+        removed = clear_browser_profile_data(
+            self.profile_dir,
+            self.home_url if self.ensure_bookmark else None,
+        )
 
-        config = _build_zendriver_config(self.settings)
+        config = _build_zendriver_config(
+            self.settings,
+            profile_dir=Path(self.profile_dir),
+            load_extension=self.load_extension,
+            browser_args=self.browser_args,
+            headless=self.headless,
+        )
         self.browser = await uc.start(config=config)
         self.service = get_browser_service(self.browser)
-        self.extension_id = _expected_extension_id(self.settings)
-        self.extension_available = await detect_synthesix_extension(self.browser, self.settings)
+        self.extension_id = (
+            _expected_extension_id(self.settings) if self.load_extension else None
+        )
+        self.extension_available = (
+            await detect_synthesix_extension(self.browser, self.settings)
+            if self.load_extension
+            else False
+        )
         logger.info("Browser profile data cleared (%s paths removed).", removed)
         return self.browser
 

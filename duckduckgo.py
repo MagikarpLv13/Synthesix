@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 from lxml import html
 
+from browser import get_browser_service
 from exceptions import RobotChallengeError
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
@@ -505,7 +506,9 @@ class DuckDuckGoSearchEngine(SearchEngine):
             return False
 
         try:
-            await self.tab.bring_to_front()
+            await get_browser_service(self.browser).show_tab_window_for_manual_interaction(
+                self.tab
+            )
         except Exception:
             logger.debug("Unable to focus the DuckDuckGo challenge tab", exc_info=True)
 

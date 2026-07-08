@@ -4343,3 +4343,287 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Relais :** utilisateur : relancer Synthesix et rejouer le smoke T-035.
   Après tout `npm run build`, redémarrer Synthesix pour charger le nouveau
   worker (un warning « stale worker » apparaît sinon dans les logs).
+
+### AI-20260708-003 — Smoke T-035 statuts backend vers overlay
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 09:05-09:07
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** compléter le smoke T-035 pour couvrir le canal
+  backend → extension `synthesix:button-status`, puis relancer un smoke Brave
+  réel.
+- **Résultat :**
+  - `tests/manual/smoke_ext_overlay_click.py` extrait le `tabId` réel depuis
+    les actions overlay extension.
+  - Le smoke pousse puis vérifie dans la page les statuts `save`, `capture`
+    et `archive`, en succès et en erreur, via `send_extension_backend_message`.
+  - Smoke Brave réel OK avec profil temporaire, worker révision
+    `ca5203a8cd0ecdf5`, aucun worker périmé, contexte appliqué,
+    `observe_saved_page` reçu et clic contextualisé →
+    `save_page_to_investigation`.
+  - `PROJECT_STATE.md` et
+    `docs/tasks/T-035-contexte-et-statuts-extension.md` consignent que T-035
+    reste en review jusqu'au smoke app complète multi-tabs.
+- **Fichiers modifiés :** `tests/manual/smoke_ext_overlay_click.py`,
+  `docs/tasks/T-035-contexte-et-statuts-extension.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile tests\manual\smoke_ext_overlay_click.py`
+  - `$env:SYNTHESIX_BROWSER='brave'; .venv\Scripts\python.exe tests\manual\smoke_ext_overlay_click.py`
+    — `SMOKE_RESULT OK`.
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_browser_service`
+    — 83 OK.
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :**
+  - Smoke app complète multi-tabs avec changement d'enquête et workflow réel
+    save/capture/archive via dispatcher complet.
+
+### AI-20260708-004 — Clôture T-035 après validation utilisateur
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 12:11
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** consigner le smoke app complète validé par l'utilisateur et
+  clôturer T-035.
+- **Résultat :**
+  - `docs/tasks/T-035-contexte-et-statuts-extension.md` passé à `done`.
+  - `docs/tasks/README.md` marque T-035 en `done`.
+  - `PROJECT_STATE.md` indique T-030..T-035 livrés et validés.
+  - T-036 reste non démarrée : critère d'entrée = une semaine d'usage
+    quotidien en mode extension sans régression signalée.
+- **Fichiers modifiés :** `docs/tasks/T-035-contexte-et-statuts-extension.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** tests Python/frontend, changement limité au suivi Markdown.
+
+### AI-20260708-005 — T-040 navigateur de recherche séparé
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 16:07-16:16
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** démarrer la Phase 4 en isolant la recherche automatisée dans
+  une seconde instance Zendriver avec profil dédié.
+- **Résultat :**
+  - `settings.py` expose `SYNTHESIX_SEARCH_PROFILE_DIR` (défaut
+    `search-profile/`) et `SYNTHESIX_SEARCH_BROWSER=separate|shared`, avec
+    fallback sûr sur `separate`.
+  - `browser_manager.py` accepte un profil/flags paramétrables, ajoute
+    `HeadlessBrowserManager.create_search()` sans extension ni bookmark, et
+    réutilise ces paramètres lors du nettoyage.
+  - `main.py` ajoute `SearchBrowserProvider` : lancement paresseux,
+    réutilisation après ping via `BrowserService`, redémarrage si inaccessible,
+    mode `shared` compatible, arrêt search avant UI.
+  - `perform_search` sépare le navigateur moteur du navigateur UI via
+    `report_browser`, afin que les rapports et refreshs d'enquête restent dans
+    la fenêtre utilisateur.
+  - `clear_browser_data` est refusé pendant une recherche active et nettoie le
+    profil recherche en mode séparé.
+  - `browser/service.py` expose `BrowserService.ping()` pour éviter les appels
+    CDP directs depuis `main.py`.
+  - `.gitignore` ignore `search-profile/`; `README.md`, `PROJECT_STATE.md` et
+    `docs/tasks/*` documentent l'état T-040 en review.
+- **Fichiers modifiés :** `.gitignore`, `browser/service.py`,
+  `browser_manager.py`, `main.py`, `settings.py`, `tests/test_browser_manager.py`,
+  `tests/test_main.py`, `tests/test_settings.py`, `README.md`,
+  `docs/tasks/T-040-navigateur-recherche-separe.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py browser_manager.py settings.py browser\service.py tests\test_main.py tests\test_browser_manager.py tests\test_settings.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_manager tests.test_main tests.test_settings tests.test_browser_service` — 107 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 402 OK
+- **Non exécuté :**
+  - smoke réel T-040 : recherche complète pendant navigation dans la fenêtre UI,
+    absence de tabs moteur dans la fenêtre utilisateur, challenge simulé qui
+    remonte la fenêtre recherche, quit sans process orphelin.
+- **Relais :** T-040 reste en `review` jusqu'au smoke réel. Après validation,
+  passer T-040 à `done`, puis démarrer T-041.
+
+### AI-20260708-006 — T-040 discrétion fenêtre et nettoyage `about:blank`
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 17:46-17:51
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** corriger le tab/fenêtre `about:blank` restant dans le
+  navigateur de recherche et retester une option plus discrète, incluant
+  headless.
+- **Résultat :**
+  - `browser/service.py` ajoute `BrowserService.close_blank_tabs()` pour fermer
+    les tabs idle `about:blank`, URL vide et `chrome://newtab/`.
+  - `main.py` appelle ce nettoyage après une recherche ou un retry, uniquement
+    sur le navigateur de recherche séparé.
+  - `settings.py` ajoute `SYNTHESIX_SEARCH_WINDOW_MODE` :
+    `minimized` par défaut, `visible`, `offscreen`, `headless`.
+  - `browser_manager.py` applique les flags de fenêtre selon ce mode et active
+    `config.headless=True` seulement en mode `headless`.
+  - `README.md`, `PROJECT_STATE.md` et T-040 documentent le mode minimisé par
+    défaut et le statut de headless.
+- **Fichiers modifiés :** `browser/service.py`, `browser_manager.py`,
+  `main.py`, `settings.py`, `tests/test_browser_service.py`,
+  `tests/test_browser_manager.py`, `tests/test_main.py`,
+  `tests/test_settings.py`, `README.md`,
+  `docs/tasks/T-040-navigateur-recherche-separe.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py browser_manager.py settings.py browser\service.py tests\test_main.py tests\test_browser_manager.py tests\test_settings.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_manager tests.test_settings tests.test_browser_service tests.test_main` — 112 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 407 OK
+  - Smoke Brave headless minimal : démarrage du navigateur de recherche +
+    navigation `https://example.com/` — OK
+  - Smoke moteur DuckDuckGo en Brave headless : KO attendu, challenge
+    anti-robot immédiat non résolu dans le timeout court
+- **Non exécuté :**
+  - Smoke app complet avec `SYNTHESIX_SEARCH_WINDOW_MODE=minimized` sur une
+    recherche réelle utilisateur.
+- **Relais :** demander à l'utilisateur de retester avec le mode par défaut
+  minimisé. `headless` reste opt-in pour diagnostics, pas défaut.
+
+### AI-20260708-007 — T-040 affichage anti-robot en headless
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 21:35-21:40
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** permettre un essai `SYNTHESIX_SEARCH_WINDOW_MODE=headless`
+  sans fenêtre de recherche visible, tout en affichant l'artefact anti-robot
+  si le moteur bloque.
+- **Résultat :**
+  - `main.py` extrait les `RobotChallengeError` directs ou agrégés et choisit
+    l'artefact capturé prioritaire : HTML, puis PNG, puis TXT.
+  - En mode `headless`, `perform_search` ouvre cet artefact dans le navigateur
+    UI (`report_browser`) et retourne un statut clair :
+    recherche arrêtée par challenge anti-robot + nom du fichier ouvert.
+  - Test unitaire ajouté pour vérifier l'ouverture de l'artefact capturé.
+  - Smoke réel Brave headless + DuckDuckGo : challenge capturé et HTML ouvert
+    dans le navigateur UI temporaire.
+- **Fichiers modifiés :** `main.py`, `tests/test_main.py`, `README.md`,
+  `docs/tasks/T-040-navigateur-recherche-separe.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py tests\test_main.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_main` — 55 OK
+  - Smoke réel Brave headless + DuckDuckGo : `HEADLESS_UI_CHALLENGE_SMOKE`
+    retourne le message attendu et ouvre l'HTML capturé dans l'UI
+  - `.venv\Scripts\python.exe -m unittest discover` — 408 OK
+- **Non exécuté :** smoke app complet lancé par `python main.py` avec les
+  variables utilisateur persistantes.
+- **Relais :** pour tester en full headless :
+  `$env:SYNTHESIX_SEARCH_WINDOW_MODE='headless'; python main.py`.
+
+### AI-20260708-008 — T-040 suppression du pop Brave search
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 22:28-22:30
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** empêcher la fenêtre de recherche Brave de pop à l'écran en
+  mode non-headless et supprimer la fenêtre résiduelle `about:blank`.
+- **Résultat :**
+  - `SYNTHESIX_SEARCH_WINDOW_MODE` passe de `minimized` à `offscreen` par
+    défaut, car Brave/Zendriver peut ignorer `--start-minimized`.
+  - `browser_manager.py` utilise maintenant `--window-position=-32000,-32000`
+    par défaut pour la fenêtre search, tout en gardant `visible`,
+    `minimized` et `headless` disponibles.
+  - `main.py` stoppe entièrement l'instance navigateur de recherche si, après
+    une recherche/retry, il ne reste que des tabs vides (`about:blank`,
+    URL vide ou `chrome://newtab/`). Cela évite la fenêtre vide résiduelle.
+  - Tests ajustés pour le nouveau défaut et le stop automatique.
+- **Fichiers modifiés :** `main.py`, `settings.py`, `browser_manager.py`,
+  `tests/test_main.py`, `tests/test_settings.py`,
+  `tests/test_browser_manager.py`, `README.md`,
+  `docs/tasks/T-040-navigateur-recherche-separe.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py browser_manager.py settings.py tests\test_main.py tests\test_browser_manager.py tests\test_settings.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_main tests.test_settings tests.test_browser_manager` — 79 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 409 OK
+- **Non exécuté :** smoke visuel utilisateur avec `python main.py` relancé
+  depuis son `.bat`.
+- **Relais :** relancer Synthesix ; un refresh de page ne suffit pas, car le
+  mode fenêtre est appliqué au lancement Zendriver.
+
+### AI-20260708-009 — T-040 fenêtre visible sur captcha manuel
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 22:33-22:37
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** rendre un captcha Google/Brave/DuckDuckGo résoluble lorsque
+  le navigateur de recherche est lancé hors écran.
+- **Résultat :**
+  - `BrowserService.show_tab_window_for_manual_interaction()` encapsule
+    `Browser.getWindowForTarget` + `Browser.setWindowBounds` et replace la
+    fenêtre à `(80, 80)` en `1280×900`, état normal, puis focus le tab.
+  - Le helper accepte `bring_to_front()` ou `activate()` selon la surface du
+    tab, pour préserver les doubles de test et Zendriver.
+  - `google.py`, `brave.py` et `duckduckgo.py` appellent ce helper dès qu'un
+    challenge manuel est détecté.
+  - En pratique : en mode `offscreen`, la fenêtre ne pop pas pendant la
+    recherche normale ; si Google affiche un captcha, Synthesix ramène la
+    fenêtre à l'écran pour que l'utilisateur puisse le résoudre.
+- **Fichiers modifiés :** `browser/service.py`, `google.py`, `brave.py`,
+  `duckduckgo.py`, `tests/test_browser_service.py`,
+  `docs/tasks/T-040-navigateur-recherche-separe.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py google.py brave.py duckduckgo.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service tests.test_engines.GoogleRobotCheckTestCase` — 42 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 410 OK
+- **Non exécuté :** résolution manuelle réelle du captcha Google utilisateur.
+- **Relais :** si un captcha apparaît, résoudre dans la fenêtre search ramenée
+  à l'écran ; Synthesix reprend ensuite automatiquement.
+
+### AI-20260709-001 — T-040 fix fenêtre `about:blank` résiduelle (zendriver `Tab.closed`)
+
+- **Agent :** Claude
+- **Période UTC :** 2026-07-09
+- **Branche / commits :** `feat/lit-frontend`, non committé (au-dessus du lot T-040 Codex non committé)
+- **Objectif :** l'utilisateur voyait toujours une fenêtre Brave `about:blank`
+  résiduelle après recherche, malgré le stop-si-tabs-vides d'AI-20260708-008.
+- **Cause racine :** `zendriver.Connection.closed` signifie « websocket non
+  attaché » (`self.websocket is None`), pas « tab fermé ». Le tab initial
+  `about:blank` du navigateur search n'est jamais contacté (les moteurs ouvrent
+  leurs propres tabs via `new_tab=True`), donc son websocket reste `None` et
+  `closed=True`. `cleanup_idle_tabs` le filtrait comme fermé → `live_tabs`
+  vide → pas de stop ; `close_blank_tabs` le sautait pareil → instance Brave
+  jamais arrêtée → fenêtre résiduelle.
+- **Résultat :**
+  - `main.py::SearchBrowserProvider.cleanup_idle_tabs` n'utilise plus
+    `Tab.closed` : il lit la liste resynchronisée via `BrowserService.tabs()`
+    et stoppe l'instance si `None` (injoignable), vide ou tout-blank ;
+  - `browser/service.py::close_blank_tabs` ne saute plus les tabs
+    `closed=True` (commentaire de garde ajouté) ;
+  - tests mis à jour + régressions : tab blank `closed=True` → stop ;
+    navigateur injoignable → stop ; `close_blank_tabs` ferme un tab au
+    websocket jamais ouvert.
+- **Fichiers modifiés :** `main.py`, `browser/service.py`,
+  `tests/test_main.py`, `tests/test_browser_service.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py browser\service.py tests\test_main.py tests\test_browser_service.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_browser_service tests.test_main` — 94 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 412 OK
+  - Smoke réel : lancement navigateur search (mode `offscreen`), ouverture +
+    fermeture d'un tab moteur simulé, `cleanup_idle_tabs()` → process Brave
+    terminé (`pid_exists` False), aucune fenêtre résiduelle.
+- **Non exécuté :** recherche complète via `python main.py` par l'utilisateur.
+- **Relais :** rien ; le comportement documenté en AI-20260708-008 fonctionne
+  désormais réellement.
+
+### AI-20260708-010 — Loader visible pendant recherche
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-08 22:57-23:00
+- **Branche / commits :** `feat/lit-frontend`, commit local à créer
+- **Objectif :** rendre l'état "recherche en cours" plus visible dans l'accueil
+  avant de committer le lot T-040 validé.
+- **Résultat :**
+  - `index.html` affiche un spinner dans le bouton `Search` et une ligne de
+    progression indéterminée sous le champ pendant `setSearchRunning(true)`.
+  - `theme.css` ajoute les styles du loader, avec respect de
+    `prefers-reduced-motion`.
+  - La chaîne visible réutilise `Search in progress...`, déjà présente dans
+    `i18n.js`.
+- **Fichiers modifiés :** `index.html`, `theme.css`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `node -e ...` — syntaxe des 4 scripts inline de `index.html` OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 412 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement
+- **Non exécuté :** smoke visuel navigateur du loader.
+- **Relais :** aucun.

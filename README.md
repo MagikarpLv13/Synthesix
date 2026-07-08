@@ -117,7 +117,10 @@ Session behavior:
 - **Clear browser data** restarts the automated browser after removing browsing history, cookies, cache, sessions, and site storage from the Synthesix profile.
 - The VPN indicator checks the public IP used by Chrome when the home page opens. Click the indicator to refresh it.
 
-Browser-data cleanup affects only `zendriver-profile/`, not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark and saved browser passwords, but clearing cookies signs out active website sessions.
+Browser-data cleanup affects only `zendriver-profile/` and `search-profile/`,
+not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark
+and saved browser passwords in the user profile, but clearing cookies signs out
+active website sessions.
 
 ### Investigation workflow
 
@@ -403,6 +406,7 @@ Synthesix generates local runtime artifacts. They are ignored by Git and should 
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
 | `data/evidence/` | Explicit PNG screenshots, sanitized page archives, normalized text, comparison reports, and provenance manifests. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
+| `search-profile/` | Persistent Chrome/Chromium profile used by the separate automated search browser. |
 | `history/` | Generated result reports and history page. |
 | `history/history.html` | Search history UI. |
 | `history/search_results_*.html` | Generated search result reports. |
@@ -434,6 +438,9 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
 | `SYNTHESIX_DEBUG_HTML_DIR` | Directory used for raw engine HTML captures. |
 | `SYNTHESIX_BROWSER_PROFILE_DIR` | Chrome/Chromium profile directory. |
+| `SYNTHESIX_SEARCH_PROFILE_DIR` | Chrome/Chromium profile directory for the separate automated search browser. |
+| `SYNTHESIX_SEARCH_BROWSER` | Search browser mode: `separate` uses `SYNTHESIX_SEARCH_PROFILE_DIR`; `shared` restores the previous single-browser behavior. |
+| `SYNTHESIX_SEARCH_WINDOW_MODE` | Search browser window mode: `offscreen` (default), `visible`, `minimized`, or `headless`. Headless is opt-in because search engines can challenge it more aggressively. |
 | `SYNTHESIX_BROWSER` | Zendriver browser type: `auto`, `chrome`, or `brave`. |
 | `SYNTHESIX_BROWSER_EXECUTABLE_PATH` | Explicit Chrome/Brave executable path when autodetection is not enough. |
 | `SYNTHESIX_BROWSER_CONNECTION_TIMEOUT` | Delay between Zendriver browser connection checks. |
@@ -475,6 +482,11 @@ foreground, captures it in `history/robot_challenges/`, waits up to 75 seconds b
 default, and resumes when results become available. Keep
 `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` greater than
 `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT`.
+
+When `SYNTHESIX_SEARCH_WINDOW_MODE=headless`, a visual challenge cannot be
+solved in the hidden search browser. Synthesix still captures the challenge and
+opens the saved artifact in the main UI browser so the analyst can inspect what
+blocked the search.
 
 ### Linux Browser Detection
 

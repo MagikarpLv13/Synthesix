@@ -244,6 +244,76 @@ class BrowserService:
         await self.browser.update_targets()
         return await self.browser._get_targets()
 
+    async def ping(self) -> bool:
+        return await self._resync_targets() is not None
+
+    async def close_blank_tabs(self) -> int:
+        # Do not filter on ``Tab.closed``: zendriver defines it as "no
+        # websocket attached", which is also true for the untouched initial
+        # ``about:blank`` tab — the very one this method must close.
+        closed = 0
+        for tab in list(getattr(self.browser, "tabs", ())):
+            if str(getattr(tab, "url", "") or "").strip().lower() not in {
+                "",
+                "about:blank",
+                "chrome://newtab/",
+            }:
+                continue
+            try:
+                await asyncio.wait_for(tab.close(), timeout=5.0)
+            except Exception:
+                logger.debug("Unable to close blank browser tab", exc_info=True)
+            else:
+                closed += 1
+        return closed
+
+    async def show_tab_window_for_manual_interaction(
+        self,
+        tab,
+        *,
+        left: int = 80,
+        top: int = 80,
+        width: int = 1280,
+        height: int = 900,
+    ) -> None:
+        async def focus_tab() -> None:
+            if hasattr(tab, "bring_to_front"):
+                await tab.bring_to_front()
+            elif hasattr(tab, "activate"):
+                await tab.activate()
+
+        target_id = getattr(tab, "target_id", None)
+        if not target_id:
+            await focus_tab()
+            return
+        connection = getattr(tab, "connection", None) or getattr(
+            self.browser,
+            "connection",
+            None,
+        )
+        if connection is None:
+            await focus_tab()
+            return
+        try:
+            window_id, _bounds = await connection.send(
+                cdp.browser.get_window_for_target(cdp.target.TargetID(target_id))
+            )
+            await connection.send(
+                cdp.browser.set_window_bounds(
+                    window_id,
+                    cdp.browser.Bounds(
+                        left=left,
+                        top=top,
+                        width=width,
+                        height=height,
+                        window_state=cdp.browser.WindowState.NORMAL,
+                    ),
+                )
+            )
+        except Exception:
+            logger.debug("Unable to move browser window on screen", exc_info=True)
+        await focus_tab()
+
     async def tabs(self) -> list | None:
         """Live page tabs, or ``None`` when the browser is unreachable.
 

@@ -25,6 +25,7 @@ __pycache__/
 
 # zendriver
 zendriver-profile/
+search-profile/
 search_results_*.html
 
 # Build outputs

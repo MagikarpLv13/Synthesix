@@ -30,6 +30,7 @@ from main import (
     _overlay_injection_blocked,
     _log_level_from_args,
     _open_or_refresh_investigation_page,
+    perform_search,
     _prepare_base_query,
     _retry_search_combination,
     _run_retry_search_action,
@@ -42,10 +43,11 @@ from main import (
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
     parse_cli_args,
+    SearchBrowserProvider,
     wait_for_home_action,
 )
 from browser import BrowserService, get_browser_service
-from exceptions import InvestigationValidationError
+from exceptions import InvestigationValidationError, RobotChallengeError
 from settings import get_settings
 
 
@@ -1424,6 +1426,137 @@ class BackgroundSearchTaskTestCase(unittest.IsolatedAsyncioTestCase):
         running.assert_awaited_once()
         self.assertFalse(running.await_args.args[2])
 
+    async def test_run_search_action_uses_separate_search_browser_for_engines(self):
+        user_browser = object()
+        search_browser = object()
+        provider = SimpleNamespace(
+            get_browser=AsyncMock(return_value=search_browser),
+            cleanup_idle_tabs=AsyncMock(),
+        )
+
+        with (
+            patch("main.perform_search", new=AsyncMock(return_value=None)) as search,
+            patch("main._set_home_search_running", new=AsyncMock()),
+        ):
+            await _run_search_action(
+                user_browser,
+                "file:///index.html",
+                {"original_query": "query"},
+                provider,
+            )
+
+        search.assert_awaited_once()
+        self.assertIs(search.await_args.kwargs["browser"], search_browser)
+        self.assertIs(search.await_args.kwargs["report_browser"], user_browser)
+        provider.cleanup_idle_tabs.assert_awaited_once()
+
+    async def test_headless_robot_challenge_opens_captured_artifact(self):
+        with TemporaryDirectory() as temp_dir:
+            artifact_path = Path(temp_dir) / "history" / "robot_challenges" / "challenge.html"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_text("<html>challenge</html>", encoding="utf-8")
+            challenge = RobotChallengeError(
+                "duckduckgo",
+                "challenge",
+                captured_artifacts={"html": str(artifact_path)},
+            )
+            searcher = SimpleNamespace(search=AsyncMock(side_effect=challenge))
+            challenge_tab = SimpleNamespace(bring_to_front=AsyncMock())
+            service = SimpleNamespace(open_tab=AsyncMock(return_value=challenge_tab))
+            report_browser = object()
+
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        "SYNTHESIX_BASE_DIR": temp_dir,
+                        "SYNTHESIX_SEARCH_WINDOW_MODE": "headless",
+                    },
+                    clear=True,
+                ),
+                patch("main.SearchOrchestrator", return_value=searcher),
+                patch("main.get_browser_service", return_value=service),
+            ):
+                message = await perform_search(
+                    "query",
+                    '"query"',
+                    object(),
+                    {"duckduckgo": True},
+                    1,
+                    report_browser=report_browser,
+                )
+
+        self.assertIn("anti-robot challenge", message)
+        service.open_tab.assert_awaited_once_with(artifact_path.resolve().as_uri())
+        challenge_tab.bring_to_front.assert_awaited_once()
+
+    async def test_search_browser_provider_cleanup_closes_blank_tabs(self):
+        search_browser = object()
+        service = SimpleNamespace(
+            tabs=AsyncMock(
+                return_value=[
+                    SimpleNamespace(url="https://example.com/"),
+                    SimpleNamespace(url="about:blank"),
+                ]
+            ),
+            close_blank_tabs=AsyncMock(return_value=1),
+        )
+        search_manager = SimpleNamespace(browser=search_browser)
+        provider = SearchBrowserProvider(
+            SimpleNamespace(search_browser_mode="separate"),
+            SimpleNamespace(),
+        )
+        provider.search_browser_manager = search_manager
+
+        with patch("main.get_browser_service", return_value=service) as get_service:
+            await provider.cleanup_idle_tabs()
+
+        get_service.assert_called_once_with(search_browser)
+        service.close_blank_tabs.assert_awaited_once()
+
+    async def test_search_browser_provider_cleanup_stops_when_only_blank_tabs_remain(self):
+        search_browser = object()
+        # The initial about:blank tab never gets a websocket, so zendriver
+        # reports it closed=True; the provider must still count it as live.
+        service = SimpleNamespace(
+            tabs=AsyncMock(
+                return_value=[SimpleNamespace(url="about:blank", closed=True)]
+            ),
+            close_blank_tabs=AsyncMock(),
+        )
+        search_manager = SimpleNamespace(browser=search_browser, stop=AsyncMock())
+        provider = SearchBrowserProvider(
+            SimpleNamespace(search_browser_mode="separate"),
+            SimpleNamespace(),
+        )
+        provider.search_browser_manager = search_manager
+
+        with patch("main.get_browser_service", return_value=service):
+            await provider.cleanup_idle_tabs()
+
+        search_manager.stop.assert_awaited_once()
+        service.close_blank_tabs.assert_not_awaited()
+        self.assertIsNone(provider.search_browser_manager)
+
+    async def test_search_browser_provider_cleanup_stops_unreachable_browser(self):
+        service = SimpleNamespace(
+            tabs=AsyncMock(return_value=None),
+            close_blank_tabs=AsyncMock(),
+        )
+        search_manager = SimpleNamespace(browser=object(), stop=AsyncMock())
+        provider = SearchBrowserProvider(
+            SimpleNamespace(search_browser_mode="separate"),
+            SimpleNamespace(),
+        )
+        provider.search_browser_manager = search_manager
+
+        with patch("main.get_browser_service", return_value=service):
+            await provider.cleanup_idle_tabs()
+
+        search_manager.stop.assert_awaited_once()
+        service.close_blank_tabs.assert_not_awaited()
+        self.assertIsNone(provider.search_browser_manager)
+
     async def test_run_search_action_reports_unexpected_failure(self):
         with (
             patch(
@@ -1463,6 +1596,70 @@ class BackgroundSearchTaskTestCase(unittest.IsolatedAsyncioTestCase):
         status.assert_not_awaited()
         running.assert_awaited_once()
         self.assertFalse(running.await_args.args[2])
+
+    async def test_search_browser_provider_shared_uses_user_browser(self):
+        user_browser = object()
+        user_manager = SimpleNamespace(get_driver=AsyncMock(return_value=user_browser))
+        provider = SearchBrowserProvider(
+            SimpleNamespace(search_browser_mode="shared"),
+            user_manager,
+        )
+
+        browser = await provider.get_browser()
+
+        self.assertIs(browser, user_browser)
+        user_manager.get_driver.assert_awaited_once()
+
+    async def test_search_browser_provider_separate_reuses_alive_browser(self):
+        search_browser = SimpleNamespace(
+            tabs=[],
+            update_targets=AsyncMock(),
+            _get_targets=AsyncMock(
+                return_value=[SimpleNamespace(target_id="tab-1", type_="page")]
+            ),
+        )
+        search_manager = SimpleNamespace(
+            browser=search_browser,
+            get_driver=AsyncMock(return_value=search_browser),
+            stop=AsyncMock(),
+        )
+        user_manager = SimpleNamespace()
+        provider = SearchBrowserProvider(
+            SimpleNamespace(search_browser_mode="separate"),
+            user_manager,
+        )
+
+        with patch(
+            "main.HeadlessBrowserManager.create_search",
+            new=AsyncMock(return_value=search_manager),
+        ) as create_search:
+            first = await provider.get_browser()
+            second = await provider.get_browser()
+
+        self.assertIs(first, search_browser)
+        self.assertIs(second, search_browser)
+        create_search.assert_awaited_once()
+        search_browser.update_targets.assert_awaited_once()
+        search_browser._get_targets.assert_awaited_once()
+
+    async def test_search_browser_provider_clear_stops_and_clears_profile(self):
+        search_manager = SimpleNamespace(browser=object(), stop=AsyncMock())
+        provider = SearchBrowserProvider(
+            SimpleNamespace(
+                search_browser_mode="separate",
+                search_profile_dir=Path("search-profile"),
+            ),
+            SimpleNamespace(),
+        )
+        provider.search_browser_manager = search_manager
+
+        with patch("main.clear_browser_profile_data", return_value=4) as clear_profile:
+            removed = await provider.clear_browser_data()
+
+        self.assertEqual(removed, 4)
+        search_manager.stop.assert_awaited_once()
+        clear_profile.assert_called_once_with(Path("search-profile"))
+        self.assertIsNone(provider.search_browser_manager)
 
     async def test_start_search_task_logs_unhandled_exception(self):
         async def broken():

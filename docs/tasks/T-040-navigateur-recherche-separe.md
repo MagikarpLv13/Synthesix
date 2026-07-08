@@ -1,6 +1,6 @@
 # T-040 — Navigateur de recherche séparé
 
-- **Statut** : todo
+- **Statut** : review
 - **Priorité** : P1 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-010, T-011 (recherche annulable) ; T-014 utile mais pas
@@ -88,3 +88,47 @@ Smoke réel obligatoire (scénarios ci-dessus), consigné.
 - Empreinte de la fenêtre réduite (viewport minuscule) : garder une taille
   réaliste (ex. 1280×900 hors écran plutôt que minimisée) — les moteurs
   rendent des layouts différents sous 400 px.
+
+## Résultat 2026-07-08 — Implémentation en review
+
+- `SYNTHESIX_SEARCH_BROWSER=separate` démarre paresseusement une instance
+  Zendriver dédiée à la recherche, profil `search-profile/`, sans extension ni
+  bookmark, avec fenêtre 1280×900 positionnée séparément.
+- `SYNTHESIX_SEARCH_BROWSER=shared` conserve le comportement historique.
+- Les recherches et retries utilisent le navigateur de recherche ; les statuts
+  home, refreshs de pages d'enquête et rapports restent dans le navigateur UI.
+- `clear_browser_data` est refusé pendant une recherche active et nettoie les
+  deux profils en mode séparé.
+- Arrêt propre : le navigateur de recherche est stoppé avant le navigateur UI.
+- Tests unitaires et suite complète verts ; smoke réel focus/challenge encore
+  à exécuter avant passage `done`.
+
+## Correctif 2026-07-08 — Onglet vide et discrétion
+
+- Le navigateur de recherche nettoie les tabs idle `about:blank`, URL vide et
+  `chrome://newtab/` après une recherche ou un retry, via `BrowserService`.
+- `SYNTHESIX_SEARCH_WINDOW_MODE` contrôle la discrétion :
+  - `offscreen` par défaut : fenêtre 1280×900 positionnée hors écran ;
+  - `visible` : fenêtre séparée visible ;
+  - `minimized` : fenêtre lancée minimisée, dépendant du support Brave ;
+  - `headless` : `config.headless=True`, sans flags de fenêtre.
+- Si après une recherche/retry il ne reste que des tabs vides, l'instance
+  navigateur de recherche est stoppée pour supprimer la fenêtre `about:blank`
+  résiduelle.
+- Lorsqu'un captcha/challenge manuel est détecté en mode fenêtre (`offscreen`,
+  `minimized` ou `visible`), Synthesix replace temporairement la fenêtre de
+  recherche à l'écran (80,80 ; 1280×900) et la focus pour résolution humaine.
+- Smoke minimal Brave headless OK : démarrage + navigation `https://example.com/`.
+- Smoke moteur DuckDuckGo en Brave headless KO : challenge anti-robot immédiat
+  non résolu dans le timeout court. Conclusion : headless reste opt-in, pas
+  défaut.
+
+## Correctif 2026-07-08 — Affichage challenge headless
+
+- En `SYNTHESIX_SEARCH_WINDOW_MODE=headless`, si la recherche échoue sur un
+  `RobotChallengeError`, Synthesix ouvre automatiquement dans le navigateur UI
+  l'artefact capturé prioritaire : HTML, puis PNG, puis TXT.
+- Le statut home indique explicitement que la recherche a été arrêtée par un
+  challenge anti-robot et nomme le fichier ouvert.
+- Smoke réel Brave headless + DuckDuckGo : challenge capturé et HTML ouvert
+  dans le navigateur UI temporaire.

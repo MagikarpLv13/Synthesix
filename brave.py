@@ -8,6 +8,7 @@ from datetime import datetime
 from html import unescape
 from urllib.parse import quote_plus, urlencode, urlparse
 
+from browser import get_browser_service
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
@@ -485,7 +486,9 @@ class BraveSearchEngine(SearchEngine):
             return False
 
         try:
-            await self.tab.bring_to_front()
+            await get_browser_service(self.browser).show_tab_window_for_manual_interaction(
+                self.tab
+            )
         except Exception:
             logger.debug(
                 "Unable to focus the Brave challenge tab",

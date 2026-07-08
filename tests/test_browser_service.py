@@ -438,6 +438,63 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tab.url, "file:///index.html")
         self.assertEqual(observability.snapshot()["calls"]["open_tab"], 1)
 
+    async def test_close_blank_tabs_leaves_content_tabs_open(self):
+        blank = FakeTab("about:blank", "blank")
+        empty = FakeTab("", "empty")
+        content = FakeTab("https://example.com", "content")
+        browser = FakeBrowser([blank, empty, content])
+        service = BrowserService(browser)
+
+        closed = await service.close_blank_tabs()
+
+        self.assertEqual(closed, 2)
+        self.assertTrue(blank.closed)
+        self.assertTrue(empty.closed)
+        self.assertFalse(content.closed)
+
+    async def test_close_blank_tabs_ignores_websocket_closed_flag(self):
+        # zendriver's Tab.closed means "no websocket attached", which is
+        # true for the untouched initial about:blank tab — it must still
+        # be closed, not skipped as already-closed.
+        blank = FakeTab("about:blank", "blank")
+        blank.closed = True
+        browser = FakeBrowser([blank])
+        service = BrowserService(browser)
+
+        closed = await service.close_blank_tabs()
+
+        self.assertEqual(closed, 1)
+        self.assertEqual(blank.journal.count("close"), 1)
+
+    async def test_show_tab_window_for_manual_interaction_moves_window(self):
+        calls = []
+
+        class Connection:
+            async def send(self, command):
+                request = next(command)
+                calls.append(request)
+                if request["method"] == "Browser.getWindowForTarget":
+                    return cdp.browser.WindowID(7), {}
+                return None
+
+        tab = FakeTab("https://www.google.com/sorry/", "target-1")
+        tab.connection = Connection()
+        browser = FakeBrowser([tab])
+        service = BrowserService(browser)
+
+        await service.show_tab_window_for_manual_interaction(tab)
+
+        self.assertEqual(calls[0]["method"], "Browser.getWindowForTarget")
+        self.assertEqual(calls[0]["params"]["targetId"], "target-1")
+        self.assertEqual(calls[1]["method"], "Browser.setWindowBounds")
+        self.assertEqual(calls[1]["params"]["windowId"], 7)
+        self.assertEqual(calls[1]["params"]["bounds"]["left"], 80)
+        self.assertEqual(calls[1]["params"]["bounds"]["top"], 80)
+        self.assertEqual(
+            tab.journal.count("bring_to_front"),
+            1,
+        )
+
     async def test_screenshot_decodes_base64_png(self):
         tab = FakeTab()
         tab.program("send", base64.b64encode(b"png-bytes").decode("ascii"))

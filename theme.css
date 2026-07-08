@@ -355,6 +355,10 @@ a:focus-visible {
 }
 
 .search-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     min-width: 118px;
     margin: 8px;
     border: 0;
@@ -368,6 +372,98 @@ a:focus-visible {
 
 .search-button:hover {
     background: var(--accent-strong);
+}
+
+.search-button:disabled {
+    cursor: progress;
+    opacity: 0.88;
+}
+
+.search-button__spinner,
+.search-progress__spinner {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: search-spinner 0.75s linear infinite;
+}
+
+.search-button__spinner {
+    display: none;
+}
+
+.search-form.is-search-running {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.search-form.is-search-running .search-button__spinner {
+    display: inline-block;
+}
+
+.search-progress {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 8px 14px;
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.search-progress[hidden] {
+    display: none;
+}
+
+.search-progress__bar {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.search-progress__bar::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -40%;
+    width: 40%;
+    border-radius: 999px;
+    background: var(--accent);
+    animation: search-progress-slide 1.25s ease-in-out infinite;
+}
+
+@keyframes search-spinner {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes search-progress-slide {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(350%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .search-button__spinner,
+    .search-progress__spinner,
+    .search-progress__bar::before {
+        animation: none;
+    }
 }
 
 .history-panel {
@@ -3552,6 +3648,11 @@ table.dataTable.no-footer {
     .search-button {
         min-height: 48px;
         margin-top: 0;
+    }
+
+    .search-progress {
+        min-height: 42px;
+        padding-inline: 16px;
     }
 
     .controls {

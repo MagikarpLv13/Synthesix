@@ -66,6 +66,9 @@ class SettingsTestCase(unittest.TestCase):
             self.assertFalse(settings.debug_html)
             self.assertEqual(settings.debug_html_dir, base_dir / "history" / "debug_pages")
             self.assertEqual(settings.browser_profile_dir, base_dir / "zendriver-profile")
+            self.assertEqual(settings.search_profile_dir, base_dir / "search-profile")
+            self.assertEqual(settings.search_browser_mode, "separate")
+            self.assertEqual(settings.search_window_mode, "offscreen")
             self.assertEqual(settings.browser_type, "auto")
             self.assertIsNone(settings.browser_executable_path)
             self.assertEqual(settings.browser_connection_timeout, 0.25)
@@ -110,6 +113,9 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_DEBUG_HTML": "true",
                 "SYNTHESIX_DEBUG_HTML_DIR": "runtime/debug-pages",
                 "SYNTHESIX_BROWSER_PROFILE_DIR": "runtime/profile",
+                "SYNTHESIX_SEARCH_PROFILE_DIR": "runtime/search-profile",
+                "SYNTHESIX_SEARCH_BROWSER": "shared",
+                "SYNTHESIX_SEARCH_WINDOW_MODE": "headless",
                 "SYNTHESIX_BROWSER": "brave",
                 "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "runtime/brave.exe",
                 "SYNTHESIX_BROWSER_CONNECTION_TIMEOUT": "0.75",
@@ -158,6 +164,12 @@ class SettingsTestCase(unittest.TestCase):
             self.assertTrue(settings.debug_html)
             self.assertEqual(settings.debug_html_dir, base_dir / "runtime" / "debug-pages")
             self.assertEqual(settings.browser_profile_dir, base_dir / "runtime" / "profile")
+            self.assertEqual(
+                settings.search_profile_dir,
+                base_dir / "runtime" / "search-profile",
+            )
+            self.assertEqual(settings.search_browser_mode, "shared")
+            self.assertEqual(settings.search_window_mode, "headless")
             self.assertEqual(settings.browser_type, "brave")
             self.assertEqual(settings.browser_executable_path, base_dir / "runtime" / "brave.exe")
             self.assertEqual(settings.browser_connection_timeout, 0.75)
@@ -188,6 +200,34 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.engine_retry_attempts, 3)
             self.assertEqual(settings.engine_retry_delay, 0.2)
             self.assertEqual(settings.engine_retry_backoff, 1.5)
+
+    def test_invalid_search_browser_mode_falls_back_to_separate(self):
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_SEARCH_BROWSER": "invalid",
+                },
+                clear=True,
+            ):
+                settings = get_settings()
+
+        self.assertEqual(settings.search_browser_mode, "separate")
+
+    def test_invalid_search_window_mode_falls_back_to_offscreen(self):
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "SYNTHESIX_BASE_DIR": temp_dir,
+                    "SYNTHESIX_SEARCH_WINDOW_MODE": "invalid",
+                },
+                clear=True,
+            ):
+                settings = get_settings()
+
+        self.assertEqual(settings.search_window_mode, "offscreen")
 
 
 if __name__ == "__main__":
