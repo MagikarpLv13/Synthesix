@@ -1,6 +1,6 @@
 # T-041 — Écritures SQLite lourdes hors event loop
 
-- **Statut** : todo
+- **Statut** : review
 - **Priorité** : P2 · **Effort** : moyen
 - **Outil recommandé** : Codex
 - **Dépendances** : T-011 (la boucle tourne pendant les recherches — c'est là
@@ -71,3 +71,25 @@ async du repository.
   enchaînements awaités séquentiellement dans le même handler.
 - Sur-threading : ne pas threader les micro-lectures (< 1 ms), le coût du
   thread dépasserait le gain.
+
+## Résultat 2026-07-09 — Implémentation en review
+
+- Mesure synthétique sur enquête temporaire (200 résultats, 50 entités) :
+  - `_investigation_payload` sync : médiane 3,10 ms, p95~ 4,39 ms ;
+  - `workspace_payload` sync : médiane 62,81 ms, p95~ 68,00 ms ;
+  - `_generate_investigation_page` sync : médiane 77,76 ms, p95~ 78,39 ms ;
+  - `record_search` sync : médiane 61,26 ms, p95~ 63,88 ms ;
+  - via `asyncio.to_thread` : `workspace_payload` médiane 56,58 ms,
+    génération médiane 80,87 ms, payload liste médiane 3,03 ms. Le coût total
+    reste comparable, mais l'event loop n'exécute plus ces blocs.
+- `main.py` ajoute `InvestigationPayloadCache` : payload des investigations et
+  workspace actif sont calculés via `asyncio.to_thread` puis réutilisés tant
+  qu'aucune mutation n'est signalée.
+- `InvestigationService` expose un compteur mémoire `mutation_version` et
+  `mark_changed()` ; `perform_search` le marque après `record_search`.
+- Les régénérations de pages d'enquête depuis les coroutines passent par
+  `_generate_investigation_page_async()` (`asyncio.to_thread`).
+- `record_search` de `perform_search` est exécuté via `asyncio.to_thread`, au
+  niveau méthode service complète, sans partager de connexion SQLite.
+- Tests ciblés et suite complète verts ; observation sur grosse enquête réelle
+  restante avant passage `done`.

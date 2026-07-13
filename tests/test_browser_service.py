@@ -17,13 +17,16 @@ from unittest.mock import AsyncMock, Mock
 from zendriver import cdp
 
 import observability
+from browser import service as browser_service
 from browser import (
     BrowserService,
     eval_js,
     get_browser_service,
     mhtml,
     outer_html,
+    page_layout,
     screenshot,
+    visual_viewport,
 )
 from tests.fakes import FakeBrowser, FakeTab
 
@@ -518,6 +521,44 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
         calls = observability.snapshot()["calls"]
         self.assertEqual(calls["capture_mhtml"], 1)
         self.assertEqual(calls["capture_html"], 1)
+
+    async def test_page_layout_and_visual_viewport_support_visual_archives(self):
+        tab = FakeTab()
+        tab.program(
+            "send",
+            (
+                SimpleNamespace(),
+                SimpleNamespace(),
+                SimpleNamespace(width=799, height=599),
+                SimpleNamespace(),
+                SimpleNamespace(),
+                SimpleNamespace(width=1200, height=6400),
+            ),
+        )
+        tab.program(
+            "evaluate",
+            {"x": 10, "y": 20, "width": 1200, "height": 800},
+        )
+
+        self.assertEqual(await page_layout(tab), {"width": 1200.0, "height": 6400.0})
+        self.assertEqual(
+            await visual_viewport(tab),
+            {"x": 10.0, "y": 20.0, "width": 1200.0, "height": 800.0},
+        )
+        calls = observability.snapshot()["calls"]
+        self.assertEqual(calls["page_layout"], 1)
+        self.assertEqual(calls["visual_viewport"], 1)
+
+    async def test_visual_capture_hides_overlay_with_display_before_scroll(self):
+        tab = FakeTab()
+
+        await browser_service.scroll_for_visual_capture(tab, 12, 34)
+        await browser_service.finish_visual_capture(tab, 12, 34)
+
+        scripts = [call.args[0] for call in tab.journal.calls("evaluate")]
+        self.assertIn("__synthesix-save-overlay", scripts[0])
+        self.assertIn("setProperty('display', 'none', 'important')", scripts[0])
+        self.assertIn("synthesixVisualCaptureStyle", scripts[1])
 
     def test_get_browser_service_caches_per_browser(self):
         browser = FakeBrowser()

@@ -30,6 +30,8 @@ from main import (
     _overlay_injection_blocked,
     _log_level_from_args,
     _open_or_refresh_investigation_page,
+    _reload_workspace_from_sidecar,
+    _save_in_place,
     perform_search,
     _prepare_base_query,
     _retry_search_combination,
@@ -42,6 +44,7 @@ from main import (
     _verify_evidence_capture,
     apply_cli_runtime_overrides,
     configure_event_loop_policy,
+    InvestigationPayloadCache,
     parse_cli_args,
     SearchBrowserProvider,
     wait_for_home_action,
@@ -263,6 +266,63 @@ class InvestigationPayloadTestCase(unittest.TestCase):
         self.assertNotEqual(changed_version, version)
 
 
+class InvestigationPayloadCacheTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_payload_cache_uses_threaded_read_until_invalidated(self):
+        class FakeService:
+            mutation_version = 0
+
+            def __init__(self):
+                self.calls = 0
+                self.payload = [{"id": "case-1", "title": "Case One"}]
+
+            def list_payload(self, *, include_archived=False):
+                self.calls += 1
+                self.include_archived = include_archived
+                return self.payload
+
+        async def run_sync(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        service = FakeService()
+        cache = InvestigationPayloadCache(service)
+        with patch("main.asyncio.to_thread", new=AsyncMock(side_effect=run_sync)):
+            first = await cache.investigation_payload()
+            second = await cache.investigation_payload()
+            cache.invalidate()
+            third = await cache.investigation_payload()
+
+        self.assertEqual(first, second)
+        self.assertEqual(first, third)
+        self.assertTrue(service.include_archived)
+        self.assertEqual(service.calls, 2)
+
+    async def test_payload_cache_refreshes_when_service_version_changes(self):
+        class FakeService:
+            def __init__(self):
+                self.mutation_version = 0
+                self.payload = [{"id": "case-1", "title": "Case One"}]
+
+            def list_payload(self, *, include_archived=False):
+                return self.payload
+
+            def mark_changed(self):
+                self.mutation_version += 1
+
+        async def run_sync(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        service = FakeService()
+        cache = InvestigationPayloadCache(service)
+        with patch("main.asyncio.to_thread", new=AsyncMock(side_effect=run_sync)):
+            payload, version = await cache.investigation_payload()
+            service.payload = [{"id": "case-1", "title": "Renamed"}]
+            service.mark_changed()
+            changed_payload, changed_version = await cache.investigation_payload()
+
+        self.assertNotEqual(changed_payload, payload)
+        self.assertNotEqual(changed_version, version)
+
+
 class ExtensionOverlayContextTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_context_sync_sends_only_when_payload_changes(self):
         service = SimpleNamespace(
@@ -341,6 +401,42 @@ class ExtensionOverlayContextTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_pushes_workspace_reload_to_current_investigation_tab(self):
+        scripts = []
+
+        class Tab:
+            async def evaluate(self, script):
+                scripts.append(script)
+
+        await _reload_workspace_from_sidecar(Tab(), 7)
+
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("reloadWorkspace(7)", scripts[0])
+        self.assertIn("window.synthesixPage", scripts[0])
+
+    async def test_in_place_save_marks_and_pushes_workspace_revision(self):
+        service = SimpleNamespace(mark_changed=Mock())
+        settings = SimpleNamespace()
+        source_tab = object()
+
+        with (
+            patch(
+                "main._refresh_investigation_page_file",
+                AsyncMock(return_value=8),
+            ) as refresh,
+            patch(
+                "main._reload_workspace_from_sidecar",
+                AsyncMock(),
+            ) as reload_workspace,
+            patch("main._set_page_status", AsyncMock()) as set_status,
+        ):
+            await _save_in_place(service, settings, source_tab, "case-123")
+
+        service.mark_changed.assert_called_once_with()
+        refresh.assert_awaited_once_with(service, settings, "case-123")
+        reload_workspace.assert_awaited_once_with(source_tab, 8)
+        set_status.assert_awaited_once_with(source_tab, "Saved.")
+
     async def test_capture_evidence_records_png_only(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
@@ -540,7 +636,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
             # The capture itself still succeeds even if the attach failed.
             self.assertEqual(capture.id, "capture-1")
 
-    async def test_archive_page_records_html_text_and_partial_mhtml(self):
+    async def test_archive_page_records_visual_text_and_partial_mhtml(self):
         with TemporaryDirectory() as temp_dir:
             base_dir = Path(temp_dir)
 
@@ -585,6 +681,18 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
 
             with (
                 patch(
+                    "main.capture_visual_page",
+                    AsyncMock(
+                        return_value=SimpleNamespace(
+                            sha256="v" * 64,
+                            byte_size=123,
+                            width=800,
+                            height=900,
+                            tile_count=1,
+                        )
+                    ),
+                ),
+                patch(
                     "main.capture_html",
                     AsyncMock(side_effect=capture_html_document),
                 ),
@@ -617,12 +725,20 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(capture.id, recorded["capture_id"])
         self.assertEqual(
             {artifact["artifact_type"] for artifact in recorded["artifacts"]},
-            {"html", "text"},
+            {"visual", "text"},
         )
         self.assertEqual(recorded["capture_kind"], "page_archive")
         self.assertEqual(recorded["status"], "partial")
         self.assertIn("MHTML archive unavailable", recorded["error"])
         self.assertEqual(manifest["capture"]["kind"], "page_archive")
+        self.assertFalse(
+            (base_dir / "data" / "evidence" / "case-1" / capture.id / "page.html").exists()
+        )
+        visual = next(
+            artifact for artifact in manifest["artifacts"]
+            if artifact["type"] == "visual"
+        )
+        self.assertEqual(visual["visual"], {"width": 800, "height": 900, "tile_count": 1})
 
     async def test_verify_evidence_checks_every_artifact(self):
         with TemporaryDirectory() as temp_dir:
@@ -1515,6 +1631,43 @@ class BackgroundSearchTaskTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("anti-robot challenge", message)
         service.open_tab.assert_awaited_once_with(artifact_path.resolve().as_uri())
         challenge_tab.bring_to_front.assert_awaited_once()
+
+    async def test_perform_search_records_search_in_thread_and_marks_changed(self):
+        search_result = SimpleNamespace(
+            output_path=None,
+            total_time=1.25,
+            engine_errors={},
+            results=[{"title": "Result"}],
+        )
+        searcher = SimpleNamespace(search=AsyncMock(return_value=search_result))
+        investigation_service = SimpleNamespace(
+            record_search=Mock(),
+            mark_changed=Mock(),
+        )
+
+        async def run_sync(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        with (
+            patch("main.SearchOrchestrator", return_value=searcher),
+            patch(
+                "main.asyncio.to_thread",
+                new=AsyncMock(side_effect=run_sync),
+            ) as to_thread,
+        ):
+            message = await perform_search(
+                "query",
+                '"query"',
+                object(),
+                {"google": True},
+                5,
+                investigation_service=investigation_service,
+            )
+
+        self.assertIsNone(message)
+        self.assertIs(to_thread.await_args.args[0], investigation_service.record_search)
+        investigation_service.record_search.assert_called_once()
+        investigation_service.mark_changed.assert_called_once()
 
     async def test_search_browser_provider_cleanup_closes_blank_tabs(self):
         search_browser = object()

@@ -68,10 +68,11 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
-| [T-040](T-040-navigateur-recherche-separe.md) | Navigateur de recherche séparé | P1 | Claude | review |
-| [T-041](T-041-sqlite-hors-event-loop.md) | Écritures SQLite lourdes hors event loop | P2 | Codex | todo |
-| [T-042](T-042-hydratation-json-page-enquete.md) | Page enquête hydratée par workspace.json | P2 | Les deux | todo |
+| [T-040](T-040-navigateur-recherche-separe.md) | Navigateur de recherche séparé | P1 | Claude | done |
+| [T-041](T-041-sqlite-hors-event-loop.md) | Écritures SQLite lourdes hors event loop | P2 | Codex | review |
+| [T-042](T-042-hydratation-json-page-enquete.md) | Page enquête hydratée par workspace.json | P2 | Les deux | done |
 | [T-043](T-043-retrait-pandas-agregation.md) | Retrait de pandas de l'agrégation | P3 | Codex | todo |
+| [T-052](T-052-capture-visuelle-integrale.md) | Capture visuelle intégrale des archives de page | P1 | Codex | done |
 
 ### QA transverse
 

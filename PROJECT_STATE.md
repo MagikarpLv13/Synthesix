@@ -31,7 +31,7 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
 | 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 review, smoke live restant) |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | en cours (T-030..T-035 done ; T-036 attend une semaine d'usage extension) |
-| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | en cours (T-040 review ; T-041..T-043 à faire) |
+| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | en cours (T-040/T-042 done ; T-041 review ; T-043 à faire) |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
 
 ## État courant
@@ -75,7 +75,40 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
   navigateur UI pour inspection. En mode fenêtre, un captcha manuel Google,
   Brave ou DuckDuckGo replace temporairement la fenêtre de recherche à l'écran
   pour résolution humaine. Les tests unitaires et la suite complète sont verts ;
-  le smoke réel focus/challenge reste à exécuter avant passage `done`.
+  le smoke réel utilisateur a été validé le 2026-07-09 et T-040 est clôturée.
+- T-041 est en review depuis le 2026-07-09 : les points chauds
+  `record_search`, `workspace_payload`, génération de page d'enquête et
+  payload liste/caché sont sortis de l'event loop via `asyncio.to_thread`,
+  sans réécrire le repository synchrone. Mesure synthétique : les opérations
+  workspace/page/search étaient ~60-80 ms en sync sur 200 résultats + 50
+  entités ; elles restent de coût comparable en thread mais ne bloquent plus
+  la boucle asyncio.
+- T-042a est livré le 2026-07-10 : chaque page d'enquête charge désormais un
+  script adjacent `<id>.workspace.js`, écrit atomiquement et compatible
+  `file://`. Les sauvegardes sans rechargement ne réécrivent plus la coquille
+  HTML ; le re-rendu client sans `tab.reload()` est reporté aux sous-lots b/c.
+- T-042b1 est livré le 2026-07-10 : une sauvegarde sans reload pousse la
+  nouvelle version du script vers l'onglet source. La page charge les données
+  sans navigation, met à jour les métriques de synthèse et émet
+  `synthesix-workspace-update`; les sections détaillées restent à migrer.
+- T-042b2a réconcilie les propriétés des entités avec le workspace au
+  chargement initial et après une mise à jour poussée. Une propriété supprimée
+  ne peut plus réapparaître après un refresh manuel.
+- T-042b2b étend cette protection aux suppressions de pages, entités,
+  propriétés extraites, preuves, exports et moniteurs. Les mises à jour
+  détaillées non destructives restent à traiter avant la clôture de T-042.
+- T-042 est en review depuis le 2026-07-10 : toutes les mutations no-reload
+  réconcilient désormais le DOM avec le workspace compressé. La mesure sur 200
+  pages donne 6 803 octets de workspace pour 1 390 744 octets de HTML (0,49 %)
+  ; seul le smoke visuel/CDP d'une enquête réelle reste avant `done`.
+- Le smoke réel T-042 a été validé par l'utilisateur le 2026-07-10 ; T-042 est
+  clôturée.
+- T-052 est clôturée après smoke utilisateur : les archives de page produisent
+  désormais une capture
+  visuelle complète dans un lecteur `visual.html` autonome (tuiles PNG
+  intégrées), en plus du MHTML et du texte. Le lecteur visuel est l'artefact
+  principal ; le DOM est transitoire et le manifeste reste disponible pour la
+  vérification sans être affiché à l'analyste.
 
 ## Risques ouverts majeurs
 
@@ -97,10 +130,10 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 Phase 3 : T-030..T-035 livrés et validés. Ne pas démarrer T-036 avant une
 semaine d'usage quotidien en mode extension sans régression signalée. Garder
 Chrome stable en mode dégradé CDP tant que `--load-extension` y est ignoré.
-Prochaine validation prioritaire : smoke réel T-040 (recherche complète pendant
-navigation dans la fenêtre principale, aucun tab moteur côté UI, challenge
-simulé qui remonte la fenêtre recherche, quit sans process orphelin). Smokes
-réels toujours en attente au premier run interactif : phase 2
+Prochaine validation prioritaire : observation T-041 sur grosse enquête réelle.
+Après validation, poursuivre T-043.
+Smokes réels toujours en attente au premier
+run interactif : phase 2
 (`eval_home`/`eval_page`, `targets_poll`, rafales tabs, kill/quit Chrome),
 mesure `engine_tab_open`/`eval_engine_wait` (T-006), fenêtre sans clignotement
 (T-014), annulation live (T-011), workflow complet recherche/save/capture/archive

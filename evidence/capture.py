@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import html
 import os
 import re
 from dataclasses import dataclass
@@ -16,6 +18,8 @@ from evidence.hashing import sha256_bytes
 MIN_CAPTURE_SIZE = 8.0
 MAX_CAPTURE_DIMENSION = 32768.0
 MAX_CAPTURE_AREA = 100_000_000.0
+VISUAL_TILE_HEIGHT = 4096.0
+VISUAL_WARMUP_DELAY_SECONDS = 0.12
 REDACTED_VALUE = "[REDACTED]"
 SENSITIVE_HEADERS = frozenset(
     {
@@ -91,6 +95,13 @@ class CapturedDocument:
     path: Path
     sha256: str
     byte_size: int
+
+
+@dataclass(frozen=True)
+class CapturedVisualArchive(CapturedDocument):
+    width: float
+    height: float
+    tile_count: int
 
 
 def _normalized_field_hint(value: str | None) -> str:
@@ -285,3 +296,132 @@ async def capture_html(tab, output_path: Path) -> CapturedDocument:
 async def capture_mhtml(tab, output_path: Path) -> CapturedDocument:
     content = await browser_service.mhtml(tab)
     return await _write_document(output_path, sanitize_mhtml(content))
+
+
+def _visual_archive_html(
+    *,
+    page_title: str,
+    source_url: str,
+    width: float,
+    height: float,
+    tiles: list[tuple[float, float, bytes]],
+) -> str:
+    image_markup = "\n".join(
+        "<img "
+        f'width="{int(width)}" height="{int(tile_height)}" '
+        f'data-y="{int(y)}" '
+        'alt="" '
+        'src="data:image/png;base64,'
+        f'{base64.b64encode(content).decode("ascii")}">'
+        for y, tile_height, content in tiles
+    )
+    title = html.escape(page_title or "Page capture", quote=True)
+    url = html.escape(source_url, quote=True)
+    return f"""<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture visuelle — {title}</title>
+<style>
+  body {{ margin: 0; background: #111827; color: #e5e7eb; font: 14px/1.45 system-ui, sans-serif; }}
+  header {{ box-sizing: border-box; max-width: {int(width)}px; margin: 0 auto; padding: 12px 16px; }}
+  header strong, header span {{ display: block; overflow-wrap: anywhere; }}
+  main {{ width: {int(width)}px; max-width: 100%; margin: 0 auto; background: white; }}
+  img {{ display: block; width: 100%; height: auto; margin: 0; padding: 0; }}
+</style>
+<header><strong>Capture visuelle intégrale</strong><span>{title}</span><span>{url}</span></header>
+<main data-page-width="{int(width)}" data-page-height="{int(height)}">
+{image_markup}
+</main>
+</html>
+"""
+
+
+async def capture_visual_page(
+    tab,
+    output_path: Path,
+    *,
+    page_title: str,
+    source_url: str,
+) -> CapturedVisualArchive:
+    """Write a self-contained, vertically scrollable visual page archive.
+
+    The page is warmed through ordinary viewport scrolling so lazy resources
+    have a chance to load. PNG tiles are then embedded in one local HTML file:
+    the recorded SHA-256 consequently covers every visual byte.
+    """
+    initial_viewport = await browser_service.visual_viewport(tab)
+    viewport_height = initial_viewport["height"]
+    if viewport_height < MIN_CAPTURE_SIZE:
+        raise ValueError("The browser viewport is too small for page capture.")
+
+    try:
+        layout = await browser_service.page_layout(tab)
+        width = layout["width"]
+        height = layout["height"]
+        if width < MIN_CAPTURE_SIZE or height < MIN_CAPTURE_SIZE:
+            raise ValueError("The page has no capturable visual surface.")
+        if width > MAX_CAPTURE_DIMENSION:
+            raise ValueError("The page is too wide for a visual archive.")
+
+        max_scroll = max(0.0, height - viewport_height)
+        step = max(MIN_CAPTURE_SIZE, viewport_height * 0.8)
+        scroll_y = 0.0
+        while scroll_y < max_scroll:
+            await browser_service.scroll_for_visual_capture(
+                tab, initial_viewport["x"], scroll_y
+            )
+            await asyncio.sleep(VISUAL_WARMUP_DELAY_SECONDS)
+            scroll_y = min(max_scroll, scroll_y + step)
+        await browser_service.scroll_for_visual_capture(
+            tab, initial_viewport["x"], max_scroll
+        )
+        await asyncio.sleep(VISUAL_WARMUP_DELAY_SECONDS)
+
+        # Lazy content can extend the document while it is warmed.
+        layout = await browser_service.page_layout(tab)
+        width = layout["width"]
+        height = layout["height"]
+        if width > MAX_CAPTURE_DIMENSION:
+            raise ValueError("The page is too wide for a visual archive.")
+
+        tiles: list[tuple[float, float, bytes]] = []
+        y = 0.0
+        while y < height:
+            tile_height = min(VISUAL_TILE_HEIGHT, height - y)
+            content = await browser_service.screenshot(
+                tab,
+                {
+                    "x": 0.0,
+                    "y": y,
+                    "width": width,
+                    "height": tile_height,
+                    "scale": 1.0,
+                },
+                beyond_viewport=True,
+            )
+            tiles.append((y, tile_height, content))
+            y += tile_height
+
+        document = await _write_document(
+            output_path,
+            _visual_archive_html(
+                page_title=page_title,
+                source_url=source_url,
+                width=width,
+                height=height,
+                tiles=tiles,
+            ),
+        )
+        return CapturedVisualArchive(
+            path=document.path,
+            sha256=document.sha256,
+            byte_size=document.byte_size,
+            width=width,
+            height=height,
+            tile_count=len(tiles),
+        )
+    finally:
+        await browser_service.finish_visual_capture(
+            tab, initial_viewport["x"], initial_viewport["y"]
+        )

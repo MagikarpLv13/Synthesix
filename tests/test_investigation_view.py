@@ -1,3 +1,5 @@
+import base64
+import gzip
 import json
 import re
 import shutil
@@ -11,6 +13,9 @@ from lxml import html
 from investigations.view import (
     _entity_graph_payload,
     generate_investigation_page,
+    investigation_page_supports_workspace,
+    investigation_workspace_path,
+    write_investigation_workspace,
 )
 
 
@@ -236,6 +241,15 @@ def workspace_payload(*, status="active"):
                 "capture_kind": "screenshot",
                 "artifacts": [
                     {
+                        "id": "artifact-visual",
+                        "artifact_type": "visual",
+                        "file_path": "data/evidence/capture-123/visual.html",
+                        "mime_type": "text/html; charset=utf-8",
+                        "sha256": "v" * 64,
+                        "byte_size": 999,
+                        "created_at": "2026-06-10T10:00:00+00:00",
+                    },
+                    {
                         "id": "artifact-123",
                         "artifact_type": "png",
                         "file_path": "data/evidence/capture-123/capture.png",
@@ -269,6 +283,46 @@ def workspace_payload(*, status="active"):
 
 
 class InvestigationViewTestCase(unittest.TestCase):
+    def test_writes_workspace_sidecar_as_safe_classic_script(self):
+        workspace = workspace_payload()
+        workspace["investigation"]["description"] = "</script><script>alert(1)</script>"
+
+        with TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "case-123.html"
+            workspace_path = write_investigation_workspace(workspace, output_path)
+            content = workspace_path.read_text(encoding="utf-8")
+            if shutil.which("node") is not None:
+                executed = subprocess.run(
+                    [
+                        "node",
+                        "-e",
+                        (
+                            "global.window = {}; require(process.argv[1]); "
+                            "window.__synthesixWorkspaceReady.then((workspace) => "
+                            "process.stdout.write(workspace.investigation.id));"
+                        ),
+                        str(workspace_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+        encoded = re.search(r'const encoded = "([^"]+)";', content).group(1)
+
+        self.assertEqual(workspace_path, investigation_workspace_path(output_path))
+        self.assertEqual(workspace_path.name, "case-123.workspace.js")
+        self.assertIn("new DecompressionStream('gzip')", content)
+        self.assertNotIn("</script>", content)
+        self.assertEqual(
+            json.loads(gzip.decompress(base64.b64decode(encoded))),
+            workspace,
+        )
+        self.assertIn("window.__synthesixWorkspaceVersion = 0;", content)
+        if shutil.which("node") is not None:
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+            self.assertEqual(executed.stdout, "case-123")
+
     def test_inline_script_is_valid_javascript_when_node_is_available(self):
         if shutil.which("node") is None:
             self.skipTest("Node.js is not available")
@@ -322,8 +376,25 @@ class InvestigationViewTestCase(unittest.TestCase):
             )
             content = output_path.read_text(encoding="utf-8")
             tree = html.fromstring(content)
+            workspace_script_exists = investigation_workspace_path(output_path).exists()
+            workspace_template_supported = investigation_page_supports_workspace(
+                output_path
+            )
 
         self.assertEqual(generated, str(output_path))
+        self.assertTrue(workspace_script_exists)
+        self.assertTrue(workspace_template_supported)
+        self.assertIn('src="case-123.workspace.js" data-synthesix-workspace', content)
+        self.assertEqual(
+            tree.xpath("//main/@data-synthesix-workspace-template"),
+            ["1"],
+        )
+        self.assertEqual(
+            tree.xpath("//span[@data-workspace-metric='results']/strong/text()"),
+            ["1"],
+        )
+        self.assertIn("reloadWorkspace(version)", content)
+        self.assertIn("synthesix-workspace-update", content)
         self.assertEqual(
             tree.xpath("//sx-saved-page-card[@data-result-id='result-123']/@data-status"),
             ["pertinent"],
@@ -358,6 +429,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertNotIn('queueAction("link_result_to_graph_entity"', content)
         self.assertIn('queueAction("attach_extracted_property"', content)
         self.assertIn('queueAction("delete_entities"', content)
+        self.assertIn('data-graph-property-key="SIREN"', content)
+        self.assertIn("reconcileGraphProperties(workspace)", content)
+        self.assertIn("removeMissingWorkspaceRows", content)
+        self.assertIn("reconcileWorkspace(workspaceData)", content)
         self.assertIn('queueAction("attach_extracted_properties"', content)
         self.assertIn("data-entity-checkbox", content)
         self.assertIn("data-entity-batch", content)
@@ -499,9 +574,10 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("delete_evidence_capture"', content)
         self.assertIn('queueAction("verify_evidence_capture"', content)
         self.assertIn("data-evidence-verification", content)
-        self.assertIn(">HTML</a>", content)
+        self.assertIn(">Visual</a>", content)
         self.assertIn(">MHTML</a>", content)
-        self.assertIn(">Manifest</a>", content)
+        self.assertNotIn(">DOM</a>", content)
+        self.assertNotIn(">Manifest</a>", content)
         self.assertEqual(
             tree.xpath("//button[contains(@class, 'verify-evidence')]/@title"),
             [

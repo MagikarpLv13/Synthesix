@@ -4672,3 +4672,294 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   - `git diff --check` — OK, avertissements CRLF uniquement
 - **Non exécuté :** smoke app réel.
 - **Relais :** aucun.
+
+### AI-20260709-002 — T-041 SQLite hors event loop
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-09 06:34-06:43
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** sortir les opérations SQLite/page lourdes du chemin
+  synchrone de la boucle asyncio sans réécrire `InvestigationRepository`.
+- **Résultat :**
+  - mesure synthétique sur enquête temporaire (200 résultats, 50 entités) :
+    `_investigation_payload` médiane 3,10 ms ; `workspace_payload` médiane
+    62,81 ms ; `_generate_investigation_page` médiane 77,76 ms ;
+    `record_search` médiane 61,26 ms ;
+  - `main.py` ajoute `InvestigationPayloadCache` : payload liste et workspace
+    actif sont calculés via `asyncio.to_thread` puis réutilisés jusqu'à
+    invalidation ou mutation du service ;
+  - `InvestigationService` expose `mutation_version` + `mark_changed()` ;
+    `perform_search` marque le service après persistance réussie ;
+  - `record_search` de `perform_search` et les régénérations de pages
+    d'enquête appelées depuis des coroutines passent via `asyncio.to_thread` ;
+  - T-041 est passée en `review`.
+- **Fichiers modifiés :** `main.py`, `investigations/service.py`,
+  `tests/test_main.py`, `docs/tasks/T-041-sqlite-hors-event-loop.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py investigations\service.py tests\test_main.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_main` — 61 OK
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigations tests.test_main` — 111 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 416 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** observation interactive sur une grosse enquête réelle ;
+  smoke réel T-040 toujours en attente.
+- **Relais :** observer T-041 sur un workspace volumineux, puis passer T-041
+  à `done` si aucune régression UI/réactivité ; prochaine implémentation :
+  T-042.
+
+### AI-20260709-003 — Clôture T-040 après smoke utilisateur
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-09 10:14
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** consigner la validation utilisateur du smoke réel T-040.
+- **Résultat :**
+  - l'utilisateur confirme que le smoke T-040 a été exécuté et que le
+    navigateur de recherche séparé fonctionne correctement ;
+  - `docs/tasks/T-040-navigateur-recherche-separe.md` passe à `done` ;
+  - `docs/tasks/README.md` et `PROJECT_STATE.md` sont alignés.
+- **Fichiers modifiés :** `docs/tasks/T-040-navigateur-recherche-separe.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :** `git diff --check` — OK, avertissements CRLF
+  uniquement.
+- **Non exécuté :** tests Python/frontend, changement limité au suivi
+  Markdown.
+- **Relais :** prochaine validation prioritaire : T-041 sur grosse enquête
+  réelle.
+
+### AI-20260710-001 — T-042a script workspace adjacent
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** poser une source de données compatible `file://` pour les
+  pages d'enquête, sans modifier leur rendu actuel.
+- **Résultat :**
+  - `investigations/view.py` écrit atomiquement `<id>.workspace.js`, qui
+    assigne le workspace sérialisé et neutralisé à
+    `window.__synthesixWorkspace` ; la page HTML charge ce script classique et
+    publie le marqueur de capacité du gabarit ;
+  - `main.py::_refresh_investigation_page_file` réécrit seulement ce script
+    après une action déjà sans rechargement ; les générations complètes
+    restent inchangées pour les créations et actions qui rechargent encore ;
+  - tests de génération ajoutés pour le chemin, le chargement HTML, le payload
+    JSON et une chaîne contenant `</script>`.
+- **Fichiers modifiés :** `investigations/view.py`, `main.py`,
+  `tests/test_investigation_view.py`,
+  `docs/tasks/T-042-hydratation-json-page-enquete.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py investigations\view.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_main` — 95 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 417 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke visuel/CDP (thèmes clair/sombre, enquête vide et
+  dense) ; aucun re-rendu sans reload n'est encore déclenché dans ce sous-lot.
+- **Relais :** T-042b : recharger le script versionné dans le tab ouvert et
+  re-rendre les sections déjà no-reload sans perdre le scroll.
+
+### AI-20260710-002 — T-042b1 push workspace versionné
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** charger une nouvelle version du workspace dans l'onglet
+  enquête courant, sans `tab.reload()`.
+- **Résultat :**
+  - les scripts workspace portent une révision monotone ; les sauvegardes
+    no-reload marquent la mutation, réécrivent le script et poussent la
+    révision au tab source via `eval_page` ;
+  - `window.synthesixPage.reloadWorkspace(version)` charge le script avec un
+    cache-buster, préserve la page et émet `synthesix-workspace-update` ; les
+    métriques recherches/pages/entités/favoris/confirmés sont re-rendues ;
+  - les anciennes coquilles restent migrées par régénération complète avant
+    d'utiliser ce protocole.
+- **Fichiers modifiés :** `investigations/view.py`, `main.py`,
+  `tests/test_investigation_view.py`, `tests/test_main.py`,
+  `docs/tasks/T-042-hydratation-json-page-enquete.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile main.py investigations\view.py tests\test_main.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_main` — 97 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 419 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke CDP/visuel avec une vraie page enquête ; les sections
+  détaillées ne se re-rendent pas encore à l'événement.
+- **Relais :** T-042b2 : migrer progressivement les sections détaillées
+  no-reload sur `synthesix-workspace-update`, en conservant le scroll et la
+  sélection de l'inspecteur.
+
+### AI-20260710-003 — T-042b2a propriétés supprimées après refresh
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** empêcher une propriété d'entité supprimée de réapparaître
+  lorsque l'utilisateur recharge la page d'enquête.
+- **Résultat :** les lignes de propriété portent une clé stable et sont
+  réconciliées avec `window.__synthesixWorkspace` au chargement initial comme
+  après l'événement de mise à jour. Les suppressions, ajouts et valeurs
+  modifiées sont appliqués au DOM ; le HTML périmé ne peut plus restaurer une
+  propriété supprimée.
+- **Fichiers modifiés :** `investigations/view.py`,
+  `tests/test_investigation_view.py`,
+  `docs/tasks/T-042-hydratation-json-page-enquete.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile investigations\view.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_main` — 97 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 419 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke visuel utilisateur de suppression suivie d'un
+  refresh ; les autres sections détaillées restent à migrer.
+- **Relais :** poursuivre T-042b2 pour les pages, preuves, exports et
+  relations déjà gérés sans reload.
+
+### AI-20260710-004 — T-042b2b suppressions réconciliées
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** étendre aux autres suppressions no-reload la protection
+  contre la réapparition d'éléments issus du HTML périmé.
+- **Résultat :** le workspace supprime désormais du DOM les pages, propriétés
+  extraites, entités, preuves, exports et moniteurs qui n'existent plus côté
+  données, à l'ouverture et après mise à jour poussée. Les compteurs associés
+  sont recalculés.
+- **Fichiers modifiés :** `investigations/view.py`,
+  `tests/test_investigation_view.py`,
+  `docs/tasks/T-042-hydratation-json-page-enquete.md`, `PROJECT_STATE.md`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile investigations\view.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_main` — 97 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 419 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke visuel réel des suppressions sur chaque section.
+- **Relais :** re-rendre les mutations détaillées non destructives
+  (relations, métadonnées et états extraits), puis mesurer les octets HTML/
+  workspace avant de clôturer T-042.
+
+### AI-20260710-005 — T-042b2 final, hydratation complète
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Objectif :** finaliser la réconciliation des mutations non destructives et
+  atteindre le budget d'écriture T-042.
+- **Résultat :**
+  - résultats, métadonnées/tags d'entités, relations, propriétés et états
+    extraits sont réconciliés depuis le workspace au chargement ou après push ;
+  - le payload est gzip + base64 dans le script classique et décompressé via
+    `DecompressionStream`, sans serveur ni `fetch file://` ;
+  - mesure 200 résultats : HTML 1 390 744 octets, workspace 6 803 octets,
+    ratio 0,49 % ; test Node de décompression + payload ajouté ;
+  - T-042 passe en `review` : le code et les tests sont terminés, le smoke
+    visuel/CDP réel est le seul reste.
+- **Fichiers modifiés :** `investigations/view.py`,
+  `tests/test_investigation_view.py`,
+  `docs/tasks/T-042-hydratation-json-page-enquete.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile investigations\view.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_investigation_view tests.test_main` — 97 OK
+  - mesure synthétique T-042 : 0,49 % du HTML
+  - `.venv\Scripts\python.exe -m unittest discover` — 419 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke visuel/CDP d'une enquête réelle (clair/sombre,
+  vide/dense, mutations puis refresh).
+- **Relais :** l'utilisateur valide ce smoke ; passer T-042 à `done`, puis
+  démarrer T-043.
+
+### AI-20260710-006 — Clôture T-042 après smoke utilisateur
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-10
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Résultat :** l'utilisateur confirme le smoke réel de T-042 ; la tâche
+  passe de `review` à `done`.
+- **Fichiers modifiés :** `docs/tasks/T-042-hydratation-json-page-enquete.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :** `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** tests automatisés, changement limité au suivi Markdown.
+- **Relais :** valider T-041 sur une grosse enquête réelle, puis T-043.
+
+### AI-20260710-007 — T-052 capture visuelle intégrale des archives
+
+- **Agent :** Codex
+- **Statut :** review
+- **Objectif :** ajouter une preuve visuelle complète et défilable aux archives
+  de page, sans dégrader la conservation MHTML, HTML et texte existante.
+- **Fichiers prévus :** `evidence/capture.py`, `browser/service.py`,
+  `main.py`, `investigations/view.py`, tests de capture/service/vue,
+  `docs/tasks/T-052-capture-visuelle-integrale.md`, `docs/tasks/README.md`,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Verrous :** libérés.
+- **Tests prévus :** tests unitaires ciblés des commandes CDP, de l'écriture
+  des tuiles/manifestes et du rendu des liens, puis `unittest discover` et
+  `git diff --check`.
+- **Risques :** contenu chargé au scroll, pages très longues, sites réactifs
+  aux modifications de viewport ; la capture doit signaler explicitement un
+  état partiel plutôt que prétendre à une copie parfaite.
+- **Périmètre mis à jour :** `investigations/service.py` rejoint le lot pour
+  exclure le lecteur visuel des artefacts destinés à l'extraction de texte et
+  à la provenance textuelle ; aucun changement de schéma.
+- **Résultat :** `visual.html` est un lecteur autonome et défilable : des
+  tuiles PNG de hauteur bornée y sont incorporées en `data:` URI après un
+  réchauffement contrôlé des contenus lazy. Le hash de l'unique artefact couvre
+  donc toutes les tuiles. La position de lecture et l'overlay sont restaurés ;
+  l'interface priorise `Visual`, puis `MHTML`, `DOM` et `Text`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py browser\__init__.py evidence\capture.py evidence\__init__.py main.py investigations\service.py investigations\view.py tests\test_evidence.py tests\test_browser_service.py tests\test_main.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_evidence tests.test_browser_service tests.test_main tests.test_investigation_view` — 146 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 421 OK
+  - `git diff --check` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** smoke CDP réel sur pages longues, contenu lazy, SPA et
+  sites réactifs au scroll ; validation visuelle clair/sombre de la page
+  enquête.
+- **Relais :** faire le smoke réel T-052 ; passer à `done` si l'ouverture
+  locale de `visual.html`/MHTML et la restauration de scroll sont confirmées.
+
+### AI-20260710-008 — Ajustement T-052 après smoke utilisateur
+
+- **Agent :** Codex
+- **Statut :** review
+- **Objectif :** retirer l'overlay de la capture visuelle et simplifier les
+  artefacts visibles aux seuls `Visual`, `MHTML` et `Text`.
+- **Fichiers prévus :** `browser/service.py`, `main.py`,
+  `investigations/view.py`, tests associés, `README.md`, tâche T-052,
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Verrous :** libérés.
+- **Tests prévus :** tests ciblés capture/vue, suite complète et
+  `git diff --check`.
+- **Résultat :** l'overlay est masqué avec `display:none!important` et son
+  `cssText` est restauré ensuite ; l'archive visuelle ne doit plus l'inclure.
+  `page.html` est supprimé après la normalisation du texte et n'est plus un
+  artefact enregistré. La vue ne propose plus que `Visual`, `MHTML` et `Text`;
+  le manifeste est conservé pour la vérification des hashes mais n'est plus un
+  lien analyste.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile browser\service.py main.py investigations\view.py tests\test_browser_service.py tests\test_main.py tests\test_investigation_view.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_evidence tests.test_browser_service tests.test_main tests.test_investigation_view` — 147 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 422 OK
+  - `git diff --check` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** nouvelle capture CDP réelle après le masquage forcé de
+  l'overlay ; elle reste nécessaire avant de clôturer T-052.
+- **Relais :** l'utilisateur réalise une archive de page puis confirme que
+  l'overlay est absent de `visual.html` et que la liste de liens est réduite.
+
+### AI-20260710-009 — Clôture T-052 après smoke utilisateur
+
+- **Agent :** Codex
+- **Résultat :** l'utilisateur confirme que `visual.html` fonctionne, que
+  l'overlay est absent et que la vue d'artefacts simplifiée convient ; T-052
+  passe à `done`.
+- **Fichiers modifiés :** `docs/tasks/T-052-capture-visuelle-integrale.md`,
+  `docs/tasks/README.md`, `PROJECT_STATE.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :** `git diff --check` — OK, avertissements CRLF
+  uniquement.
+- **Non exécuté :** tests automatisés, changement limité au suivi Markdown.
+- **Relais :** prochaine implémentation recommandée : T-051, test E2E du
+  workflow investigation ; T-041 attend toujours une observation utilisateur
+  sur une grosse enquête réelle.

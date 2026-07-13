@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import os
 import json
+import base64
+import gzip
+import os
 import re
 import unicodedata
 from html import escape
@@ -52,6 +54,7 @@ _DOC_KIND_LABELS = {
     "document": "Document",
     "file": "Fichier",
 }
+_WORKSPACE_TEMPLATE_VERSION = "1"
 
 
 def _is_source_property(entity: Mapping) -> bool:
@@ -77,6 +80,8 @@ def _has_archive_artifact(capture: Mapping) -> bool:
             continue
         artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
         mime_type = str(artifact.get("mime_type", "") or "").casefold()
+        if artifact_type == "visual":
+            continue
         if artifact_type in _ARCHIVE_ARTIFACT_TYPES:
             return True
         if "html" in mime_type or mime_type.startswith("text/"):
@@ -153,6 +158,8 @@ def _archive_artifact(capture: Mapping) -> Mapping | None:
     for artifact in artifacts:
         artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
         mime_type = str(artifact.get("mime_type", "") or "").casefold()
+        if artifact_type == "visual":
+            continue
         if artifact_type in _ARCHIVE_ARTIFACT_TYPES:
             candidates.append((priority.get(artifact_type, 9), artifact))
         elif "html" in mime_type:
@@ -539,6 +546,69 @@ def _wayback_url(value: str) -> str:
 
 def _relative_href(target: Path, from_dir: Path) -> str:
     return os.path.relpath(target.resolve(), from_dir.resolve()).replace(os.sep, "/")
+
+
+def investigation_workspace_path(output_path: Path) -> Path:
+    """Return the sidecar script path associated with an investigation page."""
+    return Path(output_path).with_suffix(".workspace.js")
+
+
+def investigation_page_supports_workspace(output_path: Path) -> bool:
+    """Whether an existing page is a shell compatible with workspace scripts."""
+    try:
+        content = Path(output_path).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return (
+        f'data-synthesix-workspace-template="{_WORKSPACE_TEMPLATE_VERSION}"'
+        in content
+    )
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    """Atomically replace a UTF-8 text file visible to a local ``file:`` page."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    temporary_path.write_text(content, encoding="utf-8")
+    os.replace(temporary_path, path)
+
+
+def write_investigation_workspace(
+    workspace: Mapping,
+    output_path: Path,
+    *,
+    version: int = 0,
+) -> Path:
+    """Write the workspace payload as a classic script usable from ``file:``.
+
+    ``fetch`` is blocked for local pages in Chromium. A normal script is both
+    permitted and cacheable, and lets the page retain the existing no-server
+    contract. Escaping ``<`` prevents a value containing ``</script`` from
+    breaking out if the file is inspected or ever inlined by a consumer.
+    """
+    workspace_path = investigation_workspace_path(output_path)
+    version = max(0, int(version))
+    payload = json.dumps(workspace, ensure_ascii=False, separators=(",", ":"))
+    compressed = gzip.compress(payload.encode("utf-8"), mtime=0)
+    encoded = base64.b64encode(compressed).decode("ascii")
+    _write_text_atomic(
+        workspace_path,
+        (
+            "window.__synthesixWorkspaceVersion = " + str(version) + ";\n"
+            + "window.__synthesixWorkspaceReady = (async () => {\n"
+            + "  const encoded = " + json.dumps(encoded) + ";\n"
+            + "  const binary = atob(encoded);\n"
+            + "  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));\n"
+            + "  const stream = new Blob([bytes]).stream().pipeThrough(\n"
+            + "    new DecompressionStream('gzip')\n"
+            + "  );\n"
+            + "  const payload = await new Response(stream).text();\n"
+            + "  window.__synthesixWorkspace = JSON.parse(payload);\n"
+            + "  return window.__synthesixWorkspace;\n"
+            + "})();\n"
+        ),
+    )
+    return workspace_path
 
 
 def _resolve_runtime_path(value: str | None, base_dir: Path) -> Path | None:
@@ -1309,7 +1379,7 @@ def _graph_entities_markup(
 
         property_rows = "".join(
             f"""
-            <li>
+            <li data-graph-property-key="{_html(key)}">
                 <div class="graph-property-head">
                     <span class="graph-property-key">
                         <strong>{_html(key)}</strong>
@@ -1795,6 +1865,8 @@ def _has_extractable_archive(captures: Sequence[Mapping]) -> bool:
                 continue
             artifact_type = str(artifact.get("artifact_type", "") or "").casefold()
             mime_type = str(artifact.get("mime_type", "") or "").casefold()
+            if artifact_type == "visual":
+                continue
             if artifact_type in archive_types:
                 return True
             if "html" in mime_type or mime_type.startswith("text/"):
@@ -1964,31 +2036,18 @@ def _evidence_markup(
                     output_dir,
                 )
         png_href = artifact_hrefs.get("png", "")
-        manifest_path = _resolve_runtime_path(
-            capture.get("manifest_path"),
-            base_dir,
-        )
-        manifest_href = (
-            _relative_href(manifest_path, output_dir)
-            if manifest_path is not None
-            else ""
-        )
+        visual_href = artifact_hrefs.get("visual", "")
         artifact_links = "".join(
             f'<a class="secondary-link" href="{_html(href)}" '
             'target="_blank" rel="noopener noreferrer">'
             f"{_html(label)}</a>"
             for artifact_type, label in (
-                ("html", "HTML"),
+                ("visual", "Visual"),
                 ("mhtml", "MHTML"),
                 ("text", "Text"),
             )
             if (href := artifact_hrefs.get(artifact_type))
         )
-        if manifest_href:
-            artifact_links += (
-                f'<a class="secondary-link" href="{_html(manifest_href)}" '
-                'target="_blank" rel="noopener noreferrer">Manifest</a>'
-            )
         capture_kind = str(
             capture.get("capture_kind", "screenshot") or "screenshot"
         )
@@ -2070,6 +2129,14 @@ def _evidence_markup(
                 'target="_blank" rel="noopener noreferrer" '
                 f'aria-label="Open {_html(display_name)}">'
                 f'<img src="{_html(thumb_img_href)}" alt="" loading="lazy"></a>'
+            )
+        elif visual_href:
+            thumbnail = (
+                f'<a class="evidence-thumbnail '
+                'evidence-thumbnail--archive" '
+                f'href="{_html(visual_href)}" '
+                'target="_blank" rel="noopener noreferrer" '
+                f'aria-label="Open visual archive for {_html(display_name)}"></a>'
             )
         elif capture_kind == "page_archive":
             thumbnail = (
@@ -2658,6 +2725,7 @@ def generate_investigation_page(
     *,
     base_dir: Path,
     history_report_path: Path,
+    workspace_version: int = 0,
 ) -> str:
     investigation = workspace["investigation"]
     results = list(workspace.get("results", []))
@@ -2674,10 +2742,16 @@ def generate_investigation_page(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_dir = output_path.parent
+    workspace_path = write_investigation_workspace(
+        workspace,
+        output_path,
+        version=workspace_version,
+    )
 
     asset_prefix = _relative_href(base_dir, output_dir).rstrip("/") + "/"
     home_href = _relative_href(base_dir / "index.html", output_dir)
     history_href = _relative_href(history_report_path, output_dir)
+    workspace_href = quote(workspace_path.name)
     read_only = investigation.get("status") != "active"
     results_by_id = {
         str(result.get("id", "") or ""): result
@@ -2893,11 +2967,12 @@ def generate_investigation_page(
     )
 
     metric_items = (
-        ("⌕", len(searches), "Searches"),
-        ("▣", len(results), "Saved pages"),
-        ("◇", len(graph_entities), "Entities"),
-        ("★", sum(1 for item in results if item.get("favorite")), "Favorites"),
+        ("searches", "⌕", len(searches), "Searches"),
+        ("results", "▣", len(results), "Saved pages"),
+        ("entities", "◇", len(graph_entities), "Entities"),
+        ("favorites", "★", sum(1 for item in results if item.get("favorite")), "Favorites"),
         (
+            "confirmed",
             "✓",
             sum(1 for item in results if item.get("analyst_status") == "confirme"),
             "Confirmed pages",
@@ -2906,13 +2981,14 @@ def generate_investigation_page(
     metrics_markup = "".join(
         (
             '<span class="metric-chip" '
+            f'data-workspace-metric="{_html(key)}" '
             f'title="{_html(label)}: {count}" '
             f'aria-label="{_html(label)}: {count}">'
             f'<span class="metric-chip__icon" aria-hidden="true">{_html(icon)}</span>'
             f'<strong>{count}</strong>'
             '</span>'
         )
-        for icon, count, label in metric_items
+        for key, icon, count, label in metric_items
     )
 
     page = f"""<!DOCTYPE html>
@@ -2926,9 +3002,13 @@ def generate_investigation_page(
     <script src="{asset_prefix}theme.js"></script>
     <script src="{asset_prefix}i18n.js"></script>
     <script src="{asset_prefix}assets/synthesix-ui.js"></script>
+    <script src="{workspace_href}" data-synthesix-workspace></script>
 </head>
 <body>
-    <main class="app app--wide app--workspace">
+    <main
+        class="app app--wide app--workspace"
+        data-synthesix-workspace-template="{_WORKSPACE_TEMPLATE_VERSION}"
+    >
         <datalist id="tag-suggestions">
             {tag_datalist_options}
         </datalist>
@@ -3413,7 +3493,10 @@ def generate_investigation_page(
     </main>
     <script>
         (() => {{
-            const investigationId = {json.dumps(str(investigation.get("id", "")))};
+            const workspaceData = window.__synthesixWorkspace || {{}};
+            const investigationId = String(
+                workspaceData.investigation?.id || {json.dumps(str(investigation.get("id", "")))}
+            );
             // Persist the queue so a no-reload action (e.g. a delete) that is
             // still pending is not lost if the analyst refreshes the page.
             const actionQueueKey = `synthesix:action-queue:${{investigationId}}`;
@@ -3570,6 +3653,68 @@ def generate_investigation_page(
                     );
                     status.textContent = String(message || "");
                     status.classList.toggle("is-error", Boolean(isError));
+                }},
+                reloadWorkspace(version) {{
+                    const requestedVersion = Number(version) || 0;
+                    const currentVersion = Number(
+                        window.__synthesixWorkspaceVersion || 0
+                    );
+                    if (requestedVersion && requestedVersion <= currentVersion) {{
+                        return false;
+                    }}
+                    const currentScript = document.querySelector(
+                        "script[data-synthesix-workspace]"
+                    );
+                    if (!currentScript?.src) {{
+                        return false;
+                    }}
+                    const nextScript = document.createElement("script");
+                    const source = new URL(currentScript.src, window.location.href);
+                    source.searchParams.set("workspaceVersion", String(
+                        requestedVersion || Date.now()
+                    ));
+                    nextScript.src = source.href;
+                    nextScript.dataset.synthesixWorkspace = "";
+                    nextScript.onload = () => {{
+                        Promise.resolve(window.__synthesixWorkspaceReady)
+                            .then((workspace) => {{
+                        currentScript.replaceWith(nextScript);
+                        const counts = {{
+                            searches: Array.isArray(workspace.searches)
+                                ? workspace.searches.length : 0,
+                            results: Array.isArray(workspace.results)
+                                ? workspace.results.length : 0,
+                            entities: Array.isArray(workspace.graph_entities)
+                                ? workspace.graph_entities.length : 0,
+                            favorites: Array.isArray(workspace.results)
+                                ? workspace.results.filter((item) => item.favorite).length : 0,
+                            confirmed: Array.isArray(workspace.results)
+                                ? workspace.results.filter(
+                                    (item) => item.analyst_status === "confirme"
+                                ).length : 0
+                        }};
+                        Object.entries(counts).forEach(([key, count]) => {{
+                            document.querySelectorAll(
+                                `[data-workspace-metric="${{key}}"] strong`
+                            ).forEach((node) => {{ node.textContent = String(count); }});
+                        }});
+                        document.dispatchEvent(new CustomEvent(
+                            "synthesix-workspace-update", {{
+                                detail: {{
+                                    workspace,
+                                    version: Number(
+                                        window.__synthesixWorkspaceVersion || 0
+                                    )
+                                }}
+                            }}
+                        ));
+                        }}).catch(() => {{
+                            nextScript.remove();
+                        }});
+                    }};
+                    nextScript.onerror = () => {{ nextScript.remove(); }};
+                    currentScript.after(nextScript);
+                    return true;
                 }}
             }};
             formatLocalDatetimes();
@@ -3769,9 +3914,304 @@ def generate_investigation_page(
                 valueNode.textContent = value;
                 item.appendChild(head);
                 item.appendChild(valueNode);
+                item.dataset.graphPropertyKey = key;
                 list.appendChild(item);
                 bindGraphPropertyDelete(card, remove, entityId);
             }};
+            const reconcileGraphProperties = (workspace) => {{
+                const entities = Array.isArray(workspace?.graph_entities)
+                    ? workspace.graph_entities : [];
+                const entitiesById = new Map(entities.map((entity) => [
+                    String(entity?.id || ""), entity
+                ]));
+                document.querySelectorAll(".graph-entity-card").forEach((card) => {{
+                    const entity = entitiesById.get(
+                        String(card.dataset.graphEntityId || "")
+                    );
+                    if (!entity) {{
+                        return;
+                    }}
+                    const properties = entity.properties || {{}};
+                    const wanted = new Map(Object.entries(properties).filter(
+                        ([, value]) => String(value || "").trim()
+                    ));
+                    const list = card.querySelector(".graph-property-list");
+                    if (!list) {{
+                        return;
+                    }}
+                    list.querySelectorAll("[data-graph-property-key]").forEach(
+                        (row) => {{
+                            const key = String(row.dataset.graphPropertyKey || "");
+                            if (!wanted.has(key)) {{
+                                row.remove();
+                                return;
+                            }}
+                            const value = row.querySelector(".graph-property-value");
+                            if (value) {{
+                                value.textContent = String(wanted.get(key));
+                            }}
+                            wanted.delete(key);
+                        }}
+                    );
+                    wanted.forEach((value, key) => {{
+                        appendGraphPropertyRow(card, entity.id, key, String(value));
+                    }});
+                    if (!list.querySelector("li")) {{
+                        const empty = document.createElement("li");
+                        empty.className = "entity-empty";
+                        empty.textContent = "Aucune propriété.";
+                        list.appendChild(empty);
+                    }}
+                }});
+            }};
+            const removeMissingWorkspaceRows = (selector, items, attribute) => {{
+                const liveIds = new Set((Array.isArray(items) ? items : []).map(
+                    (item) => String(item?.id || "")
+                ));
+                document.querySelectorAll(selector).forEach((node) => {{
+                    if (!liveIds.has(String(node.dataset[attribute] || ""))) {{
+                        node.remove();
+                    }}
+                }});
+            }};
+            const reconcileWorkspace = (workspace) => {{
+                reconcileGraphProperties(workspace);
+                const resultsById = new Map(
+                    (Array.isArray(workspace?.results) ? workspace.results : [])
+                        .map((result) => [String(result?.id || ""), result])
+                );
+                document.querySelectorAll(".investigation-result[data-result-id]")
+                    .forEach((card) => {{
+                        const result = resultsById.get(String(card.dataset.resultId));
+                        if (!result) {{
+                            return;
+                        }}
+                        const status = String(result.analyst_status || "a_verifier");
+                        const favorite = Boolean(result.favorite);
+                        const notes = String(result.notes || "");
+                        const tags = Array.isArray(result.tags) ? result.tags : [];
+                        card.dataset.status = status;
+                        card.dataset.favorite = favorite ? "1" : "0";
+                        const statusSelect = card.querySelector("[data-result-status]");
+                        if (statusSelect) {{ statusSelect.value = status; }}
+                        const favoriteInput = card.querySelector("[data-result-favorite]");
+                        if (favoriteInput) {{ favoriteInput.checked = favorite; }}
+                        const notesInput = card.querySelector("[data-result-notes]");
+                        if (notesInput) {{ notesInput.value = notes; }}
+                        const tagsInput = card.querySelector("[data-result-tags]");
+                        if (tagsInput) {{ tagsInput.value = tags.join(", "); }}
+                        const tagsHost = card.querySelector("[data-result-tags-display]");
+                        if (tagsHost) {{
+                            tagsHost.replaceChildren();
+                            tags.forEach((tag) => {{
+                                const chip = document.createElement("span");
+                                chip.className = "result-tag";
+                                chip.textContent = String(tag);
+                                tagsHost.appendChild(chip);
+                            }});
+                        }}
+                        const inspector = document.querySelector(
+                            `[data-inspector-panel="${{CSS.escape(card.dataset.resultId)}}"]`
+                        );
+                        const inspectorNotes = inspector?.querySelector(
+                            "[data-result-notes-edit]"
+                        );
+                        if (inspectorNotes) {{ inspectorNotes.value = notes; }}
+                    }});
+                const graphEntities = Array.isArray(workspace?.graph_entities)
+                    ? workspace.graph_entities : [];
+                const graphEntitiesById = new Map(graphEntities.map(
+                    (entity) => [String(entity?.id || ""), entity]
+                ));
+                document.querySelectorAll(".graph-entity-card[data-graph-entity-id]")
+                    .forEach((card) => {{
+                        const entity = graphEntitiesById.get(
+                            String(card.dataset.graphEntityId || "")
+                        );
+                        if (!entity) {{
+                            return;
+                        }}
+                        const label = String(entity.label || "");
+                        const notes = String(entity.notes || "");
+                        const labelInput = card.querySelector("[data-graph-entity-label]");
+                        if (labelInput) {{ labelInput.value = label; }}
+                        const notesInput = card.querySelector("[data-graph-entity-notes]");
+                        if (notesInput) {{ notesInput.value = notes; }}
+                        const tagsHost = card.querySelector("[data-tags-chips]");
+                        if (tagsHost) {{
+                            tagsHost.replaceChildren();
+                            (Array.isArray(entity.tags) ? entity.tags : []).forEach((tag) => {{
+                                const chip = document.createElement("span");
+                                chip.className = "tag-chip";
+                                chip.dataset.tag = String(tag);
+                                chip.textContent = String(tag);
+                                const remove = document.createElement("button");
+                                remove.type = "button";
+                                remove.className = "tag-chip__remove";
+                                remove.dataset.tagRemove = "";
+                                remove.setAttribute("aria-label", "Remove tag");
+                                remove.textContent = "×";
+                                chip.appendChild(remove);
+                                tagsHost.appendChild(chip);
+                            }});
+                        }}
+                        const relationById = new Map([
+                            ...(Array.isArray(entity.relations) ? entity.relations : []),
+                            ...(Array.isArray(entity.incoming_relations)
+                                ? entity.incoming_relations : [])
+                        ].map((relation) => [String(relation?.id || ""), relation]));
+                        card.querySelectorAll("[data-relation-id]").forEach((row) => {{
+                            const relation = relationById.get(
+                                String(row.dataset.relationId || "")
+                            );
+                            if (!relation) {{
+                                row.remove();
+                                return;
+                            }}
+                            const input = row.querySelector("[data-relation-label]");
+                            if (input) {{ input.value = String(relation.label || ""); }}
+                        }});
+                        const relationList = card.querySelector(".entity-relation-list");
+                        if (relationList) {{
+                            (Array.isArray(entity.relations) ? entity.relations : [])
+                                .forEach((relation) => {{
+                                    const relationId = String(relation?.id || "");
+                                    if (
+                                        !relationId
+                                        || relationList.querySelector(
+                                            `[data-relation-id="${{CSS.escape(relationId)}}"]`
+                                        )
+                                    ) {{
+                                        return;
+                                    }}
+                                    const item = document.createElement("li");
+                                    item.className = "entity-relation";
+                                    item.dataset.relationId = relationId;
+                                    const input = document.createElement("input");
+                                    input.type = "text";
+                                    input.className = "entity-relation__label";
+                                    input.setAttribute("data-relation-label", "");
+                                    input.maxLength = 120;
+                                    input.value = String(relation.label || "");
+                                    input.addEventListener("change", () => {{
+                                        queueAction("update_graph_entity_relation", {{
+                                            relationId,
+                                            label: input.value.trim()
+                                        }});
+                                        flashSaved();
+                                    }});
+                                    const target = document.createElement("button");
+                                    target.type = "button";
+                                    target.className = (
+                                        "entity-relation__target entity-relation__goto"
+                                    );
+                                    target.dataset.relationGoto = String(
+                                        relation.target_entity_id || ""
+                                    );
+                                    target.textContent = "→ " + String(
+                                        relation.target_label || relation.target_entity_id || ""
+                                    );
+                                    const remove = document.createElement("button");
+                                    remove.type = "button";
+                                    remove.className = (
+                                        "icon-action icon-action--danger delete-relation"
+                                    );
+                                    remove.title = "Supprimer la relation";
+                                    remove.setAttribute(
+                                        "aria-label", "Supprimer la relation"
+                                    );
+                                    remove.textContent = "×";
+                                    item.append(input, target, remove);
+                                    relationList.appendChild(item);
+                                }});
+                        }}
+                        const row = document.querySelector(
+                            `[data-entity-select="${{CSS.escape(entity.id || "")}}"]`
+                        );
+                        const rowLabel = row?.querySelector(".entity-row__label");
+                        if (rowLabel) {{ rowLabel.textContent = label; }}
+                    }});
+                const extractedById = new Map(
+                    (Array.isArray(workspace?.entities) ? workspace.entities : [])
+                        .map((entity) => [String(entity?.id || ""), entity])
+                );
+                document.querySelectorAll(".entity-chip-row[data-entity-id]")
+                    .forEach((row) => {{
+                        const entity = extractedById.get(String(row.dataset.entityId));
+                        if (!entity) {{
+                            return;
+                        }}
+                        const label = String(
+                            entity.custom_label || entity.property_key || entity.entity_type || ""
+                        );
+                        const value = String(
+                            entity.value_normalized || entity.value_original || ""
+                        );
+                        const status = String(entity.status || "proposed");
+                        row.className = `entity-chip-row entity-item--${{status}}`;
+                        row.dataset.propertyScope = String(
+                            entity.attributes?.property_scope || row.dataset.propertyScope || "entity"
+                        );
+                        const labelInput = row.querySelector("[data-entity-custom-label]");
+                        if (labelInput) {{ labelInput.value = label; }}
+                        const labelNode = row.querySelector(".entity-chip-row__summary strong");
+                        if (labelNode) {{ labelNode.textContent = label; }}
+                        const valueNode = row.querySelector(".entity-chip-row__value");
+                        if (valueNode) {{
+                            valueNode.textContent = value;
+                            valueNode.title = value;
+                        }}
+                    }});
+                removeMissingWorkspaceRows(
+                    "[data-result-id]", workspace?.results, "resultId"
+                );
+                removeMissingWorkspaceRows(
+                    "[data-entity-id]", workspace?.entities, "entityId"
+                );
+                removeMissingWorkspaceRows(
+                    "[data-graph-entity-id]",
+                    workspace?.graph_entities,
+                    "graphEntityId"
+                );
+                removeMissingWorkspaceRows(
+                    "[data-evidence-id]", workspace?.evidence, "evidenceId"
+                );
+                removeMissingWorkspaceRows(
+                    "[data-export-id]", workspace?.exports, "exportId"
+                );
+                removeMissingWorkspaceRows(
+                    "[data-page-monitor-id]",
+                    workspace?.page_monitors,
+                    "pageMonitorId"
+                );
+                const monitorCount = Array.isArray(workspace?.page_monitors)
+                    ? workspace.page_monitors.length : 0;
+                document.querySelectorAll("[data-monitor-count]").forEach(
+                    (node) => {{ node.textContent = `${{monitorCount}} monitored`; }}
+                );
+                const exportCount = Array.isArray(workspace?.exports)
+                    ? workspace.exports.length : 0;
+                document.querySelectorAll("[data-export-count]").forEach(
+                    (node) => {{ node.textContent = `${{exportCount}} export(s)`; }}
+                );
+                document.querySelectorAll(".result-evidence").forEach(
+                    (container) => {{
+                        const count = container.querySelector(
+                            "[data-evidence-count]"
+                        );
+                        const items = container.querySelectorAll(
+                            "[data-evidence-id]"
+                        ).length;
+                        if (count) {{
+                            count.textContent = String(items);
+                        }}
+                        container.hidden = items === 0;
+                    }}
+                );
+            }};
+            document.addEventListener("synthesix-workspace-update", (event) => {{
+                reconcileWorkspace(event.detail?.workspace);
+            }});
 
             document.querySelectorAll(".graph-entity-card").forEach((card) => {{
                 const entityId = card.dataset.graphEntityId;
@@ -4026,7 +4466,6 @@ def generate_investigation_page(
                     }}
                 );
             }});
-
             resultCards.forEach((card) => {{
                 card.querySelector("[data-result-status]")?.addEventListener(
                     "change",
@@ -5408,6 +5847,9 @@ def generate_investigation_page(
                     importFiles(event.dataTransfer?.files);
                 }});
             }}
+            Promise.resolve(window.__synthesixWorkspaceReady)
+                .then((workspace) => {{ reconcileWorkspace(workspace); }})
+                .catch(() => {{ reconcileWorkspace(workspaceData); }});
         }})();
     </script>
 </body>

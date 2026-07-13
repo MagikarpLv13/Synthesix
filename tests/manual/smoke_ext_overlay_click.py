@@ -119,6 +119,69 @@ def _overlay_action_names(dispatches: list[dict]) -> list[str]:
     return names
 
 
+def _extension_tab_id(dispatches: list[dict]) -> int | None:
+    for dispatch in dispatches:
+        candidates = [dispatch.get("tabId")]
+        payload = dispatch.get("payload") or {}
+        if isinstance(payload, dict):
+            sender = payload.get("sender") or {}
+            if isinstance(sender, dict):
+                candidates.append(sender.get("tabId"))
+        for candidate in candidates:
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                return candidate
+    return None
+
+
+async def _send_button_status(
+    service,
+    extension_id: str,
+    tab_id: int,
+    *,
+    kind: str,
+    state: str,
+    message: str,
+) -> bool:
+    return await service.send_extension_backend_message(
+        extension_id,
+        {
+            "type": "synthesix:button-status",
+            "tabId": tab_id,
+            "kind": kind,
+            "state": state,
+            "message": message,
+        },
+    )
+
+
+async def _expect_button_state(
+    tab,
+    selector: str,
+    expected_state: str,
+    label: str,
+    timeout: float = 4.0,
+) -> dict[str, str]:
+    selector_json = json.dumps(selector)
+    expected_json = json.dumps(expected_state)
+    return await _wait_for(
+        tab,
+        f"""(() => {{
+            const host = document.getElementById({json.dumps(OVERLAY_HOST_ID)});
+            const button = host && host.querySelector({selector_json});
+            if (!button || button.dataset.state !== {expected_json}) {{
+                return null;
+            }}
+            return {{
+                state: button.dataset.state || "",
+                label: button.getAttribute("label") || "",
+                title: button.getAttribute("title-text") || ""
+            }};
+        }})()""",
+        label,
+        timeout=timeout,
+    )
+
+
 async def run_smoke() -> int:
     settings = get_settings()
     profile_dir = Path(tempfile.mkdtemp(prefix="synthesix-ext-overlay-smoke-"))
@@ -188,12 +251,16 @@ async def run_smoke() -> int:
                 return true;
             }})()""",
         )
-        no_context_actions = _overlay_action_names(await _drain_actions(service))
+        no_context_dispatches = await _drain_actions(service)
+        no_context_actions = _overlay_action_names(no_context_dispatches)
+        extension_tab_id = _extension_tab_id(no_context_dispatches)
         print(f"[5] actions after click without investigation: {no_context_actions}")
         if "focus_home" not in no_context_actions:
             failures.append(
                 f"expected focus_home after context-less click, got {no_context_actions}"
             )
+        if extension_tab_id is None:
+            failures.append("could not resolve extension tab id from overlay action")
 
         sent = await service.send_extension_backend_message(
             extension_id,
@@ -215,8 +282,78 @@ async def run_smoke() -> int:
         )
         print(f"[7] overlay investigation id: {applied!r}")
         # Applying a context queues observe_saved_page; drain it first.
-        observe_actions = _overlay_action_names(await _drain_actions(service, 2.0))
+        observe_dispatches = await _drain_actions(service, 2.0)
+        observe_actions = _overlay_action_names(observe_dispatches)
+        extension_tab_id = extension_tab_id or _extension_tab_id(observe_dispatches)
         print(f"[8] actions after context update: {observe_actions}")
+
+        if extension_tab_id is not None:
+            status_checks = [
+                (
+                    "save",
+                    "saved",
+                    "Smoke saved",
+                    "[data-synthesix-save-page]",
+                    "save status applied",
+                ),
+                (
+                    "save",
+                    "error",
+                    "Smoke save error",
+                    "[data-synthesix-save-page]",
+                    "save error status applied",
+                ),
+                (
+                    "capture",
+                    "captured",
+                    "Smoke captured",
+                    "[data-synthesix-capture]",
+                    "capture status applied",
+                ),
+                (
+                    "capture",
+                    "error",
+                    "Smoke capture error",
+                    "[data-synthesix-capture]",
+                    "capture error status applied",
+                ),
+                (
+                    "archive",
+                    "archived",
+                    "Smoke archived",
+                    "[data-synthesix-archive]",
+                    "archive status applied",
+                ),
+                (
+                    "archive",
+                    "error",
+                    "Smoke archive error",
+                    "[data-synthesix-archive]",
+                    "archive error status applied",
+                ),
+            ]
+            for kind, state, message, selector, label in status_checks:
+                status_sent = await _send_button_status(
+                    service,
+                    extension_id,
+                    extension_tab_id,
+                    kind=kind,
+                    state=state,
+                    message=message,
+                )
+                if not status_sent:
+                    failures.append(f"button status send failed for {kind}:{state}")
+                    continue
+                try:
+                    button = await _expect_button_state(tab, selector, state, label)
+                    print(
+                        f"[9] {kind}:{state} applied "
+                        f"(label={button['label']!r}, title={button['title']!r})"
+                    )
+                except TimeoutError as error:
+                    failures.append(str(error))
+        else:
+            print("[9] skipped button status checks: no extension tab id")
 
         await _eval_value(
             tab,
@@ -228,7 +365,7 @@ async def run_smoke() -> int:
             }})()""",
         )
         save_actions = _overlay_action_names(await _drain_actions(service))
-        print(f"[9] actions after click with investigation: {save_actions}")
+        print(f"[10] actions after click with investigation: {save_actions}")
         if "save_page_to_investigation" not in save_actions:
             failures.append(
                 f"expected save_page_to_investigation, got {save_actions}"

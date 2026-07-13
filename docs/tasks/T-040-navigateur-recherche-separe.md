@@ -1,6 +1,6 @@
 # T-040 — Navigateur de recherche séparé
 
-- **Statut** : review
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : moyen-élevé
 - **Outil recommandé** : Claude
 - **Dépendances** : T-010, T-011 (recherche annulable) ; T-014 utile mais pas
@@ -132,3 +132,10 @@ Smoke réel obligatoire (scénarios ci-dessus), consigné.
   challenge anti-robot et nomme le fichier ouvert.
 - Smoke réel Brave headless + DuckDuckGo : challenge capturé et HTML ouvert
   dans le navigateur UI temporaire.
+
+## Validation utilisateur 2026-07-09
+
+- Smoke réel T-040 exécuté par l'utilisateur : recherche complète pendant
+  navigation dans la fenêtre principale, aucun comportement gênant signalé.
+- Résultat confirmé : fonctionnement nickel.
+- T-040 clôturée.

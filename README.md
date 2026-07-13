@@ -250,12 +250,17 @@ attempt to retrieve HTML. Its name defaults to
 `screenshot_YYYY-MM-DD_HH-MM-SS` in the browser's local time and can be replaced
 before capture.
 
-The separate archive button saves the page and explicitly records sanitized
-HTML, normalized visible text, and MHTML when CDP supports it. Known password,
-token, session, and credential form values are redacted from HTML. Cookie and
-authentication headers are removed from MHTML before it is written. Each
-artifact has a SHA-256 hash and a versioned provenance manifest. A partial
-archive remains visible when either HTML or MHTML is unavailable.
+The separate archive button first records a self-contained, scrollable visual
+capture of the full page. It warms lazy content by controlled viewport scrolling,
+then embeds bounded PNG tiles in one local HTML viewer; its SHA-256 therefore
+covers every captured pixel and it does not depend on the source site when
+reopened. It also records MHTML when CDP supports it and normalized visible
+text for extraction and monitoring. The transient DOM HTML used to derive that
+text is not retained as an evidence artifact. Cookie and authentication headers
+are removed from MHTML before it is written. A partial archive remains visible
+when one of its artifacts is unavailable; the investigation page exposes only
+the visual capture, MHTML, and text. The provenance manifest is kept locally
+for verification rather than shown as an analyst action.
 
 Saved pages can be monitored manually. Monitoring never reruns a search: each
 new explicit page archive is compared with the previous archive's normalized

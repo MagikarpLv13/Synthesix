@@ -7,7 +7,9 @@ from browser.service import (
     get_browser_service,
     mhtml,
     outer_html,
+    page_layout,
     screenshot,
+    visual_viewport,
 )
 
 __all__ = [
@@ -17,5 +19,7 @@ __all__ = [
     "get_browser_service",
     "mhtml",
     "outer_html",
+    "page_layout",
     "screenshot",
+    "visual_viewport",
 ]

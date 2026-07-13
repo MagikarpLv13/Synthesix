@@ -28,6 +28,7 @@ from evidence import (
     capture_html,
     capture_mhtml,
     capture_png,
+    capture_visual_page,
     compare_page_text,
     normalize_html_text,
     write_text_document,
@@ -52,7 +53,11 @@ from investigations import InvestigationRepository, InvestigationService
 from investigations.repository import utc_now
 from investigations.monitoring_view import generate_page_comparison_report
 from investigations.search_view import generate_local_search_page
-from investigations.view import generate_investigation_page
+from investigations.view import (
+    generate_investigation_page,
+    investigation_page_supports_workspace,
+    write_investigation_workspace,
+)
 from query_operators import SearchFilters, build_display_query
 from query_variants import (
     MAX_QUERY_LENGTH,
@@ -342,6 +347,64 @@ def _investigation_payload(service: InvestigationService) -> tuple[str, str]:
     )
     version = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return payload, version
+
+
+def _service_mutation_version(service: InvestigationService) -> int:
+    return int(getattr(service, "mutation_version", 0))
+
+
+def _mark_investigation_service_changed(service: InvestigationService) -> None:
+    mark_changed = getattr(service, "mark_changed", None)
+    if callable(mark_changed):
+        mark_changed()
+        return
+    service.mutation_version = _service_mutation_version(service) + 1
+
+
+class InvestigationPayloadCache:
+    def __init__(self, service: InvestigationService):
+        self.service = service
+        self._forced_version = 0
+        self._payload_cache: tuple[int, int, tuple[str, str]] | None = None
+        self._workspace_cache: dict[tuple[str, int, int], dict] = {}
+
+    def invalidate(self) -> None:
+        self._forced_version += 1
+        self._payload_cache = None
+        self._workspace_cache.clear()
+
+    def _cache_version(self) -> tuple[int, int]:
+        return self._forced_version, _service_mutation_version(self.service)
+
+    async def investigation_payload(self) -> tuple[str, str]:
+        forced_version, service_version = self._cache_version()
+        cached = self._payload_cache
+        if (
+            cached is not None
+            and cached[0] == forced_version
+            and cached[1] == service_version
+        ):
+            return cached[2]
+        payload = await asyncio.to_thread(_investigation_payload, self.service)
+        current_forced, current_service = self._cache_version()
+        if (current_forced, current_service) == (forced_version, service_version):
+            self._payload_cache = (forced_version, service_version, payload)
+        return payload
+
+    async def workspace_payload(self, investigation_id: str) -> dict:
+        forced_version, service_version = self._cache_version()
+        cache_key = (investigation_id, forced_version, service_version)
+        cached = self._workspace_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        workspace = await asyncio.to_thread(
+            self.service.workspace_payload,
+            investigation_id,
+        )
+        current_forced, current_service = self._cache_version()
+        if (current_forced, current_service) == (forced_version, service_version):
+            self._workspace_cache[cache_key] = workspace
+        return workspace
 
 
 def parse_cli_args(argv=None):
@@ -1987,6 +2050,7 @@ async def _archive_page(
         or _default_archive_name(captured_at)
     )[:120]
     capture_dir = settings.evidence_dir / investigation_id / capture_id
+    visual_path = capture_dir / "visual.html"
     html_path = capture_dir / "page.html"
     mhtml_path = capture_dir / "page.mhtml"
     text_path = capture_dir / "page.txt"
@@ -1999,7 +2063,46 @@ async def _archive_page(
 
     try:
         try:
-            captured_html = await capture_html(tab, html_path)
+            captured_visual = await capture_visual_page(
+                tab,
+                visual_path,
+                page_title=saved.title,
+                source_url=saved.url,
+            )
+            stored_visual_path = _stored_path(visual_path, settings.base_dir)
+            artifacts.append(
+                {
+                    "id": str(uuid4()),
+                    "artifact_type": "visual",
+                    "file_path": stored_visual_path,
+                    "mime_type": "text/html; charset=utf-8",
+                    "sha256": captured_visual.sha256,
+                    "byte_size": captured_visual.byte_size,
+                    "created_at": captured_at,
+                }
+            )
+            manifest_artifacts.append(
+                {
+                    "type": "visual",
+                    "path": stored_visual_path,
+                    "mime_type": "text/html; charset=utf-8",
+                    "sha256": captured_visual.sha256,
+                    "byte_size": captured_visual.byte_size,
+                    "visual": {
+                        "width": captured_visual.width,
+                        "height": captured_visual.height,
+                        "tile_count": captured_visual.tile_count,
+                    },
+                }
+            )
+        except Exception as exc:
+            capture_errors.append(
+                f"Visual archive unavailable ({type(exc).__name__})."
+            )
+            logger.debug("Visual page archive unavailable", exc_info=True)
+
+        try:
+            await capture_html(tab, html_path)
             normalized_text = normalize_html_text(
                 await asyncio.to_thread(
                     html_path.read_text,
@@ -2010,45 +2113,34 @@ async def _archive_page(
                 text_path,
                 normalized_text,
             )
-            for artifact_type, path, mime_type, document in (
-                (
-                    "html",
-                    html_path,
-                    "text/html; charset=utf-8",
-                    captured_html,
-                ),
-                (
-                    "text",
-                    text_path,
-                    "text/plain; charset=utf-8",
-                    captured_text,
-                ),
-            ):
-                stored_path = _stored_path(path, settings.base_dir)
-                artifact = {
+            stored_text_path = _stored_path(text_path, settings.base_dir)
+            artifacts.append(
+                {
                     "id": str(uuid4()),
-                    "artifact_type": artifact_type,
-                    "file_path": stored_path,
-                    "mime_type": mime_type,
-                    "sha256": document.sha256,
-                    "byte_size": document.byte_size,
+                    "artifact_type": "text",
+                    "file_path": stored_text_path,
+                    "mime_type": "text/plain; charset=utf-8",
+                    "sha256": captured_text.sha256,
+                    "byte_size": captured_text.byte_size,
                     "created_at": captured_at,
                 }
-                artifacts.append(artifact)
-                manifest_artifacts.append(
-                    {
-                        "type": artifact_type,
-                        "path": stored_path,
-                        "mime_type": mime_type,
-                        "sha256": document.sha256,
-                        "byte_size": document.byte_size,
-                    }
-                )
+            )
+            manifest_artifacts.append(
+                {
+                    "type": "text",
+                    "path": stored_text_path,
+                    "mime_type": "text/plain; charset=utf-8",
+                    "sha256": captured_text.sha256,
+                    "byte_size": captured_text.byte_size,
+                }
+            )
         except Exception as exc:
             capture_errors.append(
-                f"HTML archive unavailable ({type(exc).__name__})."
+                f"Text archive unavailable ({type(exc).__name__})."
             )
-            logger.debug("HTML page archive unavailable", exc_info=True)
+            logger.debug("Text page archive unavailable", exc_info=True)
+        finally:
+            await asyncio.to_thread(html_path.unlink, missing_ok=True)
 
         try:
             captured_mhtml = await capture_mhtml(tab, mhtml_path)
@@ -2084,7 +2176,7 @@ async def _archive_page(
 
         if not artifacts:
             raise EvidenceCaptureError(
-                "Page archive failed: HTML and MHTML are unavailable."
+                "Page archive failed: visual, text and MHTML archives are unavailable."
             )
         browser_context = page.get("browserContext", {})
         if not isinstance(browser_context, dict):
@@ -2169,6 +2261,8 @@ def _has_page_archive_artifact(capture) -> bool:
     for artifact in getattr(capture, "artifacts", ()) or ():
         artifact_type = str(getattr(artifact, "artifact_type", "") or "").casefold()
         mime_type = str(getattr(artifact, "mime_type", "") or "").casefold()
+        if artifact_type == "visual":
+            continue
         if artifact_type in {"html", "mhtml", "text", "txt"}:
             return True
         if "html" in mime_type or mime_type.startswith("text/"):
@@ -2521,8 +2615,52 @@ def _generate_investigation_page(
         output_path,
         base_dir=settings.base_dir,
         history_report_path=settings.history_report_path,
+        workspace_version=_service_mutation_version(service),
     )
     return output_path
+
+
+async def _generate_investigation_page_async(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+) -> Path:
+    return await asyncio.to_thread(
+        _generate_investigation_page,
+        service,
+        settings,
+        investigation_id,
+    )
+
+
+def _write_investigation_workspace(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+) -> Path:
+    page_path = settings.investigation_page_path(investigation_id)
+    if not investigation_page_supports_workspace(page_path):
+        # Migrate an old shell once. Its static markup cannot consume a new
+        # sidecar, so only rewriting the script would leave it stale forever.
+        return _generate_investigation_page(service, settings, investigation_id)
+    return write_investigation_workspace(
+        service.workspace_payload(investigation_id),
+        page_path,
+        version=_service_mutation_version(service),
+    )
+
+
+async def _write_investigation_workspace_async(
+    service: InvestigationService,
+    settings: AppSettings,
+    investigation_id: str,
+) -> Path:
+    return await asyncio.to_thread(
+        _write_investigation_workspace,
+        service,
+        settings,
+        investigation_id,
+    )
 
 
 async def _set_page_status(tab, message: str, *, is_error: bool = False) -> None:
@@ -2547,26 +2685,51 @@ async def _set_page_status(tab, message: str, *, is_error: bool = False) -> None
     )
 
 
-def _refresh_investigation_page_file(
+async def _reload_workspace_from_sidecar(tab, version: int) -> None:
+    """Ask a current-version investigation shell to load its new data script."""
+    if tab is None:
+        return
+    await eval_js(
+        tab,
+        f"""
+        (() => {{
+            if (
+                window.synthesixPage &&
+                typeof window.synthesixPage.reloadWorkspace === "function"
+            ) {{
+                window.synthesixPage.reloadWorkspace({int(version)});
+            }}
+        }})()
+        """,
+        category="eval_page",
+    )
+
+
+async def _refresh_investigation_page_file(
     service: InvestigationService,
     settings: AppSettings,
     investigation_id: str,
-) -> None:
-    """Regenerate the on-disk investigation page after a no-reload save.
+) -> int | None:
+    """Refresh the sidecar data after a no-reload save.
 
-    The open tab is intentionally not reloaded; only the generated file is
-    rewritten so a manual refresh reflects the change instead of the stale
-    snapshot that otherwise survives until the next restart.
+    The stable HTML shell is not rewritten here. A manual refresh loads the
+    updated classic script while the currently open tab keeps its UI state.
     """
     if not investigation_id:
-        return
+        return None
     try:
-        _generate_investigation_page(service, settings, investigation_id)
+        await _write_investigation_workspace_async(
+            service,
+            settings,
+            investigation_id,
+        )
+        return _service_mutation_version(service)
     except Exception:
         logger.debug(
             "Unable to refresh the investigation page file after a save",
             exc_info=True,
         )
+        return None
 
 
 async def _save_in_place(
@@ -2576,7 +2739,14 @@ async def _save_in_place(
     investigation_id: str,
 ) -> None:
     """Persist a no-reload action to the page file and confirm with "Saved."."""
-    _refresh_investigation_page_file(service, settings, investigation_id)
+    _mark_investigation_service_changed(service)
+    version = await _refresh_investigation_page_file(
+        service,
+        settings,
+        investigation_id,
+    )
+    if version is not None:
+        await _reload_workspace_from_sidecar(source_tab, version)
     await _set_page_status(source_tab, "Saved.")
 
 
@@ -3161,6 +3331,7 @@ async def main():
             "Imported %s legacy history entries into the investigation database.",
             imported_history,
         )
+    investigation_payload_cache = InvestigationPayloadCache(investigation_service)
 
     # Use a file:// URL so navigation works across platforms
     index_url = (settings.base_dir / "index.html").resolve().as_uri()
@@ -3189,12 +3360,12 @@ async def main():
 
     try:
         while True:
-            investigations_json, investigations_version = _investigation_payload(
-                investigation_service
+            investigations_json, investigations_version = (
+                await investigation_payload_cache.investigation_payload()
             )
             overlay_investigation = None
             if active_investigation is not None:
-                workspace = investigation_service.workspace_payload(
+                workspace = await investigation_payload_cache.workspace_payload(
                     active_investigation.id
                 )
                 overlay_investigation = {
@@ -3245,6 +3416,7 @@ async def main():
                 extension_id=extension_id,
                 extension_revision=extension_revision,
             )
+            investigation_payload_cache.invalidate()
 
             # Quit the browser if the user wants to
             if result["action"] == "quit":
@@ -3415,7 +3587,7 @@ async def main():
                         and active_investigation.id == investigation.id
                     ):
                         active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation.id,
@@ -3448,7 +3620,7 @@ async def main():
                         and active_investigation.id == investigation.id
                     ):
                         active_investigation = None
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation.id,
@@ -3506,7 +3678,7 @@ async def main():
                         result.get("page", {}),
                     )
                     if was_saved:
-                        page_path = _generate_investigation_page(
+                        page_path = await _generate_investigation_page_async(
                             investigation_service,
                             settings,
                             investigation_id,
@@ -3549,7 +3721,7 @@ async def main():
                         result,
                     )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3621,7 +3793,7 @@ async def main():
                         result,
                     )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3653,7 +3825,7 @@ async def main():
                         result,
                     )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3725,7 +3897,7 @@ async def main():
                         saved,
                     )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3796,7 +3968,7 @@ async def main():
                             archive.id,
                         )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3848,7 +4020,7 @@ async def main():
                         result.get("page", {}),
                     )
                     active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3893,7 +4065,7 @@ async def main():
                     investigation = investigation_service.get(investigation_id)
                     if investigation.status == "active":
                         active_investigation = investigation
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -3916,7 +4088,7 @@ async def main():
                 investigation_id = str(result.get("investigationId", "") or "").strip()
                 source_tab = result.get("_source_tab")
                 try:
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4192,7 +4364,7 @@ async def main():
                             investigation_id,
                         )
                     else:
-                        page_path = _generate_investigation_page(
+                        page_path = await _generate_investigation_page_async(
                             investigation_service,
                             settings,
                             investigation_id,
@@ -4217,7 +4389,7 @@ async def main():
                         investigation_id,
                         result_id,
                     )
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4247,7 +4419,7 @@ async def main():
                         investigation_id,
                         result_id,
                     )
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4340,7 +4512,8 @@ async def main():
                     result.get("includePageArchives", False)
                 )
                 try:
-                    workspace = investigation_service.workspace_payload(
+                    workspace = await asyncio.to_thread(
+                        investigation_service.workspace_payload,
                         investigation_id
                     )
                     timestamp = (
@@ -4408,7 +4581,7 @@ async def main():
                         asset_count=exported.asset_count,
                         generated_at=exported.generated_at,
                     )
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4541,7 +4714,7 @@ async def main():
                         investigation_id,
                         result_id,
                     )
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4583,7 +4756,7 @@ async def main():
                         investigation_id,
                         search_run_id,
                     )
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation_id,
@@ -4603,7 +4776,7 @@ async def main():
                 for investigation in investigation_service.list_investigations(
                     include_archived=True
                 ):
-                    page_path = _generate_investigation_page(
+                    page_path = await _generate_investigation_page_async(
                         investigation_service,
                         settings,
                         investigation.id,
@@ -4782,7 +4955,8 @@ async def perform_search(
 
     if investigation_service is not None:
         try:
-            investigation_service.record_search(
+            await asyncio.to_thread(
+                investigation_service.record_search,
                 investigation_id=investigation_id,
                 original_query=original_query,
                 parsed_query=parsed_query,
@@ -4795,6 +4969,7 @@ async def perform_search(
                 results=search_result.results,
                 started_at=started_at,
             )
+            _mark_investigation_service_changed(investigation_service)
         except Exception:
             logger.error(
                 "Search completed but could not be saved to the investigation database.",
@@ -4815,7 +4990,7 @@ async def perform_search(
     ):
         try:
             settings = get_settings()
-            page_path = _generate_investigation_page(
+            page_path = await _generate_investigation_page_async(
                 investigation_service,
                 settings,
                 investigation_id,

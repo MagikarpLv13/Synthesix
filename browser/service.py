@@ -97,6 +97,87 @@ async def screenshot(
     return base64.b64decode(encoded, validate=True)
 
 
+async def page_layout(tab) -> dict[str, float]:
+    """Return the CSS content dimensions needed for a visual page archive."""
+    observability.count("page_layout")
+    (
+        _layout_viewport,
+        _visual_viewport,
+        _content_size,
+        _css_layout_viewport,
+        _css_visual_viewport,
+        css_content_size,
+    ) = await tab.send(cdp.page.get_layout_metrics())
+    return {
+        "width": float(css_content_size.width),
+        "height": float(css_content_size.height),
+    }
+
+
+async def visual_viewport(tab) -> dict[str, float]:
+    """Return the current scroll position and viewport size for evidence."""
+    observability.count("visual_viewport")
+    result = await tab.evaluate(
+        """
+        (() => ({
+          x: window.scrollX || 0,
+          y: window.scrollY || 0,
+          width: window.innerWidth || document.documentElement.clientWidth || 0,
+          height: window.innerHeight || document.documentElement.clientHeight || 0,
+        }))()
+        """
+    )
+    if not isinstance(result, Mapping):
+        raise RuntimeError("Unable to read the browser viewport.")
+    try:
+        return {
+            "x": float(result["x"]),
+            "y": float(result["y"]),
+            "width": float(result["width"]),
+            "height": float(result["height"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Invalid browser viewport response.") from exc
+
+
+async def scroll_for_visual_capture(tab, x: float, y: float) -> None:
+    """Scroll a page while warming lazy content for a visual archive."""
+    observability.count("visual_scroll")
+    coordinates = json.dumps([float(x), float(y)])
+    await tab.evaluate(
+        f"""
+        (() => {{
+          const overlay = document.getElementById('__synthesix-save-overlay')
+            || document.querySelector('[data-synthesix-overlay-root]');
+          if (overlay && !Object.hasOwn(overlay.dataset, 'synthesixVisualCaptureStyle')) {{
+            overlay.dataset.synthesixVisualCaptureStyle = overlay.style.cssText;
+          }}
+          if (overlay) overlay.style.setProperty('display', 'none', 'important');
+          window.scrollTo(...{coordinates});
+        }})()
+        """
+    )
+
+
+async def finish_visual_capture(tab, x: float, y: float) -> None:
+    """Restore the analyst's scroll position and the Synthesix overlay."""
+    observability.count("visual_restore")
+    coordinates = json.dumps([float(x), float(y)])
+    await tab.evaluate(
+        f"""
+        (() => {{
+          window.scrollTo(...{coordinates});
+          const overlay = document.getElementById('__synthesix-save-overlay')
+            || document.querySelector('[data-synthesix-overlay-root]');
+          if (overlay && Object.hasOwn(overlay.dataset, 'synthesixVisualCaptureStyle')) {{
+            overlay.style.cssText = overlay.dataset.synthesixVisualCaptureStyle;
+            delete overlay.dataset.synthesixVisualCaptureStyle;
+          }}
+        }})()
+        """
+    )
+
+
 async def mhtml(tab) -> str:
     """Return the full MHTML snapshot of the page. Exceptions propagate."""
     observability.count("capture_mhtml")

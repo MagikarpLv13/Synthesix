@@ -90,6 +90,8 @@ def _has_archive_artifact(capture: EvidenceCapture) -> bool:
     for artifact in capture.artifacts:
         artifact_type = str(artifact.artifact_type or "").casefold()
         mime_type = str(artifact.mime_type or "").casefold()
+        if artifact_type == "visual":
+            continue
         if artifact_type in ARCHIVE_ARTIFACT_TYPES:
             return True
         if "html" in mime_type or mime_type.startswith("text/"):
@@ -214,6 +216,10 @@ class InvestigationService:
             if base_dir is not None
             else repository.database_path.resolve().parent.parent
         )
+        self.mutation_version = 0
+
+    def mark_changed(self) -> None:
+        self.mutation_version += 1
 
     def initialize(self, history_path: Path | None = None) -> int:
         self.repository.initialize()

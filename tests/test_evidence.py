@@ -5,11 +5,13 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from evidence.capture import (
     capture_html,
     capture_mhtml,
     capture_png,
+    capture_visual_page,
     normalize_selection,
     normalize_html_text,
     sanitize_html,
@@ -102,6 +104,55 @@ class EvidenceCaptureTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Content-Type: multipart/related", written)
         self.assertIn("Public body", written)
         self.assertEqual(captured.byte_size, len(written_bytes))
+
+    async def test_captures_self_contained_scrollable_visual_page(self):
+        viewport = {"x": 12.0, "y": 34.0, "width": 800.0, "height": 600.0}
+        layout = {"width": 800.0, "height": 900.0}
+        tab = object()
+
+        with (
+            TemporaryDirectory() as temp_dir,
+            patch(
+                "evidence.capture.browser_service.visual_viewport",
+                AsyncMock(return_value=viewport),
+            ),
+            patch(
+                "evidence.capture.browser_service.page_layout",
+                AsyncMock(side_effect=[layout, layout]),
+            ),
+            patch(
+                "evidence.capture.browser_service.scroll_for_visual_capture",
+                AsyncMock(),
+            ) as scroll,
+            patch(
+                "evidence.capture.browser_service.finish_visual_capture",
+                AsyncMock(),
+            ) as restore,
+            patch(
+                "evidence.capture.browser_service.screenshot",
+                AsyncMock(return_value=b"png-tile"),
+            ) as screenshot,
+        ):
+            output_path = Path(temp_dir) / "visual.html"
+            captured = await capture_visual_page(
+                tab,
+                output_path,
+                page_title="Example <page>",
+                source_url="https://example.com/?q=<test>",
+            )
+            written = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(captured.width, 800)
+        self.assertEqual(captured.height, 900)
+        self.assertEqual(captured.tile_count, 1)
+        self.assertIn("Capture visuelle intégrale", written)
+        self.assertIn("data:image/png;base64,cG5nLXRpbGU=", written)
+        self.assertNotIn('src="https://', written)
+        self.assertIn("Example &lt;page&gt;", written)
+        self.assertIn("https://example.com/?q=&lt;test&gt;", written)
+        self.assertEqual(screenshot.await_count, 1)
+        restore.assert_awaited_once_with(tab, 12.0, 34.0)
+        self.assertEqual(scroll.await_args_list[-1].args[2], 300.0)
 
 
 class EvidenceSanitizationTestCase(unittest.TestCase):

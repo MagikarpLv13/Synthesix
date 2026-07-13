@@ -1,6 +1,6 @@
 # T-042 — Page enquête hydratée par workspace.json
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P2 · **Effort** : élevé (découper en sous-lots a/b/c)
 - **Outil recommandé** : Les deux (Claude : architecture + backend ;
   Codex : conversions mécaniques côté vue)
@@ -86,3 +86,69 @@ Smoke visuel par sous-lot (thèmes, densité), consigné.
 - Divergence gabarit/données : gérée par la version de gabarit (étape 3).
 - Contrat `window.synthesixPage` : inchangé — les actions continuent de
   passer par lui (AGENTS.md §5).
+
+## Résultat — sous-lot a (2026-07-10)
+
+- Chaque page d'enquête génère maintenant un script adjacent
+  `<id>.workspace.js`, écrit atomiquement, qui définit
+  `window.__synthesixWorkspace` et est chargé par script classique depuis la
+  coquille HTML. Ce mécanisme reste compatible avec les pages `file://`.
+- Les actions déjà sans rechargement n'écrivent plus la coquille HTML : elles
+  mettent à jour le script de données seul. La création de page et les actions
+  qui rechargent encore conservent la génération complète, donc la parité
+  visuelle actuelle est préservée.
+- Le gabarit annonce sa capacité via
+  `data-synthesix-workspace-template="1"`. Le re-rendu client sur nouvelle
+  version de données et la suppression de `tab.reload()` restent les objectifs
+  des sous-lots b/c.
+
+## Résultat — sous-lot b1 (2026-07-10)
+
+- Chaque sauvegarde déjà sans rechargement incrémente une révision du workspace,
+  met à jour le script adjacent puis pousse un appel CDP léger vers l'onglet
+  source. Le script est rechargé avec un paramètre de version, sans navigation
+  et donc sans perte du scroll ou de l'état de l'inspecteur.
+- Le gabarit expose maintenant `window.synthesixPage.reloadWorkspace(version)`.
+  Après chargement, il met à jour les métriques de synthèse et émet l'événement
+  `synthesix-workspace-update` avec les nouvelles données et leur version.
+- Les sections détaillées conservent encore leur mise à jour optimiste
+  existante ; elles seront progressivement re-rendues à partir de cet événement
+  dans le sous-lot b2.
+
+## Résultat — sous-lot b2a (2026-07-10)
+
+- Les propriétés d'entité sont la première section détaillée réconciliée à
+  partir du workspace : chaque ligne porte désormais sa clé stable. Au
+  chargement initial comme lors de `synthesix-workspace-update`, les propriétés
+  absentes sont retirées, les valeurs sont actualisées et les propriétés
+  manquantes sont ajoutées.
+- Une suppression suivie d'un refresh ne réaffiche donc plus la propriété
+  provenant de la coquille HTML périmée.
+
+## Résultat — sous-lot b2b (2026-07-10)
+
+- La même réconciliation supprime maintenant, au chargement et après push, les
+  éléments absents du workspace : pages enregistrées, propriétés extraites,
+  entités, preuves, exports et moniteurs. Les compteurs exports/moniteurs et
+  preuves associés sont recalculés.
+- Les mutations non destructives détaillées (relations, métadonnées et états
+  d'entités extraites) restent à re-rendre entièrement avant la clôture de la
+  tâche : T-042 demeure donc `in_progress`.
+
+## Résultat — sous-lot b2 final (2026-07-10)
+
+- Les résultats, métadonnées/tags des entités, relations, états et métadonnées
+  des propriétés extraites sont maintenant réconciliés avec le workspace à
+  l'ouverture et après une mutation sans rechargement.
+- Le workspace est compacté en gzip dans le script classique, puis décompressé
+  par `DecompressionStream` côté Chromium. Mesure synthétique sur 200 pages :
+  HTML 1 390 744 octets, workspace 6 803 octets (0,49 %) — le critère `< 5 %`
+  est atteint.
+- Le script est exécuté dans Node pendant les tests afin de vérifier la vraie
+  décompression et l'hydratation du payload. Reste le smoke visuel/CDP sur une
+  enquête réelle avant passage `done`.
+
+## Validation finale (2026-07-10)
+
+- Smoke utilisateur exécuté et approuvé : les mutations et les refreshs de
+  page se comportent correctement. T-042 est clôturée.

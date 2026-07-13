@@ -1,6 +1,6 @@
 # T-035 — Contexte investigation + statuts vers l'extension
 
-- **Statut** : review
+- **Statut** : done
 - **Priorité** : P1 · **Effort** : moyen
 - **Outil recommandé** : Claude
 - **Dépendances** : T-034
@@ -121,3 +121,24 @@ Smoke réel multi-tabs consigné.
   alors des préparations de page (`Page.*`, user-agent headless) avant les
   commandes du worker. La connexion extension est maintenant sans propriétaire
   navigateur ; les bindings et messages runtime restent inchangés.
+
+## Smoke renforcé 2026-07-08
+
+- `tests/manual/smoke_ext_overlay_click.py` couvre maintenant aussi le canal
+  backend → extension `synthesix:button-status`.
+- Smoke Brave réel exécuté avec profil temporaire et worker révision
+  `ca5203a8cd0ecdf5` :
+  - content script chargé, binding worker armé, aucun worker périmé ;
+  - clic sans contexte → `focus_home` ;
+  - `context-update` accepté et appliqué à l'overlay ;
+  - `observe_saved_page` émis après contexte ;
+  - statuts `save`, `capture`, `archive` appliqués en succès et en erreur ;
+  - clic avec contexte → `save_page_to_investigation`.
+- Résultat : `SMOKE_RESULT OK`.
+- Restait à valider à ce stade : smoke app complète multi-tabs avec changement
+  d'enquête et workflow réel save/capture/archive via dispatcher complet.
+
+## Validation utilisateur 2026-07-08
+
+- Smoke app complète rejoué par l'utilisateur : fonctionnement confirmé.
+- T-035 clôturée.
