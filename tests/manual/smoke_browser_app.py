@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.runtime import BrowserApplication
-from browser import click_at
+from browser import click_at, screenshot
 from browser import get_browser_service
 from browser_manager import HeadlessBrowserManager
 from settings import get_settings
@@ -106,9 +106,11 @@ async def smoke():
                     await tab.evaluate(f"window.synthesixTheme.setTheme('{theme}')")
                     await asyncio.sleep(.15)
                     assert await tab.evaluate("document.documentElement.scrollWidth <= innerWidth"), (theme, width)
-                    await tab.save_screenshot(str(output / f"{theme}-{width}.png"), full_page=True)
+                    height = await tab.evaluate("document.documentElement.scrollHeight")
+                    (output / f"{theme}-{width}.png").write_bytes(await screenshot(tab, {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}))
             await application.publish(results=[], status="Ready to search.")
-            await tab.save_screenshot(str(output / "empty.png"), full_page=True)
+            height = await tab.evaluate("document.documentElement.scrollHeight")
+            (output / "empty.png").write_bytes(await screenshot(tab, {"x": 0, "y": 0, "width": 390, "height": height, "scale": 1}))
             # A reloaded home receives the complete state again.
             await tab.reload()
             await asyncio.sleep(2.5)
@@ -132,7 +134,8 @@ async def smoke():
 
             assert await stored_marker(first, "synthetic-value") == "synthetic-value"
             assert await stored_marker(second) is None
-            assert await stored_marker(first) == "synthetic-value"
+            for _ in range(3):
+                assert await stored_marker(first) == "synthetic-value"
             print("Real profile persistence and isolation OK (synthetic local storage only)", flush=True)
         finally:
             running.cancel()

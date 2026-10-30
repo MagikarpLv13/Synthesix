@@ -484,6 +484,14 @@ class HeadlessBrowserManager:
     async def stop(self):
         try:
             if self.browser is not None:
+                process = getattr(self.browser, "_process", None)
+                if process is not None and process.poll() is None:
+                    service = self.service or get_browser_service(self.browser)
+                    await service.request_browser_close()
+                    try:
+                        await asyncio.to_thread(process.wait, timeout=5.0)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("Browser did not exit gracefully; falling back to bounded cleanup.")
                 # zendriver's stop() first sends `Browser.close` and awaits a
                 # reply; against an already-dead Chrome that reply never comes
                 # and the await hangs, keeping the process alive. Bound it so

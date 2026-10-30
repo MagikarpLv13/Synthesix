@@ -451,6 +451,17 @@ class BrowserService:
         observability.count("open_tab")
         return await self.browser.get(url, new_tab=new_tab)
 
+    async def request_browser_close(self) -> None:
+        """Request a normal Chrome exit before process cleanup can terminate it."""
+        observability.count("close_browser")
+        connection = getattr(self.browser, "connection", None)
+        if connection is None or connection.closed:
+            return
+        try:
+            await asyncio.wait_for(connection.send(cdp.browser.close()), timeout=3.0)
+        except Exception:
+            logger.debug("Browser close request did not return before disconnect", exc_info=True)
+
     async def close_tab(self, tab, *, timeout: float = 5.0) -> bool:
         """Close a dedicated tab without letting a detached target hang."""
         observability.count("close_tab")

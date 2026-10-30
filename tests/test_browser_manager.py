@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from browser_manager import (
     FLATPAK_BRAVE_APP_ID,
@@ -16,6 +16,7 @@ from browser_manager import (
     _mark_profile_exited_cleanly,
     _resolve_browser_executable,
     _search_browser_args,
+    HeadlessBrowserManager,
 )
 from settings import get_settings
 
@@ -240,6 +241,33 @@ class BrowserManagerTestCase(unittest.TestCase):
 
         self.assertIn(f"run {FLATPAK_BRAVE_APP_ID}", content)
         self.assertIn('"$@"', content)
+
+
+class BrowserShutdownTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_waits_for_profile_flush_before_vendor_cleanup(self):
+        class Process:
+            returncode = None
+            persisted = False
+            forced = False
+            def poll(self):
+                return self.returncode
+            def wait(self, timeout):
+                self.persisted = True
+                self.returncode = 0
+                return 0
+
+        process = Process()
+        async def vendor_stop():
+            if not process.persisted:
+                process.forced = True
+        browser = SimpleNamespace(_process=process, stop=AsyncMock(side_effect=vendor_stop))
+        manager = HeadlessBrowserManager()
+        manager.browser = browser
+        manager.service = SimpleNamespace(request_browser_close=AsyncMock())
+        await manager.stop()
+        self.assertTrue(process.persisted)
+        self.assertFalse(process.forced)
+        self.assertIsNone(manager.browser)
 
 
 if __name__ == "__main__":
