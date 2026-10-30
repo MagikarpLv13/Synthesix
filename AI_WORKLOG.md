@@ -5738,3 +5738,30 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Relais :** ouvrir le paquet Windows ou lancer `main.py` pour la prise en main.
   L'ancienne application reste reconstituable depuis `0e58af1` dans une copie
   séparée pour exporter les enquêtes existantes. Aucun verrou restant.
+
+### AI-20261030-003 — Réouverture du profil navigateur précédent
+
+- **Agent :** Codex.
+- **Période UTC :** 2026-10-30 20:19–20:21.
+- **Branche :** `codex/browser-refocus` ; aucune modification applicative.
+- **Demande clarifiée :** retrouver les onglets et connexions du navigateur,
+  sans intervention sur les anciennes enquêtes ou recherches enregistrées.
+- **Résultat :** ancien profil identifié par ses métadonnées comme un profil
+  Brave. Présence des fichiers de session et des données de connexion vérifiée
+  sans afficher leur contenu. Le navigateur n'utilisait pas ce profil au moment
+  de la sauvegarde. Copie privée complète réalisée sous `data/`, puis ancien
+  profil rouvert avec le même exécutable Brave et restauration de dernière
+  session demandée. Raccourci local créé pour le rouvrir ultérieurement.
+- **Vérifications exécutées :** absence de processus utilisant le profil avant
+  et après copie ; mêmes nombres et tailles de fichiers ; intégrité binaire des
+  fichiers essentiels de la copie ; exclusion Git de la sauvegarde et du
+  raccourci ; processus correspondant au bon profil et fenêtre visible après
+  lancement. Aucun attachement CDP, lecture de page, déchiffrement ou affichage
+  de données de connexion. Aucun contenu de profil ni URL de page dans ce journal.
+- **Fichiers versionnés modifiés :** `AI_WORKLOG.md` uniquement. Les fichiers de
+  récupération et leur manifeste restent locaux et ignorés par Git.
+- **Non exécuté / limites :** tests Python/frontend sans objet ; ni contenu des
+  onglets restaurés ni validité des connexions vérifiés site par site. Le
+  navigateur natif conserve la gestion de la restauration et des authentifications.
+- **Relais :** l'utilisateur peut reprendre dans la fenêtre Brave ouverte ou
+  utiliser le raccourci local. Sauvegarde conservée ; aucun verrou restant.
