@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict
 
@@ -113,6 +113,8 @@ class AppSettings:
     empty_tabs_grace_seconds: float
     page_load_timeout: float
     page_load_interval: float
+    bing_results_timeout: float
+    bing_results_interval: float
     brave_results_timeout: float
     brave_results_interval: float
     brave_robot_find_timeout: float
@@ -131,6 +133,23 @@ class AppSettings:
     # cut off mid-challenge.
     search_total_budget: float
     max_query_variants: int
+    monitor_autostart: bool
+    monitor_poll_interval: float
+    monitor_batch_size: int
+    monitor_concurrency: int
+    monitor_lease_seconds: float
+    monitor_attempt_timeout: float
+    monitor_retry_attempts: int
+    monitor_retry_delay: float
+    monitor_retry_backoff: float
+    monitor_jitter_seconds: float
+    monitor_failure_backoff_seconds: float
+    monitor_max_failures: int
+    monitor_headless: bool
+    social_api_timeout: float
+    youtube_api_key: str = field(repr=False)
+    x_bearer_token: str = field(repr=False)
+    tiktok_research_access_token: str = field(repr=False)
 
     def search_results_path(self, date_str: str) -> Path:
         return self.history_dir / f"search_results_{date_str}.html"
@@ -253,6 +272,8 @@ def _build_settings() -> AppSettings:
         empty_tabs_grace_seconds=_env_float("SYNTHESIX_EMPTY_TABS_GRACE_SECONDS", 2.0),
         page_load_timeout=_env_float("SYNTHESIX_PAGE_LOAD_TIMEOUT", 2.5),
         page_load_interval=_env_float("SYNTHESIX_PAGE_LOAD_INTERVAL", 0.1),
+        bing_results_timeout=_env_float("SYNTHESIX_BING_RESULTS_TIMEOUT", 10.0),
+        bing_results_interval=_env_float("SYNTHESIX_BING_RESULTS_INTERVAL", 0.25),
         brave_results_timeout=_env_float("SYNTHESIX_BRAVE_RESULTS_TIMEOUT", 45.0),
         brave_results_interval=_env_float("SYNTHESIX_BRAVE_RESULTS_INTERVAL", 0.25),
         brave_robot_find_timeout=_env_float("SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT", 0.2),
@@ -269,4 +290,72 @@ def _build_settings() -> AppSettings:
         engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),
         search_total_budget=_env_float("SYNTHESIX_SEARCH_TOTAL_BUDGET", 120.0),
         max_query_variants=max(1, _env_int("SYNTHESIX_MAX_QUERY_VARIANTS", 6)),
+        monitor_autostart=_env_bool("SYNTHESIX_MONITOR_AUTOSTART", False),
+        monitor_poll_interval=max(
+            1.0,
+            _env_float("SYNTHESIX_MONITOR_POLL_INTERVAL", 60.0),
+        ),
+        monitor_batch_size=min(
+            100,
+            max(1, _env_int("SYNTHESIX_MONITOR_BATCH_SIZE", 4)),
+        ),
+        monitor_concurrency=max(
+            1,
+            _env_int("SYNTHESIX_MONITOR_CONCURRENCY", 2),
+        ),
+        monitor_lease_seconds=min(
+            3600.0,
+            max(
+                5.0,
+                _env_float("SYNTHESIX_MONITOR_LEASE_SECONDS", 300.0),
+            ),
+        ),
+        monitor_attempt_timeout=max(
+            1.0,
+            _env_float("SYNTHESIX_MONITOR_ATTEMPT_TIMEOUT", 75.0),
+        ),
+        monitor_retry_attempts=min(
+            10,
+            max(0, _env_int("SYNTHESIX_MONITOR_RETRY_ATTEMPTS", 1)),
+        ),
+        monitor_retry_delay=max(
+            0.0,
+            _env_float("SYNTHESIX_MONITOR_RETRY_DELAY", 1.0),
+        ),
+        monitor_retry_backoff=max(
+            1.0,
+            _env_float("SYNTHESIX_MONITOR_RETRY_BACKOFF", 2.0),
+        ),
+        monitor_jitter_seconds=max(
+            0.0,
+            _env_float("SYNTHESIX_MONITOR_JITTER_SECONDS", 2.0),
+        ),
+        monitor_failure_backoff_seconds=max(
+            0.0,
+            _env_float(
+                "SYNTHESIX_MONITOR_FAILURE_BACKOFF_SECONDS",
+                300.0,
+            ),
+        ),
+        monitor_max_failures=min(
+            100,
+            max(1, _env_int("SYNTHESIX_MONITOR_MAX_FAILURES", 3)),
+        ),
+        monitor_headless=_env_bool("SYNTHESIX_MONITOR_HEADLESS", True),
+        social_api_timeout=max(
+            1.0,
+            _env_float("SYNTHESIX_SOCIAL_API_TIMEOUT", 10.0),
+        ),
+        youtube_api_key=os.getenv(
+            "SYNTHESIX_YOUTUBE_API_KEY",
+            "",
+        ).strip(),
+        x_bearer_token=os.getenv(
+            "SYNTHESIX_X_BEARER_TOKEN",
+            "",
+        ).strip(),
+        tiktok_research_access_token=os.getenv(
+            "SYNTHESIX_TIKTOK_RESEARCH_ACCESS_TOKEN",
+            "",
+        ).strip(),
     )

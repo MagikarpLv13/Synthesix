@@ -111,6 +111,64 @@ def workspace_payload(*, status="active"):
                 "result_url": "https://example.com/page",
                 "baseline_capture_id": "capture-100",
                 "last_capture_id": "capture-123",
+                "monitor_mode": "automatic",
+                "monitor_profile": "generic_page",
+                "monitor_config": {
+                    "schema_version": 2,
+                    "metrics": ["title", "links"],
+                    "selectors": {"title": "main h1"},
+                    "archive_policy": "on_change",
+                },
+                "check_interval_minutes": 60,
+                "is_enabled": True,
+                "last_checked_at": "2026-06-10T10:00:00+00:00",
+                "next_check_at": "2026-06-10T11:00:00+00:00",
+                "check_status": "changed",
+                "consecutive_failures": 0,
+                "observations": [
+                    {
+                        "id": "observation-123",
+                        "monitor_id": "monitor-123",
+                        "previous_observation_id": "observation-100",
+                        "observed_at": "2026-06-10T10:00:00+00:00",
+                        "final_url": "https://example.com/page",
+                        "duration_ms": 125,
+                        "status": "partial",
+                        "content_sha256": "a" * 64,
+                        "data": {
+                            "schema_version": 1,
+                            "metadata": {"profile": "generic_page"},
+                            "metrics": {
+                                "title": {
+                                    "status": "ok",
+                                    "kind": "text",
+                                    "value": "Example page updated",
+                                    "precision": "exact",
+                                    "provenance": {
+                                        "source": "api",
+                                        "adapter": "youtube",
+                                        "parser": "youtube_api_v3",
+                                        "parser_version": 1,
+                                    },
+                                },
+                                "links": {
+                                    "status": "missing",
+                                    "kind": "list",
+                                    "value": None,
+                                },
+                            },
+                        },
+                        "errors": [],
+                        "changes": {
+                            "title": {
+                                "status": "changed",
+                                "kind": "text",
+                            }
+                        },
+                        "change_status": "changed",
+                        "archive_recommended": True,
+                    }
+                ],
                 "archive_count": 2,
                 "comparison_id": "comparison-123",
                 "comparison_status": "changed",
@@ -410,7 +468,29 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn('queueAction("remove_saved_page"', content)
         self.assertIn('queueAction("attach_investigation_search"', content)
         self.assertIn('queueAction("delete_page_monitor"', content)
+        self.assertIn(
+            'queueAction("update_page_monitor_configuration"',
+            content,
+        )
+        self.assertIn('queueAction("run_page_monitor_now"', content)
         self.assertIn("data-monitor-count", content)
+        self.assertEqual(
+            tree.xpath("//dialog[@id='page-monitor-dialog']/@aria-labelledby"),
+            ["page-monitor-dialog-title"],
+        )
+        self.assertEqual(
+            tree.xpath("//input[@id='page-monitor-interval']/@min"),
+            ["15"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//sx-page-monitor-card[@data-page-monitor-id='monitor-123']"
+                "//*[@data-monitor-change]/text()"
+            )[0].strip(),
+            "Significant change",
+        )
+        self.assertIn("renderMonitorHistory", content)
+        self.assertIn("formatMonitorMetricValue", content)
         self.assertIn('queueAction("extract_result_entities"', content)
         self.assertIn('queueAction("analyze_result_url"', content)
         self.assertIn("synthesix:view-state:", content)
@@ -446,6 +526,14 @@ class InvestigationViewTestCase(unittest.TestCase):
         self.assertIn("refreshExtractedEntityState", content)
         self.assertIn("removeEvidenceItem", content)
         self.assertIn('queueAction("set_entity_property_scope"', content)
+        self.assertLess(
+            content.index('class="icon-action entity-scope-toggle"'),
+            content.index('class="icon-action icon-action--danger entity-reject"'),
+        )
+        self.assertLess(
+            content.index('class="icon-action entity-promote-toggle"'),
+            content.index('class="icon-action icon-action--danger entity-reject"'),
+        )
         self.assertIn("duplicateStrategyForAttach", content)
         self.assertIn("duplicate_strategy: strategy.strategy", content)
         self.assertIn("Une propriété", content)
@@ -1712,7 +1800,124 @@ class InvestigationViewTestCase(unittest.TestCase):
 
         self.assertIn("Monitor changes", content)
         self.assertIn('queueAction("create_page_monitor"', content)
-        self.assertIn("Screenshots are not compared automatically", content)
+        self.assertIn("Configure page monitoring", content)
+        self.assertIn("Lightweight checks collect only the metrics", content)
+
+    def test_page_monitor_dialog_exposes_configuration_and_history_actions(self):
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace_payload(),
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        self.assertEqual(
+            tree.xpath(
+                "//input[@name='monitor-mode']/@value"
+            ),
+            ["automatic", "custom"],
+        )
+        self.assertEqual(
+            tree.xpath(
+                "//select[@id='page-monitor-archive-policy']"
+                "/option/@value"
+            ),
+            ["never", "on_change"],
+        )
+        self.assertTrue(tree.xpath("//*[@data-monitor-metric-grid]"))
+        self.assertTrue(tree.xpath("//*[@data-monitor-selector-list]"))
+        self.assertTrue(tree.xpath("//*[@data-monitor-history-list]"))
+        self.assertIn("currentSelectorValues", content)
+        self.assertIn("archive_policy", content)
+        self.assertIn("check_interval_minutes", content)
+        self.assertIn("is_enabled", content)
+        self.assertIn("Full archive recommended", content)
+        self.assertIn("formatMonitorMetricProvenance", content)
+        self.assertIn("monitor-observation__metric-meta", content)
+        self.assertIn("API source", content)
+
+    def test_facebook_monitor_has_dedicated_configurable_profile_surface(self):
+        workspace = workspace_payload()
+        monitor = workspace["page_monitors"][0]
+        monitor["monitor_profile"] = "facebook_page"
+        monitor["monitor_config"] = {
+            "schema_version": 2,
+            "metrics": [
+                "profile_photo",
+                "display_name",
+                "friends_count",
+                "profile_details",
+                "external_links",
+            ],
+            "selectors": {},
+            "archive_policy": "never",
+        }
+        monitor["observations"][0]["data"]["metadata"]["profile"] = (
+            "facebook_page"
+        )
+        monitor["observations"][0]["data"]["metrics"] = {
+            "profile_photo": {
+                "status": "ok",
+                "kind": "text",
+                "value": "https://scontent.example.fbcdn.net/profile.jpg",
+            },
+            "display_name": {
+                "status": "ok",
+                "kind": "text",
+                "value": "Example Person",
+            },
+            "friends_count": {
+                "status": "ok",
+                "kind": "number",
+                "value": 4784,
+            },
+            "profile_details": {
+                "status": "ok",
+                "kind": "list",
+                "value": ["Informations personnelles: Habite à Paris"],
+            },
+            "external_links": {
+                "status": "ok",
+                "kind": "list",
+                "value": ["https://example.org/profile"],
+            },
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            base_dir = Path(temp_dir)
+            output_path = base_dir / "investigation.html"
+            generate_investigation_page(
+                workspace,
+                output_path,
+                base_dir=base_dir,
+                history_report_path=base_dir / "history.html",
+            )
+            content = output_path.read_text(encoding="utf-8")
+            tree = html.fromstring(content)
+
+        self.assertTrue(
+            tree.xpath(
+                "//sx-page-monitor-card"
+                "//section[@data-facebook-monitor-summary]"
+            )
+        )
+        self.assertTrue(tree.xpath("//*[@data-monitor-facebook-panel]"))
+        self.assertTrue(tree.xpath("//*[@id='page-monitor-custom-metric']"))
+        self.assertTrue(tree.xpath("//*[@id='page-monitor-custom-selector']"))
+        self.assertIn("Facebook profile identity", content)
+        self.assertIn("Facebook visible information", content)
+        self.assertIn("renderFacebookMonitorSummary", content)
+        self.assertIn("appendFacebookMedia", content)
+        self.assertIn("facebook-profile-snapshot__links", content)
+        self.assertIn("profile !== previousProfile", content)
+        self.assertIn("data-monitor-add-custom-target", content)
+        self.assertNotIn("allMonitorMetrics", content)
+        self.assertNotIn("|| String(monitor?.result_url", content)
 
     def test_ungrouped_saved_page_renders_exactly_as_before(self):
         with TemporaryDirectory() as temp_dir:

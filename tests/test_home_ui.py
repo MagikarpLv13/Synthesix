@@ -41,7 +41,7 @@ class HomeUiTestCase(unittest.TestCase):
         )
 
     def test_query_variants_require_explicit_selection(self):
-        panels = self.tree.xpath("//details[@id='query-variants-panel']")
+        panels = self.tree.xpath("//*[@id='query-variants-panel'][@role='tabpanel']")
         suggestions = self.tree.xpath("//button[@id='suggest-query-variants']")
         manual_inputs = self.tree.xpath("//input[@id='manual-query-variant']")
 
@@ -52,6 +52,44 @@ class HomeUiTestCase(unittest.TestCase):
         self.assertIn("queryVariants: selectedQueryVariants()", self.content)
         self.assertIn("checkbox.checked = Boolean(selected)", self.content)
         self.assertIn("setQueryVariants", self.content)
+
+    def test_advanced_tools_use_an_accessible_tabbed_panel(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        theme = (project_dir / "theme.css").read_text(encoding="utf-8")
+
+        tabs = self.tree.xpath("//*[@role='tab'][contains(@class, 'advanced-tools__tab')]")
+        self.assertEqual(len(tabs), 4)
+        self.assertEqual(tabs[0].get("aria-controls"), "osint-filters-panel")
+        self.assertEqual(tabs[0].get("aria-selected"), "true")
+        self.assertTrue(
+            all(tab.get("aria-controls") for tab in tabs)
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//*[@role='tabpanel'][contains(@class, 'workflow-card')]")),
+            4,
+        )
+        self.assertIn("const selectWorkflowPanel", self.content)
+        self.assertIn('event.key === "ArrowRight"', self.content)
+        self.assertIn(".advanced-tools {", theme)
+        self.assertIn(".workflow-grid .workflow-card[hidden]", theme)
+
+    def test_home_layout_has_light_and_dark_theme_tokens(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        theme = (project_dir / "theme.css").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            len(self.tree.xpath("//*[contains(@class, 'cockpit-heading')]")),
+            1,
+        )
+        self.assertEqual(
+            len(self.tree.xpath("//*[contains(@class, 'case-rail')][@aria-label='Active investigation']")),
+            1,
+        )
+        self.assertIn(".app--home {", theme)
+        self.assertIn(".search-panel {", theme)
+        self.assertIn(":root[data-theme=\"dark\"]", theme)
+        self.assertIn("--field: #17181D;", theme)
+        self.assertIn("--accent-tint-2: #252E59;", theme)
 
     def test_vpn_status_uses_browser_public_ip_and_exposes_all_states(self):
         status_buttons = self.tree.xpath("//button[@id='vpn-status']")
@@ -75,9 +113,22 @@ class HomeUiTestCase(unittest.TestCase):
             self.tree.xpath("//img[contains(@class, 'brand-logo')]/@src"),
             ["assets/synthesix-mark.svg"],
         )
-        for color in ("#2563EB", "#0F172A", "#06B6D4", "#64748B", "#000000", "#FFFFFF"):
+        for color in ("#2A46A6", "#17181E", "#8AA0EE", "#6E6A5F", "#191A1E", "#FFFFFF"):
             with self.subTest(color=color):
                 self.assertIn(color, theme)
+
+    def test_saved_page_groups_overlay_uniform_grid_cards(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        theme = (project_dir / "theme.css").read_text(encoding="utf-8")
+        component = (
+            project_dir / "frontend/src/components/sx-saved-page-card.ts"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("grid-auto-rows: 1fr", theme)
+        self.assertIn(".investigation-result {\n    display: block;\n    height: 100%;", theme)
+        self.assertIn(":host([group-open])", component)
+        self.assertIn("position: absolute;\n      top: calc(100% + 6px);", component)
+        self.assertNotIn('class="group-label"', component)
 
     def test_language_detection_and_settings_are_shared(self):
         project_dir = Path(__file__).resolve().parents[1]
@@ -207,10 +258,10 @@ class HomeUiTestCase(unittest.TestCase):
             ),
             1,
         )
-        # secondary workflows are grouped behind progressive disclosure
+        # secondary workflows are exposed as one stable tabbed panel
         workflow_cards = self.tree.xpath(
             "//*[contains(@class, 'workflow-grid')]"
-            "/details[contains(@class, 'workflow-card')]"
+            "/*[@role='tabpanel'][contains(@class, 'workflow-card')]"
         )
         self.assertGreaterEqual(len(workflow_cards), 4)
         # query preview is wired and starts empty
@@ -234,6 +285,9 @@ class HomeUiTestCase(unittest.TestCase):
             "synthesix-mark.svg",
             "synthesix-mark-black.svg",
             "synthesix-mark-white.svg",
+            "synthesix-mark-reversed.svg",
+            "synthesix-wordmark.svg",
+            "synthesix-wordmark-reversed.svg",
         )
 
         for filename in filenames:

@@ -5,7 +5,7 @@ import json
 import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
@@ -19,6 +19,7 @@ from exceptions import (
     SearchRunNotFoundError,
 )
 from investigations.migrations import MIGRATIONS
+from investigations.monitoring import resolve_monitor_configuration
 from investigations.models import (
     ANALYST_STATUSES,
     EvidenceArtifact,
@@ -34,6 +35,7 @@ from investigations.models import (
     LocalSearchResult,
     PageComparison,
     PageMonitor,
+    PageMonitorObservation,
     UrlAnalysis,
 )
 
@@ -2914,6 +2916,9 @@ class InvestigationRepository:
 
     def _row_to_page_monitor(self, row: sqlite3.Row) -> PageMonitor:
         similarity = row["comparison_similarity"]
+        monitor_config = _json_load(row["monitor_config_json"], {})
+        if not isinstance(monitor_config, dict):
+            monitor_config = {}
         return PageMonitor(
             id=row["id"],
             investigation_id=row["investigation_id"],
@@ -2924,6 +2929,17 @@ class InvestigationRepository:
             last_capture_id=row["last_capture_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            monitor_mode=row["monitor_mode"],
+            monitor_profile=row["monitor_profile"],
+            monitor_config=monitor_config,
+            check_interval_minutes=int(row["check_interval_minutes"]),
+            is_enabled=bool(row["is_enabled"]),
+            last_checked_at=row["last_checked_at"],
+            next_check_at=row["next_check_at"],
+            check_status=row["check_status"],
+            consecutive_failures=int(row["consecutive_failures"]),
+            lease_owner=row["lease_owner"],
+            lease_expires_at=row["lease_expires_at"],
             archive_count=int(row["archive_count"] or 0),
             comparison_id=row["comparison_id"],
             comparison_status=row["comparison_status"],
@@ -2932,6 +2948,32 @@ class InvestigationRepository:
             ),
             comparison_report_path=row["comparison_report_path"],
             comparison_generated_at=row["comparison_generated_at"],
+        )
+
+    def _row_to_page_monitor_observation(
+        self,
+        row: sqlite3.Row,
+    ) -> PageMonitorObservation:
+        metadata = _json_load(row["metadata_json"], {})
+        metrics = _json_load(row["metrics_json"], {})
+        errors = _json_load(row["errors_json"], [])
+        changes = _json_load(row["changes_json"], {})
+        return PageMonitorObservation(
+            id=row["id"],
+            monitor_id=row["monitor_id"],
+            previous_observation_id=row["previous_observation_id"],
+            schema_version=int(row["schema_version"]),
+            observed_at=row["observed_at"],
+            final_url=row["final_url"],
+            duration_ms=int(row["duration_ms"]),
+            status=row["status"],
+            content_sha256=row["content_sha256"],
+            metadata=metadata if isinstance(metadata, dict) else {},
+            metrics=metrics if isinstance(metrics, dict) else {},
+            errors=errors if isinstance(errors, list) else [],
+            changes=changes if isinstance(changes, dict) else {},
+            change_status=row["change_status"],
+            archive_recommended=bool(row["archive_recommended"]),
         )
 
     def list_page_monitors(
@@ -3014,6 +3056,7 @@ class InvestigationRepository:
         self,
         investigation_id: str,
         result_id: str,
+        configuration: Mapping[str, object] | None = None,
     ) -> PageMonitor:
         investigation = self.get_investigation(investigation_id)
         if investigation.status != "active":
@@ -3025,6 +3068,12 @@ class InvestigationRepository:
             result_id,
         )
         if existing is not None:
+            if configuration is not None:
+                return self.update_page_monitor_configuration(
+                    investigation_id,
+                    existing.id,
+                    configuration,
+                )
             return existing
 
         now = utc_now()
@@ -3032,12 +3081,13 @@ class InvestigationRepository:
         with self._connection() as connection:
             saved = connection.execute(
                 """
-                SELECT 1
-                FROM investigation_results
+                SELECT result.url
+                FROM investigation_results saved
+                JOIN results result ON result.id = saved.result_id
                 WHERE
-                    investigation_id = ?
-                    AND result_id = ?
-                    AND is_saved = 1
+                    saved.investigation_id = ?
+                    AND saved.result_id = ?
+                    AND saved.is_saved = 1
                 """,
                 (investigation_id, result_id),
             ).fetchone()
@@ -3046,6 +3096,10 @@ class InvestigationRepository:
                     investigation_id,
                     result_id,
                 )
+            resolved = resolve_monitor_configuration(
+                saved["url"],
+                configuration,
+            )
             latest_archive = connection.execute(
                 """
                 SELECT id
@@ -3066,9 +3120,11 @@ class InvestigationRepository:
                 """
                 INSERT INTO page_monitors(
                     id, investigation_id, result_id, baseline_capture_id,
-                    last_capture_id, created_at, updated_at
+                    last_capture_id, created_at, updated_at, monitor_mode,
+                    monitor_profile, monitor_config_json,
+                    check_interval_minutes, is_enabled, check_status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     monitor_id,
@@ -3078,9 +3134,645 @@ class InvestigationRepository:
                     baseline_id,
                     now,
                     now,
+                    resolved.mode,
+                    resolved.profile,
+                    _json_dump(resolved.storage_payload()),
+                    resolved.check_interval_minutes,
+                    int(resolved.is_enabled),
+                    "pending" if resolved.is_enabled else "paused",
                 ),
             )
         return self.get_page_monitor(investigation_id, monitor_id)
+
+    def update_page_monitor_configuration(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        configuration: Mapping[str, object],
+    ) -> PageMonitor:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        monitor = self.get_page_monitor(investigation_id, monitor_id)
+        resolved = resolve_monitor_configuration(
+            monitor.result_url,
+            configuration,
+        )
+        now = utc_now()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    monitor_mode = ?,
+                    monitor_profile = ?,
+                    monitor_config_json = ?,
+                    check_interval_minutes = ?,
+                    is_enabled = ?,
+                    next_check_at = CASE
+                        WHEN ? = 0 THEN NULL
+                        ELSE next_check_at
+                    END,
+                    check_status = CASE
+                        WHEN ? = 0 THEN 'paused'
+                        WHEN check_status = 'paused' THEN 'pending'
+                        ELSE check_status
+                    END,
+                    updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    resolved.mode,
+                    resolved.profile,
+                    _json_dump(resolved.storage_payload()),
+                    resolved.check_interval_minutes,
+                    int(resolved.is_enabled),
+                    int(resolved.is_enabled),
+                    int(resolved.is_enabled),
+                    now,
+                    monitor_id,
+                    investigation_id,
+                ),
+            )
+        return self.get_page_monitor(investigation_id, monitor_id)
+
+    def list_page_monitor_observations(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[PageMonitorObservation]:
+        self.get_page_monitor(investigation_id, monitor_id)
+        try:
+            normalized_limit = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise InvestigationValidationError(
+                "Page monitor observation limit must be between 1 and 1000."
+            ) from exc
+        if (
+            isinstance(limit, bool)
+            or not 1 <= normalized_limit <= 1000
+        ):
+            raise InvestigationValidationError(
+                "Page monitor observation limit must be between 1 and 1000."
+            )
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM page_monitor_observations
+                WHERE monitor_id = ?
+                ORDER BY observed_at DESC, id DESC
+                LIMIT ?
+                """,
+                (monitor_id, normalized_limit),
+            ).fetchall()
+        return [
+            self._row_to_page_monitor_observation(row)
+            for row in rows
+        ]
+
+    def get_latest_page_monitor_observation(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> PageMonitorObservation | None:
+        observations = self.list_page_monitor_observations(
+            investigation_id,
+            monitor_id,
+            limit=1,
+        )
+        return observations[0] if observations else None
+
+    def list_page_monitor_observations_for_investigation(
+        self,
+        investigation_id: str,
+        *,
+        limit_per_monitor: int = 20,
+    ) -> dict[str, list[PageMonitorObservation]]:
+        self.get_investigation(investigation_id)
+        try:
+            normalized_limit = int(limit_per_monitor)
+        except (TypeError, ValueError) as exc:
+            raise InvestigationValidationError(
+                "Page monitor observation limit must be between 1 and 1000."
+            ) from exc
+        if (
+            isinstance(limit_per_monitor, bool)
+            or not 1 <= normalized_limit <= 1000
+        ):
+            raise InvestigationValidationError(
+                "Page monitor observation limit must be between 1 and 1000."
+            )
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM (
+                    SELECT
+                        observation.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY observation.monitor_id
+                            ORDER BY observation.observed_at DESC, observation.id DESC
+                        ) AS monitor_row_number
+                    FROM page_monitor_observations observation
+                    JOIN page_monitors monitor
+                        ON monitor.id = observation.monitor_id
+                    WHERE monitor.investigation_id = ?
+                )
+                WHERE monitor_row_number <= ?
+                ORDER BY monitor_id, observed_at DESC, id DESC
+                """,
+                (investigation_id, normalized_limit),
+            ).fetchall()
+        observations_by_monitor: dict[
+            str,
+            list[PageMonitorObservation],
+        ] = {}
+        for row in rows:
+            observation = self._row_to_page_monitor_observation(row)
+            observations_by_monitor.setdefault(
+                observation.monitor_id,
+                [],
+            ).append(observation)
+        return observations_by_monitor
+
+    def has_due_page_monitors(self, *, due_at: str | None = None) -> bool:
+        due_at = self._normalize_monitor_timestamp(
+            due_at or utc_now(),
+            field_name="Page monitor due timestamp",
+        )
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM page_monitors monitor
+                JOIN investigations investigation
+                    ON investigation.id = monitor.investigation_id
+                WHERE
+                    investigation.status = 'active'
+                    AND monitor.is_enabled = 1
+                    AND (
+                        monitor.next_check_at IS NULL
+                        OR monitor.next_check_at <= ?
+                    )
+                    AND (
+                        monitor.lease_expires_at IS NULL
+                        OR monitor.lease_expires_at <= ?
+                    )
+                LIMIT 1
+                """,
+                (due_at, due_at),
+            ).fetchone()
+        return row is not None
+
+    def claim_due_page_monitors(
+        self,
+        worker_id: str,
+        *,
+        due_at: str | None = None,
+        limit: int = 4,
+        lease_seconds: float = 300.0,
+    ) -> list[PageMonitor]:
+        worker_id = str(worker_id or "").strip()
+        if not worker_id:
+            raise InvestigationValidationError(
+                "Page monitor worker identifier cannot be empty."
+            )
+        if isinstance(limit, bool):
+            raise InvestigationValidationError(
+                "Page monitor claim limit must be between 1 and 100."
+            )
+        try:
+            normalized_limit = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise InvestigationValidationError(
+                "Page monitor claim limit must be between 1 and 100."
+            ) from exc
+        if not 1 <= normalized_limit <= 100:
+            raise InvestigationValidationError(
+                "Page monitor claim limit must be between 1 and 100."
+            )
+        try:
+            normalized_lease_seconds = float(lease_seconds)
+        except (TypeError, ValueError) as exc:
+            raise InvestigationValidationError(
+                "Page monitor lease must be between 5 and 3600 seconds."
+            ) from exc
+        if not 5.0 <= normalized_lease_seconds <= 3600.0:
+            raise InvestigationValidationError(
+                "Page monitor lease must be between 5 and 3600 seconds."
+            )
+
+        due_at = self._normalize_monitor_timestamp(
+            due_at or utc_now(),
+            field_name="Page monitor due timestamp",
+        )
+        due = datetime.fromisoformat(due_at)
+        lease_expires_at = (
+            due + timedelta(seconds=normalized_lease_seconds)
+        ).isoformat(timespec="microseconds")
+        claimed_ids: list[tuple[str, str]] = []
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT monitor.id, monitor.investigation_id
+                FROM page_monitors monitor
+                JOIN investigations investigation
+                    ON investigation.id = monitor.investigation_id
+                WHERE
+                    investigation.status = 'active'
+                    AND monitor.is_enabled = 1
+                    AND (
+                        monitor.next_check_at IS NULL
+                        OR monitor.next_check_at <= ?
+                    )
+                    AND (
+                        monitor.lease_expires_at IS NULL
+                        OR monitor.lease_expires_at <= ?
+                    )
+                ORDER BY
+                    COALESCE(monitor.next_check_at, monitor.created_at),
+                    monitor.id
+                LIMIT ?
+                """,
+                (due_at, due_at, normalized_limit),
+            ).fetchall()
+            claimed_ids = [
+                (str(row["investigation_id"]), str(row["id"]))
+                for row in rows
+            ]
+            if claimed_ids:
+                placeholders = ",".join("?" for _ in claimed_ids)
+                connection.execute(
+                    f"""
+                    UPDATE page_monitors
+                    SET
+                        lease_owner = ?,
+                        lease_expires_at = ?,
+                        updated_at = ?
+                    WHERE id IN ({placeholders})
+                    """,
+                    (
+                        worker_id,
+                        lease_expires_at,
+                        due_at,
+                        *(monitor_id for _, monitor_id in claimed_ids),
+                    ),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+        return [
+            self.get_page_monitor(investigation_id, monitor_id)
+            for investigation_id, monitor_id in claimed_ids
+        ]
+
+    def claim_page_monitor_now(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        worker_id: str,
+        *,
+        lease_seconds: float = 300.0,
+    ) -> PageMonitor:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        worker_id = str(worker_id or "").strip()
+        if not worker_id:
+            raise InvestigationValidationError(
+                "Page monitor worker identifier cannot be empty."
+            )
+        try:
+            normalized_lease_seconds = float(lease_seconds)
+        except (TypeError, ValueError) as exc:
+            raise InvestigationValidationError(
+                "Page monitor lease must be between 5 and 3600 seconds."
+            ) from exc
+        if not 5.0 <= normalized_lease_seconds <= 3600.0:
+            raise InvestigationValidationError(
+                "Page monitor lease must be between 5 and 3600 seconds."
+            )
+
+        monitor = self.get_page_monitor(investigation_id, monitor_id)
+        if not monitor.is_enabled:
+            raise InvestigationValidationError(
+                "Resume this page monitor before running it."
+            )
+
+        claimed_at = datetime.now(timezone.utc)
+        claimed_at_text = claimed_at.isoformat(timespec="microseconds")
+        lease_expires_at = (
+            claimed_at + timedelta(seconds=normalized_lease_seconds)
+        ).isoformat(timespec="microseconds")
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    lease_owner = ?,
+                    lease_expires_at = ?,
+                    next_check_at = ?,
+                    check_status = 'pending',
+                    updated_at = ?
+                WHERE
+                    id = ?
+                    AND investigation_id = ?
+                    AND is_enabled = 1
+                    AND (
+                        lease_expires_at IS NULL
+                        OR lease_expires_at <= ?
+                    )
+                """,
+                (
+                    worker_id,
+                    lease_expires_at,
+                    claimed_at_text,
+                    claimed_at_text,
+                    monitor_id,
+                    investigation_id,
+                    claimed_at_text,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    "This page monitor is already running."
+                )
+        return self.get_page_monitor(investigation_id, monitor_id)
+
+    def finish_page_monitor_claim(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        worker_id: str,
+        *,
+        checked_at: str | None = None,
+        pause: bool = False,
+        increment_failure: bool = False,
+        failure_backoff_seconds: float | None = None,
+    ) -> PageMonitor:
+        worker_id = str(worker_id or "").strip()
+        if not worker_id:
+            raise InvestigationValidationError(
+                "Page monitor worker identifier cannot be empty."
+            )
+        checked_at = self._normalize_monitor_timestamp(
+            checked_at or utc_now(),
+            field_name="Page monitor completion timestamp",
+        )
+        checked = datetime.fromisoformat(checked_at)
+        next_check_at = None
+        if failure_backoff_seconds is not None:
+            try:
+                backoff = max(0.0, float(failure_backoff_seconds))
+            except (TypeError, ValueError) as exc:
+                raise InvestigationValidationError(
+                    "Page monitor failure backoff must be non-negative."
+                ) from exc
+            next_check_at = (
+                checked + timedelta(seconds=backoff)
+            ).isoformat(timespec="microseconds")
+
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    is_enabled = CASE WHEN ? = 1 THEN 0 ELSE is_enabled END,
+                    last_checked_at = CASE
+                        WHEN ? = 1 THEN ?
+                        ELSE last_checked_at
+                    END,
+                    next_check_at = CASE
+                        WHEN ? = 1 THEN NULL
+                        WHEN ? IS NOT NULL THEN ?
+                        ELSE next_check_at
+                    END,
+                    check_status = CASE
+                        WHEN ? = 1 THEN 'paused'
+                        WHEN ? = 1 THEN 'error'
+                        ELSE check_status
+                    END,
+                    consecutive_failures = CASE
+                        WHEN ? = 1 THEN consecutive_failures + 1
+                        ELSE consecutive_failures
+                    END,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = ?
+                WHERE
+                    id = ?
+                    AND investigation_id = ?
+                    AND lease_owner = ?
+                """,
+                (
+                    int(bool(pause)),
+                    int(bool(increment_failure)),
+                    checked_at,
+                    int(bool(pause)),
+                    next_check_at,
+                    next_check_at,
+                    int(bool(pause)),
+                    int(bool(increment_failure)),
+                    int(bool(increment_failure)),
+                    checked_at,
+                    monitor_id,
+                    investigation_id,
+                    worker_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise InvestigationValidationError(
+                    "Page monitor lease is not owned by this worker."
+                )
+        return self.get_page_monitor(investigation_id, monitor_id)
+
+    @staticmethod
+    def _normalize_monitor_timestamp(
+        value: str,
+        *,
+        field_name: str,
+    ) -> str:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError as exc:
+            raise InvestigationValidationError(
+                f"{field_name} is invalid."
+            ) from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed.isoformat(timespec="microseconds")
+
+    def record_page_monitor_observation(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        *,
+        previous_observation_id: str | None,
+        schema_version: int,
+        observed_at: str,
+        final_url: str,
+        duration_ms: int,
+        status: str,
+        content_sha256: str,
+        metadata: Mapping,
+        metrics: Mapping,
+        errors: Iterable[Mapping],
+        changes: Mapping,
+        change_status: str,
+        archive_recommended: bool,
+    ) -> PageMonitorObservation:
+        investigation = self.get_investigation(investigation_id)
+        if investigation.status != "active":
+            raise InvestigationValidationError(
+                "Archived investigations are read-only."
+            )
+        monitor = self.get_page_monitor(investigation_id, monitor_id)
+        if status not in {"ok", "partial", "error"}:
+            raise InvestigationValidationError(
+                "Unsupported page monitor observation status."
+            )
+        if change_status not in {
+            "baseline",
+            "unchanged",
+            "minor_change",
+            "changed",
+            "inconclusive",
+            "error",
+        }:
+            raise InvestigationValidationError(
+                "Unsupported page monitor change status."
+            )
+        if isinstance(schema_version, bool) or int(schema_version) < 1:
+            raise InvestigationValidationError(
+                "Page monitor observation schema version must be positive."
+            )
+        if isinstance(duration_ms, bool) or int(duration_ms) < 0:
+            raise InvestigationValidationError(
+                "Page monitor observation duration cannot be negative."
+            )
+        try:
+            observed = datetime.fromisoformat(str(observed_at))
+        except ValueError as exc:
+            raise InvestigationValidationError(
+                "Invalid page monitor observation timestamp."
+            ) from exc
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        else:
+            observed = observed.astimezone(timezone.utc)
+        observed_at = observed.isoformat(timespec="microseconds")
+        next_check_at = (
+            observed
+            + timedelta(minutes=monitor.check_interval_minutes)
+        ).isoformat(timespec="microseconds")
+
+        observation_id = str(uuid4())
+        serialized_errors = [dict(error) for error in errors]
+        with self._connection() as connection:
+            if previous_observation_id:
+                previous = connection.execute(
+                    """
+                    SELECT 1
+                    FROM page_monitor_observations
+                    WHERE id = ? AND monitor_id = ?
+                    """,
+                    (previous_observation_id, monitor_id),
+                ).fetchone()
+                if previous is None:
+                    raise InvestigationValidationError(
+                        "The previous observation does not belong to this "
+                        "page monitor."
+                    )
+            connection.execute(
+                """
+                INSERT INTO page_monitor_observations(
+                    id, monitor_id, previous_observation_id, schema_version,
+                    observed_at, final_url, duration_ms, status,
+                    content_sha256, metadata_json, metrics_json, errors_json,
+                    changes_json, change_status, archive_recommended
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    observation_id,
+                    monitor_id,
+                    previous_observation_id,
+                    int(schema_version),
+                    observed_at,
+                    str(final_url or monitor.result_url),
+                    int(duration_ms),
+                    status,
+                    str(content_sha256 or ""),
+                    _json_dump(dict(metadata)),
+                    _json_dump(dict(metrics)),
+                    _json_dump(serialized_errors),
+                    _json_dump(dict(changes)),
+                    change_status,
+                    int(bool(archive_recommended)),
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE page_monitors
+                SET
+                    last_checked_at = ?,
+                    next_check_at = CASE
+                        WHEN is_enabled = 1 THEN ?
+                        ELSE NULL
+                    END,
+                    check_status = CASE
+                        WHEN is_enabled = 0 THEN 'paused'
+                        WHEN ? = 'error' THEN 'error'
+                        WHEN ? = 1 THEN 'changed'
+                        ELSE 'ok'
+                    END,
+                    consecutive_failures = CASE
+                        WHEN ? = 'error' THEN consecutive_failures + 1
+                        ELSE 0
+                    END,
+                    updated_at = ?
+                WHERE id = ? AND investigation_id = ?
+                """,
+                (
+                    observed_at,
+                    next_check_at,
+                    status,
+                    int(bool(archive_recommended)),
+                    status,
+                    observed_at,
+                    monitor_id,
+                    investigation_id,
+                ),
+            )
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM page_monitor_observations
+                WHERE id = ?
+                """,
+                (observation_id,),
+            ).fetchone()
+        if row is None:
+            raise InvestigationValidationError(
+                "Page monitor observation could not be reloaded."
+            )
+        return self._row_to_page_monitor_observation(row)
 
     def delete_page_monitor(
         self,
@@ -3531,6 +4223,7 @@ class InvestigationRepository:
             "local_search_documents",
             "local_search_fts",
             "page_monitors",
+            "page_monitor_observations",
             "page_comparisons",
             "extracted_entities",
             "investigation_entities",

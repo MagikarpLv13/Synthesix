@@ -632,4 +632,111 @@ MIGRATIONS = (
             ADD COLUMN include_page_archives INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        18,
+        """
+        ALTER TABLE page_monitors
+            ADD COLUMN monitor_mode TEXT NOT NULL DEFAULT 'automatic'
+            CHECK (monitor_mode IN ('automatic', 'custom'));
+        ALTER TABLE page_monitors
+            ADD COLUMN monitor_profile TEXT NOT NULL DEFAULT 'generic_page';
+        ALTER TABLE page_monitors
+            ADD COLUMN monitor_config_json TEXT NOT NULL
+            DEFAULT '{"schema_version":1,"metrics":["title","description","visible_text","links"],"selectors":{}}';
+        ALTER TABLE page_monitors
+            ADD COLUMN check_interval_minutes INTEGER NOT NULL DEFAULT 1440
+            CHECK (
+                check_interval_minutes >= 15
+                AND check_interval_minutes <= 43200
+            );
+        ALTER TABLE page_monitors
+            ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 1
+            CHECK (is_enabled IN (0, 1));
+        ALTER TABLE page_monitors
+            ADD COLUMN last_checked_at TEXT;
+        ALTER TABLE page_monitors
+            ADD COLUMN next_check_at TEXT;
+        ALTER TABLE page_monitors
+            ADD COLUMN check_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (
+                check_status IN (
+                    'pending',
+                    'ok',
+                    'changed',
+                    'error',
+                    'paused'
+                )
+            );
+        ALTER TABLE page_monitors
+            ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0
+            CHECK (consecutive_failures >= 0);
+
+        CREATE INDEX idx_page_monitors_schedule
+            ON page_monitors(is_enabled, next_check_at, updated_at);
+        """,
+    ),
+    (
+        19,
+        """
+        CREATE TABLE page_monitor_observations (
+            id TEXT PRIMARY KEY,
+            monitor_id TEXT NOT NULL
+                REFERENCES page_monitors(id) ON DELETE CASCADE,
+            previous_observation_id TEXT
+                REFERENCES page_monitor_observations(id) ON DELETE SET NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1
+                CHECK (schema_version >= 1),
+            observed_at TEXT NOT NULL,
+            final_url TEXT NOT NULL,
+            duration_ms INTEGER NOT NULL
+                CHECK (duration_ms >= 0),
+            status TEXT NOT NULL
+                CHECK (status IN ('ok', 'partial', 'error')),
+            content_sha256 TEXT NOT NULL DEFAULT '',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            metrics_json TEXT NOT NULL DEFAULT '{}',
+            errors_json TEXT NOT NULL DEFAULT '[]',
+            changes_json TEXT NOT NULL DEFAULT '{}',
+            change_status TEXT NOT NULL
+                CHECK (
+                    change_status IN (
+                        'baseline',
+                        'unchanged',
+                        'minor_change',
+                        'changed',
+                        'inconclusive',
+                        'error'
+                    )
+                ),
+            archive_recommended INTEGER NOT NULL DEFAULT 0
+                CHECK (archive_recommended IN (0, 1))
+        );
+
+        CREATE INDEX idx_page_monitor_observations_monitor
+            ON page_monitor_observations(monitor_id, observed_at DESC);
+        CREATE INDEX idx_page_monitor_observations_change
+            ON page_monitor_observations(
+                monitor_id,
+                archive_recommended,
+                observed_at DESC
+            );
+        """,
+    ),
+    (
+        20,
+        """
+        ALTER TABLE page_monitors
+            ADD COLUMN lease_owner TEXT;
+        ALTER TABLE page_monitors
+            ADD COLUMN lease_expires_at TEXT;
+
+        CREATE INDEX idx_page_monitors_due
+            ON page_monitors(
+                is_enabled,
+                next_check_at,
+                lease_expires_at,
+                updated_at
+            );
+        """,
+    ),
 )

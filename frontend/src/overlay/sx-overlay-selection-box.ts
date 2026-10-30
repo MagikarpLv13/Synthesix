@@ -30,7 +30,7 @@ export class SxOverlaySelectionBox extends LitElement {
       inset: 0;
       z-index: 2147483647;
       cursor: crosshair;
-      background: rgba(15, 23, 42, 0.16);
+      background: rgba(23, 24, 29, 0.16);
       user-select: none;
       touch-action: none;
     }
@@ -40,19 +40,19 @@ export class SxOverlaySelectionBox extends LitElement {
       left: 50%;
       transform: translateX(-50%);
       padding: 9px 12px;
-      border-radius: 6px;
-      background: #0f172a;
-      color: #ffffff;
-      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.3);
-      font: 600 13px Arial, sans-serif;
+      border-radius: 7px;
+      background: #17181d;
+      color: #f7f5ef;
+      box-shadow: 0 8px 24px rgba(23, 24, 30, 0.3);
+      font: 600 13px var(--font-ui, Arial, sans-serif);
       pointer-events: none;
     }
     .box {
       display: none;
       position: fixed;
-      border: 2px solid #06b6d4;
-      background: rgba(6, 182, 212, 0.12);
-      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.38);
+      border: 2px solid #2a46a6;
+      background: rgba(42, 70, 166, 0.12);
+      box-shadow: 0 0 0 9999px rgba(23, 24, 29, 0.38);
       pointer-events: none;
     }
     .box.is-active {

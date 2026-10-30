@@ -1,6 +1,6 @@
 # T-043 — Retrait de pandas de l'agrégation (optionnel)
 
-- **Statut** : todo
+- **Statut** : done
 - **Priorité** : P3 · **Effort** : moyen
 - **Outil recommandé** : Codex
 - **Dépendances** : T-015 (golden files : filet de sécurité sur les résultats)
@@ -53,6 +53,19 @@ correctif.
 - Parité exacte des résultats/scores/ordre sur les fixtures T-015.
 - pandas absent de `requirements.txt` et des imports.
 - Démarrage mesurablement plus rapide (consigné).
+
+## Réalisation (2026-07-13)
+
+- `SearchEngine.search()` et le pipeline d'orchestration utilisent des listes
+  de dictionnaires ; `SearchResults` ne conserve que les métadonnées de rapport
+  `query_coverage` et `search_context`.
+- L'agrégation préserve la déduplication, le meilleur score par lien, les
+  sources et variantes jointes, ainsi que le tri déterministe des égalités.
+- Aucun import ni manifeste de production ne référence `pandas`.
+- Mesure sur trois processus neufs de `import search_orchestrator` :
+  1 267,4–1 487,4 ms avant, 715,8–786,5 ms après.
+- Tests : `tests.test_engine_golden`, `tests.test_search_orchestrator`,
+  `tests.test_scoring`, `tests.test_utils`, puis `unittest discover`.
 
 ## Commandes de test
 

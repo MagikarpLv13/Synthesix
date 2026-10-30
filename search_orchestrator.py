@@ -5,8 +5,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Callable, Mapping
 
-import pandas as pd
-
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
 from query_operators import SearchFilters, build_engine_query, result_matches_filters
 from search_engine import EngineTabPool
@@ -24,6 +22,17 @@ from utils import add_to_history, generate_history_html, generate_html_report
 logger = logging.getLogger(__name__)
 
 REQUIRED_RESULT_COLUMNS = ("title", "link", "description", "source")
+
+
+class SearchResults(list[dict]):
+    """Result rows with the small metadata payload needed by report rendering."""
+
+    def __init__(self, rows: Iterable[Mapping] = (), *, attrs: Mapping | None = None) -> None:
+        super().__init__(dict(row) for row in rows)
+        self.attrs = dict(attrs or {})
+
+    def copy(self) -> "SearchResults":
+        return type(self)(self, attrs=self.attrs)
 
 
 @dataclass(frozen=True)
@@ -69,126 +78,114 @@ DEFAULT_ENGINE_FACTORIES: dict[str, Callable[[], object]] = {
 
 
 def aggregate_search_results(
-    engine_results: Mapping[str, pd.DataFrame],
+    engine_results: Mapping[str, list[dict]],
     parsed_query: str,
     scorer: Callable[[dict, str], float] = calculate_relevance,
     filters: SearchFilters | Mapping | None = None,
     base_query: str | None = None,
-) -> pd.DataFrame:
-    frames = []
+) -> SearchResults:
+    rows: list[dict] = []
     required_column_set = set(REQUIRED_RESULT_COLUMNS)
 
-    for engine, df in engine_results.items():
-        if not isinstance(df, pd.DataFrame):
-            logger.warning("%s results ignored; expected DataFrame, got %s", engine, type(df).__name__)
+    for engine, engine_rows in engine_results.items():
+        if not isinstance(engine_rows, list):
+            logger.warning("%s results ignored; expected list, got %s", engine, type(engine_rows).__name__)
             continue
-        if df.empty:
+        if not engine_rows:
             continue
-        missing_columns = required_column_set - set(df.columns)
+        if not all(isinstance(row, Mapping) for row in engine_rows):
+            logger.warning("%s results ignored; every result must be a mapping", engine)
+            continue
+        available_columns = set().union(*(row.keys() for row in engine_rows))
+        missing_columns = required_column_set - available_columns
         if missing_columns:
             logger.warning("%s results ignored; missing columns: %s", engine, sorted(missing_columns))
             continue
-        engine_frame = df.copy()
-        if "_engine" not in engine_frame:
-            engine_frame["_engine"] = str(engine)
-        if "_query_variant" not in engine_frame:
-            engine_frame["_query_variant"] = (
-                base_query if base_query is not None else parsed_query
+        for source_row in engine_rows:
+            row = dict(source_row)
+            row.setdefault("_engine", str(engine))
+            row.setdefault(
+                "_query_variant",
+                base_query if base_query is not None else parsed_query,
             )
-        frames.append(engine_frame)
+            rows.append(row)
 
-    if not frames:
-        return pd.DataFrame(columns=[
-            *REQUIRED_RESULT_COLUMNS,
-            "relevance_score",
-            "score_breakdown",
-            "engine_count",
-            "query_variants",
-        ])
+    if not rows:
+        return SearchResults()
 
-    combined_df = pd.concat(frames, ignore_index=True)
-    combined_df = combined_df.drop_duplicates(
-        subset=[*REQUIRED_RESULT_COLUMNS, "_engine", "_query_variant"]
-    )
+    deduplicated_rows = []
+    seen_rows = set()
+    for row in rows:
+        duplicate_key = tuple(
+            row.get(column)
+            for column in (*REQUIRED_RESULT_COLUMNS, "_engine", "_query_variant")
+        )
+        if duplicate_key in seen_rows:
+            continue
+        seen_rows.add(duplicate_key)
+        deduplicated_rows.append(row)
+
     filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
     if filters.has_filters():
-        combined_df = combined_df[
-            combined_df.apply(lambda row: result_matches_filters(row, filters), axis=1)
+        deduplicated_rows = [
+            row for row in deduplicated_rows if result_matches_filters(row, filters)
         ]
-        if combined_df.empty:
-            return pd.DataFrame(columns=[
-                *REQUIRED_RESULT_COLUMNS,
-                "relevance_score",
-                "score_breakdown",
-                "engine_count",
-                "query_variants",
-            ])
+        if not deduplicated_rows:
+            return SearchResults()
 
     if scorer is calculate_relevance:
         explainers = {
             query: build_relevance_explainer(query)
-            for query in combined_df["_query_variant"].astype(str).unique()
+            for query in {str(row["_query_variant"]) for row in deduplicated_rows}
         }
-        combined_df["_base_breakdown"] = combined_df.apply(
-            lambda row: explainers[str(row["_query_variant"])](row),
-            axis=1,
-        )
+        for row in deduplicated_rows:
+            row["_base_breakdown"] = explainers[str(row["_query_variant"])](row)
     else:
-        combined_df["_base_breakdown"] = combined_df.apply(
-            lambda row: ScoreBreakdown((
+        for row in deduplicated_rows:
+            row["_base_breakdown"] = ScoreBreakdown((
                 ScoreComponent(
                     "custom_score",
                     "Custom relevance score",
                     float(scorer(row, str(row["_query_variant"]))),
                 ),
-            )),
-            axis=1,
-        )
-    combined_df["_base_score"] = combined_df["_base_breakdown"].map(
-        lambda breakdown: breakdown.total
-    )
+            ))
+    for row in deduplicated_rows:
+        row["_base_score"] = row["_base_breakdown"].total
 
-    best_idx = combined_df.groupby("link")["_base_score"].idxmax()
-    best_rows = combined_df.loc[
-        best_idx,
-        ["link", "title", "description", "_base_breakdown"],
-    ].copy()
-    sources = combined_df.groupby("link")["source"].apply(
-        lambda values: ", ".join(sorted(values.astype(str).unique()))
-    )
-    engine_counts = combined_df.groupby("link")["_engine"].nunique()
-    query_variants = combined_df.groupby("link")["_query_variant"].apply(
-        lambda values: sorted(set(values.astype(str)))
-    )
+    rows_by_link: dict[object, list[dict]] = {}
+    for row in deduplicated_rows:
+        rows_by_link.setdefault(row["link"], []).append(row)
+
     filters_matched = filters.has_filters()
-    best_rows["engine_count"] = best_rows["link"].map(engine_counts).astype(int)
-    best_rows["score_breakdown"] = best_rows.apply(
-        lambda row: add_context_to_breakdown(
-            row["_base_breakdown"],
-            engine_count=int(row["engine_count"]),
+    results = SearchResults()
+    for link in sorted(rows_by_link, key=str):
+        link_rows = rows_by_link[link]
+        best_row = max(link_rows, key=lambda row: row["_base_score"])
+        engine_count = len({str(row["_engine"]) for row in link_rows})
+        score_breakdown = add_context_to_breakdown(
+            best_row["_base_breakdown"],
+            engine_count=engine_count,
             filters_matched=filters_matched,
-        ).to_payload(),
-        axis=1,
-    )
-    best_rows["relevance_score"] = best_rows["score_breakdown"].map(
-        lambda components: sum(float(component["score"]) for component in components)
-    )
-    best_rows["query_variants"] = best_rows["link"].map(query_variants)
-    best_rows = best_rows.drop(columns=["_base_breakdown"])
+        ).to_payload()
+        results.append({
+            "link": link,
+            "title": best_row["title"],
+            "description": best_row["description"],
+            "engine_count": engine_count,
+            "score_breakdown": score_breakdown,
+            "relevance_score": sum(float(component["score"]) for component in score_breakdown),
+            "query_variants": sorted({str(row["_query_variant"]) for row in link_rows}),
+            "source": ", ".join(sorted({str(row["source"]) for row in link_rows})),
+        })
 
-    return (
-        best_rows
-        .merge(sources.rename("source"), on="link", how="left")
-        .sort_values("relevance_score", ascending=False, kind="stable")
-        .reset_index(drop=True)
-    )
+    return SearchResults(sorted(results, key=lambda row: -row["relevance_score"]))
 
 
 class SearchOrchestrator:
     def __init__(
         self,
         engine_factories: Mapping[str, Callable[[], object]] | None = None,
-        report_generator: Callable[[pd.DataFrame, str, float, int], str | None] = generate_html_report,
+        report_generator: Callable[[SearchResults, str, float, int], str | None] = generate_html_report,
         history_adder: Callable[..., None] = add_to_history,
         history_report_generator: Callable[[], str] = generate_history_html,
         scorer: Callable[[dict, str], float] = calculate_relevance,
@@ -242,17 +239,15 @@ class SearchOrchestrator:
                 engine_errors=engine_errors,
             )
 
-        combined_df = aggregate_search_results(
+        combined_results = aggregate_search_results(
             engine_results,
             parsed_query,
             scorer=self.scorer,
             filters=filters,
             base_query=base_query,
         )
-        relevant_results = (
-            combined_df[combined_df["relevance_score"] > 0]
-            .sort_values("relevance_score", ascending=False, kind="stable")
-            .reset_index(drop=True)
+        relevant_results = SearchResults(
+            row for row in combined_results if row["relevance_score"] > 0
         )
         relevant_results.attrs["query_coverage"] = coverage
         relevant_results.attrs["search_context"] = {
@@ -303,7 +298,7 @@ class SearchOrchestrator:
             nb_results=nb_results,
             total_time=total_time,
             engine_errors=engine_errors,
-            results=tuple(relevant_results.to_dict(orient="records")),
+            results=tuple(relevant_results),
             coverage=coverage,
         )
 
@@ -315,7 +310,7 @@ class SearchOrchestrator:
         num_results: int,
         filters: SearchFilters,
         query_variants: Iterable[str] | None = None,
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, Exception], int, tuple[dict, ...]]:
+    ) -> tuple[dict[str, list[dict]], dict[str, Exception], int, tuple[dict, ...]]:
         concurrency = max(1, self.settings.engine_concurrency)
         semaphore = asyncio.Semaphore(concurrency)
         queries = tuple(query_variants or (parsed_query,))
@@ -353,7 +348,7 @@ class SearchOrchestrator:
             logger.warning("No search engine selected.")
             return {}, {}, 0, ()
 
-        engine_results: dict[str, pd.DataFrame] = {}
+        engine_results: dict[str, list[dict]] = {}
         engine_errors: dict[str, Exception] = {}
 
         async def run_engine(engine_name: str, engine) -> None:
@@ -380,19 +375,20 @@ class SearchOrchestrator:
                         exc_info=(type(exc), exc, exc.__traceback__),
                     )
                     engine_errors[task_key] = error
-                    engine_results[task_key] = pd.DataFrame()
+                    engine_results[task_key] = []
                     coverage[query]["engines"][engine_name] = {
                         "status": self._coverage_error_status(error),
                         "count": 0,
                     }
                 else:
-                    result_frame = result.copy()
-                    result_frame["_engine"] = engine_name
-                    result_frame["_query_variant"] = query
-                    engine_results[task_key] = result_frame
+                    result_rows = [dict(row) for row in result]
+                    for row in result_rows:
+                        row["_engine"] = engine_name
+                        row["_query_variant"] = query
+                    engine_results[task_key] = result_rows
                     coverage[query]["engines"][engine_name] = {
                         "status": "ok",
-                        "count": len(result_frame),
+                        "count": len(result_rows),
                     }
 
         try:
@@ -424,7 +420,7 @@ class SearchOrchestrator:
                             continue
                         task_key = task_key_for(engine_name, query_index)
                         engine_errors[task_key] = TimeoutError("search budget exceeded")
-                        engine_results[task_key] = pd.DataFrame()
+                        engine_results[task_key] = []
                         coverage[query]["engines"][engine_name] = {
                             "status": "timeout",
                             "count": 0,
@@ -456,7 +452,7 @@ class SearchOrchestrator:
         parsed_query: str,
         browser,
         num_results: int,
-    ) -> pd.DataFrame:
+    ) -> list[dict]:
         async with semaphore:
             return await self._search_engine_with_retries(
                 engine_name,
@@ -482,7 +478,7 @@ class SearchOrchestrator:
         parsed_query: str,
         browser,
         num_results: int,
-    ) -> pd.DataFrame:
+    ) -> list[dict]:
         attempts = max(0, self.settings.engine_retry_attempts)
         delay = max(0.0, self.settings.engine_retry_delay)
         backoff = max(1.0, self.settings.engine_retry_backoff)

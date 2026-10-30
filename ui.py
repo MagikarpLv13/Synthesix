@@ -172,7 +172,12 @@ def result_card(*, title: str, url: str, snippet: str = "", domain: str = "",
     triage scripts keep working.
     """
     href = safe_url if safe_url is not None else url
-    triage_attrs = ' data-triage-item tabindex="0"' if triage else ""
+    # ``sx-result-card`` owns the public ``triage`` property.  Rendering its
+    # internal marker directly is transient: Lit initializes ``triage`` to
+    # false, then removes ``data-triage-item`` on the first update.  Using the
+    # reflected property keeps the marker (and report filtering/keyboard
+    # navigation) alive after the custom element upgrades.
+    triage_attrs = ' triage tabindex="0"' if triage else ""
     if href and href != "#":
         title_slot = (
             f'<a slot="title" data-triage-link href="{esc(href)}" '
@@ -371,6 +376,18 @@ def page_behavior_script() -> str:
             const cards = Array.from(
                 document.querySelectorAll("[data-triage-item]")
             );
+            const resultFilter = document.querySelector("[data-results-filter]");
+            const applyResultFilter = () => {
+                const query = String(resultFilter?.value || "")
+                    .trim()
+                    .toLocaleLowerCase();
+                cards.forEach((card) => {
+                    card.hidden = Boolean(query) && !String(card.innerText || "")
+                        .toLocaleLowerCase()
+                        .includes(query);
+                });
+            };
+            resultFilter?.addEventListener("input", applyResultFilter);
             if (cards.length) {
                 let index = -1;
                 const focusCard = (next) => {

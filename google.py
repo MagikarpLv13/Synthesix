@@ -1,5 +1,8 @@
+import asyncio
 import logging
-from urllib.parse import quote_plus, urlencode, urlsplit
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, quote_plus, urlencode, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from browser import click_at, get_browser_service
 from exceptions import RobotChallengeError
@@ -10,6 +13,128 @@ from search_regions import build_engine_region_params
 
 
 logger = logging.getLogger(__name__)
+
+_REDIRECT_CONCURRENCY = 4
+_REDIRECT_REQUEST_TIMEOUT = 3.0
+_REDIRECT_BATCH_TIMEOUT = 8.0
+
+
+def _google_redirect_path(url: str) -> str:
+    """Recognize only HTTPS wrappers on the Google Search origin."""
+    try:
+        parts = urlsplit(url)
+        if (
+            parts.scheme == "https"
+            and parts.hostname in {"google.com", "www.google.com"}
+            and parts.port in {None, 443}
+            and parts.username is None
+            and parts.password is None
+            and parts.path in {"/goto", "/url"}
+            and not any(ord(char) < 32 for char in url)
+        ):
+            return parts.path
+    except ValueError:
+        pass
+    return ""
+
+
+def _is_http_destination(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+        return bool(
+            parts.scheme in {"http", "https"}
+            and parts.hostname
+            and parts.port != 0
+            and parts.username is None
+            and parts.password is None
+            and not any(ord(char) < 32 for char in url)
+        )
+    except ValueError:
+        return False
+
+
+def _unwrap_google_url(url: str) -> str:
+    """Decode legacy /url destinations locally; /goto tokens are opaque."""
+    if _google_redirect_path(url) == "/url":
+        params = parse_qs(urlsplit(url).query)
+        for key in ("q", "url"):
+            target = (params.get(key) or [""])[0]
+            if _is_http_destination(target):
+                return target
+    return url
+
+
+class _NoGoogleRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Only Google's response headers are needed. Never visit the target.
+        return None
+
+
+def _resolve_google_goto(url: str) -> str:
+    """Read Google's destination without following redirects or reading a body."""
+    if _google_redirect_path(url) != "/goto":
+        return url
+    request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with build_opener(_NoGoogleRedirectHandler()).open(
+            request, timeout=_REDIRECT_REQUEST_TIMEOUT,
+        ):
+            return url
+    except HTTPError as error:
+        with error:
+            if error.code not in {301, 302, 303, 307, 308}:
+                return url
+            location = error.headers.get("Location", "")
+            if not location or any(ord(char) < 32 for char in location):
+                return url
+            try:
+                target = _unwrap_google_url(urljoin(url, location))
+            except ValueError:
+                return url
+            if not _is_http_destination(target) or _google_redirect_path(target):
+                return url
+            parts = urlsplit(target)
+            if parts.hostname in {"google.com", "www.google.com", "consent.google.com"}:
+                # A Google interstitial is not the result's destination.
+                return url
+            return target
+    except (OSError, ValueError):
+        return url
+
+
+async def resolve_google_result_links(results: list[dict]) -> None:
+    """Resolve a batch before scoring/persistence, with bounded parallel I/O."""
+    groups: dict[str, list[dict]] = {}
+    for result in results:
+        url = _unwrap_google_url(urljoin("https://www.google.com", result["link"]))
+        result["link"] = url
+        if _google_redirect_path(url) == "/goto":
+            groups.setdefault(url, []).append(result)
+    if not groups:
+        return
+
+    semaphore = asyncio.Semaphore(_REDIRECT_CONCURRENCY)
+
+    async def resolve_one(url: str, rows: list[dict]) -> None:
+        async with semaphore:
+            try:
+                target = await asyncio.to_thread(_resolve_google_goto, url)
+            except Exception:
+                logger.debug("Unable to resolve one Google result redirect.")
+                return
+            for row in rows:
+                row["link"] = target
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(resolve_one(url, rows) for url, rows in groups.items())),
+            timeout=_REDIRECT_BATCH_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("Google redirect resolution reached its time budget.")
+    unresolved = sum(rows[0]["link"] == url for url, rows in groups.items())
+    logger.info("Google result destinations: %d resolved, %d unresolved.",
+                len(groups) - unresolved, unresolved)
 
 # JS run in the top /sorry/ frame: locate the reCAPTCHA "I'm not a robot"
 # checkbox and return its centre in top-viewport CSS pixels. Reaches into the
@@ -58,9 +183,9 @@ class GoogleSearchEngine(SearchEngine):
             url += "&" + urlencode(extra_params)
         return url
 
-    def parse_results(self, raw_results):
+    def parse_results(self, raw_results: str) -> list[dict[str, str]]:
         xpaths = self.get_xpaths()
-        return parse_with_xpath(
+        results = parse_with_xpath(
             raw_results,
             result_xpath=xpaths['result'],
             title_xpath=xpaths['title'],
@@ -68,6 +193,12 @@ class GoogleSearchEngine(SearchEngine):
             desc_xpath=xpaths['desc'],
             source=self.name
         )
+        for result in results:
+            result["link"] = _unwrap_google_url(urljoin(self.base_url, result["link"]))
+        return results
+
+    async def post_execute_search(self) -> None:
+        await resolve_google_result_links(self.results)
 
     def get_xpaths(self):
         return {

@@ -43,6 +43,9 @@ import observability
 
 logger = logging.getLogger(__name__)
 MAX_DISPATCH_PAYLOAD_BYTES = 256 * 1024
+MAX_MONITOR_PROBE_TEXT_LENGTH = 200_000
+MAX_MONITOR_PROBE_ITEM_LENGTH = 2_000
+MAX_MONITOR_PROBE_LIST_ITEMS = 200
 
 
 @cdp.util.event_class("Inspector.workerScriptLoaded")
@@ -194,6 +197,261 @@ async def outer_html(tab) -> str:
             include_shadow_dom=False,
         )
     )
+
+
+async def monitor_probe_snapshot(
+    tab,
+    metrics: list[str] | tuple[str, ...],
+    selectors: Mapping[str, str],
+) -> Mapping[str, Any]:
+    """Extract one bounded, lightweight page snapshot for monitoring.
+
+    The composite evaluate keeps the probe to one CDP round-trip and never
+    captures PNG, MHTML or full DOM HTML. Custom selectors are isolated per
+    metric so one invalid selector produces an explicit metric error without
+    discarding the rest of the observation.
+    """
+    request = json.dumps(
+        {
+            "metrics": [str(metric) for metric in metrics],
+            "selectors": {
+                str(metric): str(selector)
+                for metric, selector in selectors.items()
+            },
+            "maxTextLength": MAX_MONITOR_PROBE_TEXT_LENGTH,
+            "maxItemLength": MAX_MONITOR_PROBE_ITEM_LENGTH,
+            "maxListItems": MAX_MONITOR_PROBE_LIST_ITEMS,
+        },
+        ensure_ascii=False,
+    )
+    script = r"""
+    (() => {
+      const request = __SYNTHESIX_MONITOR_REQUEST__;
+      const metrics = {};
+      const errors = [];
+      const collapse = (value, limit = request.maxItemLength) =>
+        String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+      const numberValue = (value) => {
+        const text = collapse(value);
+        if (!text) return null;
+        const compact = text.replace(/[\s\u00a0\u202f]/g, "");
+        if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(compact)) return null;
+        const parsed = Number(compact.replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      const stateValue = (node) => {
+        if (node instanceof HTMLInputElement
+            && (node.type === "checkbox" || node.type === "radio")) {
+          return Boolean(node.checked);
+        }
+        for (const attribute of [
+          "aria-checked",
+          "aria-selected",
+          "aria-expanded",
+          "aria-pressed",
+          "data-state",
+        ]) {
+          if (!node.hasAttribute?.(attribute)) continue;
+          const raw = collapse(node.getAttribute(attribute));
+          if (raw === "true") return true;
+          if (raw === "false") return false;
+          if (raw) return raw;
+        }
+        return null;
+      };
+      const scalarValue = (node) => {
+        const state = stateValue(node);
+        if (state !== null) return {kind: "state", value: state};
+        const raw = collapse(
+          node instanceof HTMLInputElement
+            || node instanceof HTMLTextAreaElement
+            || node instanceof HTMLSelectElement
+            ? node.value
+            : node.getAttribute?.("data-value") || node.textContent
+        );
+        const numeric = numberValue(raw);
+        if (numeric !== null) return {kind: "number", value: numeric};
+        return {kind: "text", value: raw};
+      };
+      const selectorMetric = (metric, selector) => {
+        try {
+          const allNodes = Array.from(document.querySelectorAll(selector));
+          const nodes = allNodes.slice(0, request.maxListItems);
+          if (!nodes.length) {
+            return {status: "missing", kind: "text", value: null};
+          }
+          const values = nodes.map(scalarValue);
+          if (values.length === 1) {
+            const value = values[0];
+            return {
+              status: value.value === "" ? "missing" : "ok",
+              kind: value.kind,
+              value: value.value === "" ? null : value.value,
+            };
+          }
+          return {
+            status: "ok",
+            kind: "list",
+            value: values.map((item) => item.value),
+            truncated: allNodes.length > nodes.length,
+          };
+        } catch (error) {
+          errors.push({
+            metric,
+            code: "invalid_selector",
+            message: collapse(error?.message || error, 500),
+          });
+          return {status: "error", kind: "text", value: null};
+        }
+      };
+      const builtInMetric = (metric) => {
+        if (metric === "title") {
+          const value = collapse(document.title);
+          return {
+            status: value ? "ok" : "missing",
+            kind: "text",
+            value: value || null,
+          };
+        }
+        if (metric === "description") {
+          const value = collapse(
+            document.querySelector('meta[name="description" i]')?.content
+          );
+          return {
+            status: value ? "ok" : "missing",
+            kind: "text",
+            value: value || null,
+          };
+        }
+        if (metric === "visible_text") {
+          const raw = String(document.body?.innerText || "");
+          const value = collapse(
+            raw,
+            request.maxTextLength
+          );
+          return {
+            status: value ? "ok" : "missing",
+            kind: "text",
+            value: value || null,
+            truncated: raw.length > request.maxTextLength,
+          };
+        }
+        if (metric === "links") {
+          const allLinks = Array.from(document.querySelectorAll("a[href]"));
+          const values = [];
+          const seen = new Set();
+          for (const node of allLinks.slice(0, request.maxListItems)) {
+            const href = collapse(node.href);
+            if (!href || seen.has(href)) continue;
+            seen.add(href);
+            values.push(href);
+          }
+          return {
+            status: values.length ? "ok" : "missing",
+            kind: "list",
+            value: values.length ? values : null,
+            truncated: allLinks.length > request.maxListItems,
+          };
+        }
+        return {status: "unavailable", kind: "text", value: null};
+      };
+      for (const metric of request.metrics) {
+        const selector = request.selectors[metric];
+        metrics[metric] = selector
+          ? selectorMetric(metric, selector)
+          : builtInMetric(metric);
+      }
+      const statuses = Object.values(metrics).map((item) => item.status);
+      const bodyPreview = collapse(document.body?.innerText, 10000)
+        .toLocaleLowerCase();
+      const href = String(location.href || "");
+      let blockingReason = "";
+      if (href.startsWith("chrome-error://")) {
+        blockingReason = "navigation_error";
+      } else if (
+        document.querySelector('input[type="password"]')
+        && /(?:login|log-in|signin|sign-in|auth)/i.test(href)
+      ) {
+        blockingReason = "authentication_required";
+      } else if (
+        /captcha|verify you are human|unusual traffic|security check|access denied/
+          .test(bodyPreview)
+      ) {
+        blockingReason = "challenge_required";
+      } else {
+        const consentDialog = Array.from(
+          document.querySelectorAll(
+            'dialog, [role="dialog"], [aria-modal="true"]'
+          )
+        ).find((node) => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          if (
+            style.display === "none"
+            || style.visibility === "hidden"
+            || rect.width <= 0
+            || rect.height <= 0
+          ) {
+            return false;
+          }
+          const text = collapse(node.innerText, 5000).toLocaleLowerCase();
+          return (
+            /cookie|consent|privacy/.test(text)
+            && /accept|agree|allow|continue/.test(text)
+          );
+        });
+        if (consentDialog) blockingReason = "consent_required";
+      }
+      return {
+        final_url: href,
+        metadata: {
+          ready_state: String(document.readyState || ""),
+          language: collapse(document.documentElement?.lang, 100),
+          canonical_url: collapse(
+            document.querySelector('link[rel~="canonical" i]')?.href,
+            4000
+          ),
+          content_type: collapse(document.contentType, 200),
+          blocking_reason: blockingReason,
+        },
+        metrics,
+        errors,
+        diagnostics: {
+          requested_metrics: request.metrics.length,
+          ok_metrics: statuses.filter((status) => status === "ok").length,
+          missing_metrics:
+            statuses.filter((status) => status === "missing").length,
+          unavailable_metrics:
+            statuses.filter((status) => status === "unavailable").length,
+          error_metrics:
+            statuses.filter((status) => status === "error").length,
+        },
+      };
+    })()
+    """.replace("__SYNTHESIX_MONITOR_REQUEST__", request)
+    observability.count("monitor_probe")
+    result = await tab.evaluate(script)
+    if not isinstance(result, Mapping):
+        raise RuntimeError("Invalid monitoring probe response.")
+    return result
+
+
+async def monitor_probe_page_state(tab) -> Mapping[str, Any]:
+    """Return the minimal navigation state needed before a monitor probe."""
+    observability.count("monitor_probe_wait")
+    result = await tab.evaluate(
+        """
+        (() => ({
+          marker: "synthesixMonitorNavigationState",
+          final_url: String(location.href || ""),
+          ready_state: String(document.readyState || ""),
+          has_body: Boolean(document.body),
+        }))()
+        """
+    )
+    if not isinstance(result, Mapping):
+        raise RuntimeError("Invalid monitoring navigation response.")
+    return result
 
 
 async def click_at(tab, x: float, y: float) -> bool:
@@ -454,6 +712,16 @@ class BrowserService:
         """Open ``url`` (new tab by default) and return the tab handle."""
         observability.count("open_tab")
         return await self.browser.get(url, new_tab=new_tab)
+
+    async def close_tab(self, tab, *, timeout: float = 5.0) -> bool:
+        """Close a dedicated tab without letting a detached target hang."""
+        observability.count("close_tab")
+        try:
+            await asyncio.wait_for(tab.close(), timeout=timeout)
+        except Exception:
+            logger.debug("Unable to close browser tab", exc_info=True)
+            return False
+        return True
 
     async def arm_new_document_script(self, tab, script: str) -> None:
         """Arm ``script`` to run before any page script on future

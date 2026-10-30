@@ -7,7 +7,6 @@ import logging
 import re
 import time
 
-import pandas as pd
 import zendriver as uc
 
 import observability
@@ -176,9 +175,9 @@ class SearchEngine(ABC):
         self.tab_pool: EngineTabPool | None = None
         self._debug_html_hashes = set()
 
-    async def search(self, query, browser=None, max_results=None) -> pd.DataFrame:
+    async def search(self, query, browser=None, max_results=None) -> list[dict]:
         """
-        Launch a search and return a DataFrame of results.
+        Launch a search and return structured results.
         """
         self.query = query
         self.browser = browser
@@ -189,14 +188,14 @@ class SearchEngine(ABC):
         self.set_selector()
         if self.query == "test" and self.browser is None:
             self.test()
-            return pd.DataFrame(self.results)
+            return self.results
         if self.browser is None:
             raise BrowserSessionError("A zendriver browser instance is required for live searches.")
 
         start_time = time.monotonic()
         try:
             await self.execute_search()
-            return pd.DataFrame(self.results)
+            return self.results
         except SynthesixError:
             raise
         except Exception as exc:

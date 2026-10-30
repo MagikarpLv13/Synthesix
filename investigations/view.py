@@ -17,6 +17,11 @@ from exports.zeroneurone_tagsets import (
     zeroneurone_tagset_suggested_properties,
     zeroneurone_property_type,
 )
+from investigations.monitoring import (
+    DEFAULT_CHECK_INTERVAL_MINUTES,
+    MONITOR_PROFILE_METRICS,
+    infer_monitor_profile,
+)
 
 # Classic zeroneurone property keys, deduplicated across tagsets, used as
 # free-text suggestions for the extracted-entity property-name input.
@@ -55,6 +60,60 @@ _DOC_KIND_LABELS = {
     "file": "Fichier",
 }
 _WORKSPACE_TEMPLATE_VERSION = "1"
+_MONITOR_PROFILE_LABELS = {
+    "generic_page": "Generic page",
+    "facebook_page": "Facebook page",
+    "instagram_profile": "Instagram profile",
+    "tiktok_profile": "TikTok profile",
+    "x_profile": "X profile",
+    "youtube_channel": "YouTube channel",
+}
+_MONITOR_PROFILE_METRIC_GROUPS = {
+    "facebook_page": (
+        {
+            "label": "Facebook profile identity",
+            "metrics": (
+                "profile_photo",
+                "cover_photo",
+                "display_name",
+                "friends_count",
+                "followers",
+            ),
+        },
+        {
+            "label": "Facebook visible information",
+            "metrics": (
+                "bio",
+                "profile_details",
+                "external_links",
+            ),
+        },
+        {
+            "label": "Latest Facebook post",
+            "metrics": (
+                "latest_post_id",
+                "latest_post_date",
+                "latest_post_content",
+                "latest_post_permalink",
+            ),
+        },
+    ),
+}
+_MONITOR_CHANGE_LABELS = {
+    "baseline": "Baseline",
+    "unchanged": "No meaningful change",
+    "minor_change": "Minor change",
+    "changed": "Significant change",
+    "inconclusive": "Inconclusive",
+    "error": "Check failed",
+}
+_MONITOR_CHECK_STATUS_LABELS = {
+    "pending": "Pending",
+    "ok": "Healthy",
+    "changed": "Change detected",
+    "error": "Needs attention",
+    "paused": "Paused",
+}
 
 
 def _is_source_property(entity: Mapping) -> bool:
@@ -965,6 +1024,7 @@ def _extracted_entity_row(
                         aria-label="Détection"
                         title="{_html(_detection_title(entity))}"
                     >{_icon("info")}</span>
+                    {validate_button}
                     <button
                         type="button"
                         class="icon-action entity-scope-toggle"
@@ -974,7 +1034,7 @@ def _extracted_entity_row(
                         aria-label="{_html(scope_title)}"
                         {disabled}
                     >{_icon("swap")}</button>
-                    {validate_button}
+                    {promote_button}
                     <button
                         type="button"
                         class="icon-action icon-action--danger entity-reject"
@@ -982,7 +1042,6 @@ def _extracted_entity_row(
                         aria-label="Rejeter"
                         {disabled}
                     >{_icon("trash")}</button>
-                    {promote_button}
                 </span>
             </div>
             <div class="entity-chip-row__fields">
@@ -2302,17 +2361,19 @@ def _single_result_card(
     if monitor:
         monitor_control = (
             '<button type="button" '
-            'class="saved-card__menu-item stop-page-monitor" '
+            'class="saved-card__menu-item open-page-monitor-dialog" '
             'role="menuitem" slot="menu" '
             f'data-monitor-id="{_html(monitor.get("id", ""))}" '
-            f'title="Stop monitoring"{disabled}>'
-            f"{_icon('activity')}<span>Stop monitoring</span></button>"
+            f'data-result-id="{_html(result_id)}" '
+            f'title="Configure monitoring"{disabled}>'
+            f"{_icon('activity')}<span>Configure monitoring</span></button>"
         )
     else:
         monitor_control = (
             '<button type="button" '
-            'class="saved-card__menu-item start-page-monitor" '
+            'class="saved-card__menu-item open-page-monitor-dialog" '
             'role="menuitem" slot="menu" '
+            f'data-result-id="{_html(result_id)}" '
             f'title="Monitor changes"{disabled}>'
             f"{_icon('activity')}<span>Monitor changes</span></button>"
         )
@@ -2512,17 +2573,11 @@ def _page_monitor_cards(
     if not monitors:
         return """
             <div class="investigation-empty">
-                No page is monitored. Enable monitoring from a saved page,
-                then use the HTML archive button while browsing it.
+                No page is monitored. Open a saved page menu and choose
+                Monitor changes to configure a lightweight observation.
             </div>
         """
 
-    labels = {
-        "unchanged": "No content change",
-        "minor_change": "Minor change",
-        "changed": "Significant change",
-        "inconclusive": "Inconclusive",
-    }
     cards = []
     disabled = " disabled" if read_only else ""
     for monitor in monitors:
@@ -2533,24 +2588,58 @@ def _page_monitor_cards(
         report_link = (
             f'<a class="secondary-link" '
             f'href="{_html(_relative_href(report_path, output_dir))}" '
-            'target="_blank" rel="noopener noreferrer">Open comparison</a>'
+            'target="_blank" rel="noopener noreferrer">Open archive comparison</a>'
             if report_path is not None
-            else '<span>Archive the page twice to generate a comparison.</span>'
+            else ""
         )
-        status = str(monitor.get("comparison_status", "") or "")
         similarity = monitor.get("comparison_similarity")
         similarity_text = (
             f"{float(similarity) * 100:.2f}% text similarity"
             if similarity is not None
             else ""
         )
+        observations = [
+            item
+            for item in monitor.get("observations", []) or []
+            if isinstance(item, Mapping)
+        ]
+        latest_observation = observations[0] if observations else {}
+        change_status = str(
+            latest_observation.get("change_status", "baseline")
+            or "baseline"
+        )
+        check_status = str(
+            monitor.get("check_status", "pending") or "pending"
+        )
+        profile = str(
+            monitor.get("monitor_profile", "generic_page")
+            or "generic_page"
+        )
+        mode = str(
+            monitor.get("monitor_mode", "automatic") or "automatic"
+        )
+        is_enabled = bool(monitor.get("is_enabled", True))
+        enabled_label = "Active" if is_enabled else "Paused"
+        toggle_label = "Pause" if is_enabled else "Resume"
+        last_checked = (
+            _local_datetime(monitor.get("last_checked_at"))
+            if monitor.get("last_checked_at")
+            else "Never"
+        )
+        next_check = (
+            _local_datetime(monitor.get("next_check_at"))
+            if monitor.get("next_check_at")
+            else ("Paused" if not is_enabled else "As soon as possible")
+        )
         cards.append(
             f"""
             <sx-page-monitor-card
                 class="page-monitor-card"
                 data-page-monitor-id="{_html(monitor.get("id", ""))}"
+                data-result-id="{_html(monitor.get("result_id", ""))}"
+                data-monitor-enabled="{str(is_enabled).lower()}"
             >
-                <div>
+                <div class="page-monitor-card__identity">
                     <a
                         class="result-title"
                         href="{_html(monitor.get("result_url", ""))}"
@@ -2558,25 +2647,296 @@ def _page_monitor_cards(
                         rel="noopener noreferrer"
                     >{_html(monitor.get("result_title") or monitor.get("result_url"))}</a>
                     <div class="result-url">{_html(monitor.get("result_url", ""))}</div>
+                    <div class="page-monitor-card__badges">
+                        <span
+                            class="monitor-state"
+                            data-monitor-state
+                            data-state="{"active" if is_enabled else "paused"}"
+                        >{enabled_label}</span>
+                        <span class="meta-pill" data-monitor-mode>
+                            {_html("Automatic" if mode == "automatic" else "Custom")}
+                        </span>
+                        <span class="meta-pill" data-monitor-profile>
+                            {_html(_MONITOR_PROFILE_LABELS.get(profile, profile))}
+                        </span>
+                    </div>
                 </div>
-                <div class="page-monitor-summary">
-                    <span class="meta-pill">
-                        {int(monitor.get("archive_count", 0) or 0)} archive(s)
+                <div class="page-monitor-card__status">
+                    <span
+                        class="monitor-change-badge"
+                        data-monitor-change
+                        data-change-status="{_html(change_status)}"
+                    >{_html(_MONITOR_CHANGE_LABELS.get(change_status, "Waiting for first check"))}</span>
+                    <span data-monitor-check-status>
+                        {_html(_MONITOR_CHECK_STATUS_LABELS.get(check_status, check_status))}
                     </span>
-                    <strong>{_html(labels.get(status, "Waiting for baseline"))}</strong>
+                    <span data-monitor-observation-count>
+                        {len(observations)} observation(s)
+                    </span>
+                </div>
+                <section
+                    class="facebook-monitor-summary"
+                    data-facebook-monitor-summary
+                    aria-label="Facebook profile snapshot"
+                    hidden
+                ></section>
+                <dl class="page-monitor-card__timing">
+                    <div>
+                        <dt>Last check</dt>
+                        <dd data-monitor-last-checked>{last_checked}</dd>
+                    </div>
+                    <div>
+                        <dt>Next check</dt>
+                        <dd data-monitor-next-check>{next_check}</dd>
+                    </div>
+                </dl>
+                <div class="page-monitor-card__archive">
+                    <span>{int(monitor.get("archive_count", 0) or 0)} archive(s)</span>
                     <span>{_html(similarity_text)}</span>
                     {report_link}
                 </div>
-                <button
-                    type="button"
-                    class="danger-button stop-page-monitor"
-                    data-monitor-id="{_html(monitor.get("id", ""))}"
-                    {disabled}
-                >Stop monitoring</button>
+                <div class="page-monitor-card__actions">
+                    <button
+                        type="button"
+                        class="secondary-button open-page-monitor-dialog"
+                        data-monitor-id="{_html(monitor.get("id", ""))}"
+                        data-result-id="{_html(monitor.get("result_id", ""))}"
+                        {disabled}
+                    >Configure</button>
+                    <button
+                        type="button"
+                        class="secondary-button run-page-monitor-now"
+                        data-monitor-id="{_html(monitor.get("id", ""))}"
+                        {"disabled" if read_only or not is_enabled else ""}
+                    >Run now</button>
+                    <button
+                        type="button"
+                        class="secondary-button toggle-page-monitor"
+                        data-monitor-id="{_html(monitor.get("id", ""))}"
+                        data-monitor-enabled="{str(is_enabled).lower()}"
+                        {disabled}
+                    >{toggle_label}</button>
+                </div>
             </sx-page-monitor-card>
             """
         )
     return "".join(cards)
+
+
+def _page_monitor_dialog(*, read_only: bool) -> str:
+    disabled = " disabled" if read_only else ""
+    return f"""
+    <dialog
+        id="page-monitor-dialog"
+        class="investigation-dialog page-monitor-dialog"
+        aria-labelledby="page-monitor-dialog-title"
+    >
+        <form id="page-monitor-form" class="page-monitor-form">
+            <header class="page-monitor-dialog__header">
+                <div>
+                    <p class="section-eyebrow">Lightweight observation</p>
+                    <h2 id="page-monitor-dialog-title">Configure page monitoring</h2>
+                    <p class="page-monitor-dialog__url" data-monitor-dialog-url></p>
+                </div>
+                <button
+                    type="button"
+                    class="icon-button page-monitor-dialog__close"
+                    data-monitor-dialog-close
+                    aria-label="Close"
+                    title="Close"
+                >×</button>
+            </header>
+
+            <div class="page-monitor-dialog__body">
+                <section class="monitor-choice-panel" aria-labelledby="monitor-mode-title">
+                    <div class="monitor-choice-panel__heading">
+                        <div>
+                            <span class="field-label" id="monitor-mode-title">Monitoring mode</span>
+                            <strong data-monitor-detected-profile>Automatic profile</strong>
+                        </div>
+                        <span class="monitor-state" data-monitor-dialog-state>Active</span>
+                    </div>
+                    <p data-monitor-profile-explanation>
+                        Automatic mode selects a profile from the page URL. You can still refine the observed metrics.
+                    </p>
+                    <div class="monitor-mode-options">
+                        <label>
+                            <input type="radio" name="monitor-mode" value="automatic" checked{disabled}>
+                            <span>
+                                <strong>Automatic</strong>
+                                <small>Use the profile detected by Synthesix.</small>
+                            </span>
+                        </label>
+                        <label>
+                            <input type="radio" name="monitor-mode" value="custom"{disabled}>
+                            <span>
+                                <strong>Custom</strong>
+                                <small>Choose the profile and metrics yourself.</small>
+                            </span>
+                        </label>
+                    </div>
+                </section>
+
+                <div class="page-monitor-settings-grid">
+                    <label>
+                        <span class="field-label">Profile</span>
+                        <select id="page-monitor-profile"{disabled}></select>
+                    </label>
+                    <label>
+                        <span class="field-label">Check every</span>
+                        <span class="monitor-interval-field">
+                            <input
+                                id="page-monitor-interval"
+                                type="number"
+                                min="15"
+                                max="43200"
+                                step="15"
+                                inputmode="numeric"
+                                value="{DEFAULT_CHECK_INTERVAL_MINUTES}"
+                                {disabled}
+                            >
+                            <span>minutes</span>
+                        </span>
+                    </label>
+                    <label>
+                        <span class="field-label">Archive policy</span>
+                        <select id="page-monitor-archive-policy"{disabled}>
+                            <option value="never">Never archive automatically</option>
+                            <option value="on_change">Archive significant changes</option>
+                        </select>
+                    </label>
+                </div>
+
+                <fieldset class="page-monitor-metrics">
+                    <legend data-monitor-metrics-title>Observed metrics</legend>
+                    <p>
+                        Select only useful signals. A missing or unavailable value is kept distinct from zero.
+                    </p>
+                    <div class="page-monitor-metric-grid" data-monitor-metric-grid></div>
+                </fieldset>
+
+                <section class="page-monitor-selectors" aria-labelledby="monitor-selectors-title">
+                    <div>
+                        <h3 id="monitor-selectors-title">Custom CSS selectors</h3>
+                        <p>Optional. Add a selector only when the default extractor cannot find a metric.</p>
+                    </div>
+                    <div>
+                        <div class="page-monitor-selector-list" data-monitor-selector-list></div>
+                        <div class="monitor-custom-target">
+                            <label>
+                                <span class="field-label">Custom field name</span>
+                                <input
+                                    id="page-monitor-custom-metric"
+                                    type="text"
+                                    maxlength="64"
+                                    pattern="[a-z][a-z0-9_]*"
+                                    placeholder="custom_field"
+                                    {disabled}
+                                >
+                            </label>
+                            <label>
+                                <span class="field-label">CSS selector</span>
+                                <input
+                                    id="page-monitor-custom-selector"
+                                    type="text"
+                                    maxlength="1000"
+                                    placeholder="main [data-field]"
+                                    {disabled}
+                                >
+                            </label>
+                            <button
+                                type="button"
+                                class="secondary-button"
+                                data-monitor-add-custom-target
+                                {disabled}
+                            >Add custom target</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section
+                    class="facebook-monitor-panel"
+                    data-monitor-facebook-panel
+                    aria-labelledby="monitor-facebook-title"
+                    hidden
+                >
+                    <div class="page-monitor-section-heading">
+                        <div>
+                            <p class="section-eyebrow">Facebook</p>
+                            <h3 id="monitor-facebook-title">Facebook profile snapshot</h3>
+                        </div>
+                    </div>
+                    <div data-facebook-monitor-summary></div>
+                </section>
+
+                <section class="page-monitor-schedule" aria-labelledby="monitor-schedule-title">
+                    <div class="page-monitor-section-heading">
+                        <div>
+                            <p class="section-eyebrow">Schedule and health</p>
+                            <h3 id="monitor-schedule-title">Monitoring status</h3>
+                        </div>
+                        <span class="monitor-change-badge" data-monitor-dialog-change>Waiting for first check</span>
+                    </div>
+                    <dl class="monitor-health-grid">
+                        <div><dt>Last check</dt><dd data-monitor-dialog-last>Never</dd></div>
+                        <div><dt>Next check</dt><dd data-monitor-dialog-next>As soon as possible</dd></div>
+                        <div><dt>Status</dt><dd data-monitor-dialog-status>Pending</dd></div>
+                        <div><dt>Consecutive failures</dt><dd data-monitor-dialog-failures>0</dd></div>
+                    </dl>
+                </section>
+
+                <section class="page-monitor-history" aria-labelledby="monitor-history-title">
+                    <div class="page-monitor-section-heading">
+                        <div>
+                            <p class="section-eyebrow">Changes over time</p>
+                            <h3 id="monitor-history-title">Observation history</h3>
+                        </div>
+                        <span class="meta-pill" data-monitor-history-count>0 observations</span>
+                    </div>
+                    <div class="page-monitor-history-list" data-monitor-history-list>
+                        <div class="investigation-empty">No observation yet. Run the monitor to create a baseline.</div>
+                    </div>
+                </section>
+            </div>
+
+            <footer class="page-monitor-dialog__actions">
+                <button
+                    type="button"
+                    class="danger-button stop-page-monitor"
+                    data-monitor-delete
+                    hidden
+                    {disabled}
+                >Stop monitoring</button>
+                <span class="page-monitor-dialog__spacer"></span>
+                <button
+                    type="button"
+                    class="secondary-button"
+                    data-monitor-toggle
+                    hidden
+                    {disabled}
+                >Pause</button>
+                <button
+                    type="button"
+                    class="secondary-button"
+                    data-monitor-run-now
+                    hidden
+                    {disabled}
+                >Run now</button>
+                <button
+                    type="button"
+                    class="secondary-button"
+                    data-monitor-dialog-close
+                >Cancel</button>
+                <button
+                    type="submit"
+                    class="primary-button"
+                    data-monitor-save
+                    {disabled}
+                >Save monitoring</button>
+            </footer>
+        </form>
+    </dialog>
+    """
 
 
 def _search_rows(
@@ -2755,6 +3115,12 @@ def generate_investigation_page(
     read_only = investigation.get("status") != "active"
     results_by_id = {
         str(result.get("id", "") or ""): result
+        for result in results
+    }
+    detected_monitor_profiles = {
+        str(result.get("id", "") or ""): infer_monitor_profile(
+            str(result.get("url", "") or "")
+        )
         for result in results
     }
     all_sources = sorted(
@@ -3281,10 +3647,10 @@ def generate_investigation_page(
                 <span class="meta-pill" data-monitor-count>{len(page_monitors)} monitored</span>
             </div>
             <p class="session-note">
-                Monitoring compares normalized text from explicit HTML archives.
-                Screenshots are not compared automatically to avoid noisy alerts
-                from animations, maps, ads, or cursor changes. Open a monitored
-                page and use the HTML archive button to create the next snapshot.
+                Lightweight checks collect only the metrics you choose and keep
+                missing values distinct from zero. A full archive remains a
+                separate probative capture and can be created automatically only
+                for significant changes when you enable that policy.
             </p>
             <div class="page-monitor-list">
                 {_page_monitor_cards(
@@ -3491,9 +3857,11 @@ def generate_investigation_page(
         </aside>
         </div>
     </main>
+    {_page_monitor_dialog(read_only=read_only)}
     <script>
         (() => {{
-            const workspaceData = window.__synthesixWorkspace || {{}};
+            let currentWorkspace = window.__synthesixWorkspace || {{}};
+            const workspaceData = currentWorkspace;
             const investigationId = String(
                 workspaceData.investigation?.id || {json.dumps(str(investigation.get("id", "")))}
             );
@@ -3570,6 +3938,1262 @@ def generate_investigation_page(
                     persistActionQueue();
                 }}
             }};
+            const monitorProfiles = {json.dumps(MONITOR_PROFILE_METRICS, ensure_ascii=False)};
+            const monitorProfileLabels = {json.dumps(_MONITOR_PROFILE_LABELS, ensure_ascii=False)};
+            const monitorMetricGroups = {json.dumps(_MONITOR_PROFILE_METRIC_GROUPS, ensure_ascii=False)};
+            const monitorChangeLabels = {json.dumps(_MONITOR_CHANGE_LABELS, ensure_ascii=False)};
+            const monitorCheckStatusLabels = {json.dumps(_MONITOR_CHECK_STATUS_LABELS, ensure_ascii=False)};
+            const detectedMonitorProfiles = {json.dumps(detected_monitor_profiles, ensure_ascii=False)};
+            const monitorDialog = document.getElementById("page-monitor-dialog");
+            const monitorForm = document.getElementById("page-monitor-form");
+            const monitorProfileSelect = document.getElementById(
+                "page-monitor-profile"
+            );
+            const monitorIntervalInput = document.getElementById(
+                "page-monitor-interval"
+            );
+            const monitorArchivePolicy = document.getElementById(
+                "page-monitor-archive-policy"
+            );
+            const monitorMetricGrid = monitorDialog?.querySelector(
+                "[data-monitor-metric-grid]"
+            );
+            const monitorSelectorList = monitorDialog?.querySelector(
+                "[data-monitor-selector-list]"
+            );
+            const monitorCustomMetricInput = document.getElementById(
+                "page-monitor-custom-metric"
+            );
+            const monitorCustomSelectorInput = document.getElementById(
+                "page-monitor-custom-selector"
+            );
+            let monitorDialogContext = null;
+
+            const translate = (value) => (
+                window.synthesixI18n?.t?.(String(value || ""))
+                || String(value || "")
+            );
+            const setTranslatedText = (node, value) => {{
+                if (node) {{
+                    node.textContent = translate(value);
+                }}
+            }};
+            const titleCaseMetric = (value) => String(value || "")
+                .replaceAll("_", " ")
+                .replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+            const monitorById = (monitorId) => (
+                (Array.isArray(currentWorkspace?.page_monitors)
+                    ? currentWorkspace.page_monitors : [])
+                    .find((item) => String(item?.id || "") === String(monitorId || ""))
+                || null
+            );
+            const monitorForResult = (resultId) => (
+                (Array.isArray(currentWorkspace?.page_monitors)
+                    ? currentWorkspace.page_monitors : [])
+                    .find((item) => String(item?.result_id || "") === String(resultId || ""))
+                || null
+            );
+            const resultById = (resultId) => (
+                (Array.isArray(currentWorkspace?.results)
+                    ? currentWorkspace.results : [])
+                    .find((item) => String(item?.id || "") === String(resultId || ""))
+                || null
+            );
+            const formatMonitorDate = (value, fallback = "Never") => {{
+                if (!value) {{
+                    return translate(fallback);
+                }}
+                const parsed = new Date(value);
+                if (Number.isNaN(parsed.getTime())) {{
+                    return String(value);
+                }}
+                return parsed.toLocaleString(
+                    document.documentElement.lang || undefined,
+                    {{ dateStyle: "medium", timeStyle: "short" }}
+                );
+            }};
+            const normalizedMonitorConfiguration = (
+                monitor,
+                resultId = ""
+            ) => {{
+                const stored = monitor?.monitor_config || {{}};
+                const detectedProfile = String(
+                    monitor?.monitor_profile
+                    || detectedMonitorProfiles[String(resultId || monitor?.result_id || "")]
+                    || "generic_page"
+                );
+                const profile = String(
+                    monitor?.monitor_profile || detectedProfile
+                );
+                const metrics = Array.isArray(stored.metrics) && stored.metrics.length
+                    ? stored.metrics.map((item) => String(item))
+                    : Array.from(monitorProfiles[profile] || []);
+                return {{
+                    mode: String(monitor?.monitor_mode || "automatic"),
+                    profile,
+                    detectedProfile,
+                    metrics,
+                    selectors: (
+                        stored.selectors && typeof stored.selectors === "object"
+                            ? {{ ...stored.selectors }} : {{}}
+                    ),
+                    archive_policy: String(stored.archive_policy || "never"),
+                    check_interval_minutes: Number(
+                        monitor?.check_interval_minutes
+                        || {DEFAULT_CHECK_INTERVAL_MINUTES}
+                    ),
+                    is_enabled: monitor ? Boolean(monitor.is_enabled) : true
+                }};
+            }};
+            const monitorConfigurationPayload = (
+                monitor,
+                isEnabled = Boolean(monitor?.is_enabled)
+            ) => {{
+                const config = normalizedMonitorConfiguration(
+                    monitor,
+                    monitor?.result_id
+                );
+                return {{
+                    mode: config.mode,
+                    profile: config.profile,
+                    metrics: config.metrics,
+                    selectors: config.selectors,
+                    archive_policy: config.archive_policy,
+                    check_interval_minutes: config.check_interval_minutes,
+                    is_enabled: Boolean(isEnabled)
+                }};
+            }};
+            const allKnownMonitorMetrics = () => new Set(
+                Object.values(monitorProfiles).flat().map(String)
+            );
+            const profileMonitorMetrics = (profile) => Array.from(
+                monitorProfiles[String(profile || "")] || []
+            ).map(String);
+            const selectedMonitorMetrics = () => Array.from(
+                monitorMetricGrid?.querySelectorAll(
+                    'input[type="checkbox"]:checked'
+                ) || []
+            ).map((input) => String(input.value || ""));
+            const currentSelectorValues = () => {{
+                const selectors = {{}};
+                monitorSelectorList?.querySelectorAll("[data-monitor-selector]")
+                    .forEach((input) => {{
+                        const value = String(input.value || "").trim();
+                        if (value) {{
+                            selectors[String(input.dataset.monitorSelector || "")] = value;
+                        }}
+                    }});
+                return selectors;
+            }};
+            const renderMonitorSelectors = (selectors = {{}}) => {{
+                if (!monitorSelectorList) {{
+                    return;
+                }}
+                const preserved = {{
+                    ...selectors,
+                    ...currentSelectorValues()
+                }};
+                monitorSelectorList.replaceChildren();
+                const metrics = selectedMonitorMetrics();
+                if (!metrics.length) {{
+                    const empty = document.createElement("p");
+                    empty.className = "session-note";
+                    empty.textContent = translate(
+                        "Select at least one metric to configure selectors."
+                    );
+                    monitorSelectorList.append(empty);
+                    return;
+                }}
+                metrics.forEach((metric) => {{
+                    const label = document.createElement("label");
+                    const caption = document.createElement("span");
+                    caption.className = "field-label";
+                    caption.textContent = translate(titleCaseMetric(metric));
+                    const input = document.createElement("input");
+                    input.type = "text";
+                    input.dataset.monitorSelector = metric;
+                    input.placeholder = translate("Optional CSS selector");
+                    input.value = String(preserved[metric] || "");
+                    input.disabled = {str(read_only).lower()};
+                    label.append(caption, input);
+                    monitorSelectorList.append(label);
+                }});
+            }};
+            const renderMonitorMetrics = (
+                selected = [],
+                selectors = {{}},
+                profile = String(
+                    monitorProfileSelect?.value
+                    || monitorDialogContext?.detectedProfile
+                    || "generic_page"
+                )
+            ) => {{
+                if (!monitorMetricGrid) {{
+                    return;
+                }}
+                const selectedSet = new Set(selected.map(String));
+                const metrics = Array.from(new Set([
+                    ...profileMonitorMetrics(profile),
+                    ...selectedSet
+                ]));
+                monitorMetricGrid.replaceChildren();
+                setTranslatedText(
+                    monitorDialog?.querySelector("[data-monitor-metrics-title]"),
+                    profile === "facebook_page"
+                        ? "Facebook fields to monitor"
+                        : "Observed metrics"
+                );
+                const configuredGroups = Array.isArray(monitorMetricGroups[profile])
+                    ? monitorMetricGroups[profile] : [];
+                const assigned = new Set(
+                    configuredGroups.flatMap((group) => group.metrics || [])
+                );
+                const groups = configuredGroups.length
+                    ? [...configuredGroups]
+                    : [{{
+                        label: monitorProfileLabels[profile]
+                            || titleCaseMetric(profile),
+                        metrics: profileMonitorMetrics(profile)
+                    }}];
+                const extras = metrics.filter((metric) => !assigned.has(metric));
+                if (extras.length) {{
+                    groups.push({{ label: "Custom targets", metrics: extras }});
+                }}
+                groups.forEach((group) => {{
+                    const groupMetrics = Array.from(group.metrics || [])
+                        .map(String)
+                        .filter((metric) => metrics.includes(metric));
+                    if (!groupMetrics.length) {{
+                        return;
+                    }}
+                    const section = document.createElement("section");
+                    section.className = "monitor-metric-group";
+                    const heading = document.createElement("h4");
+                    heading.textContent = translate(String(group.label || ""));
+                    const options = document.createElement("div");
+                    options.className = "monitor-metric-group__options";
+                    groupMetrics.forEach((metric) => {{
+                        const label = document.createElement("label");
+                        label.className = "monitor-metric-option";
+                        const input = document.createElement("input");
+                        input.type = "checkbox";
+                        input.value = metric;
+                        input.checked = selectedSet.has(metric);
+                        input.disabled = {str(read_only).lower()};
+                        const text = document.createElement("span");
+                        text.textContent = translate(titleCaseMetric(metric));
+                        input.addEventListener("change", () => {{
+                            renderMonitorSelectors(selectors);
+                        }});
+                        label.append(input, text);
+                        options.append(label);
+                    }});
+                    section.append(heading, options);
+                    monitorMetricGrid.append(section);
+                }});
+                renderMonitorSelectors(selectors);
+            }};
+            const formatMonitorMetricValue = (metric) => {{
+                const status = String(metric?.status || "unavailable");
+                if (status !== "ok") {{
+                    return translate(titleCaseMetric(status));
+                }}
+                const value = metric?.value;
+                if (value === null || value === undefined) {{
+                    return translate("Unavailable");
+                }}
+                if (Array.isArray(value)) {{
+                    return value.length
+                        ? value.map(String).join(", ")
+                        : translate("Empty list");
+                }}
+                if (typeof value === "boolean") {{
+                    return translate(value ? "Yes" : "No");
+                }}
+                if (typeof value === "number") {{
+                    return value.toLocaleString(
+                        document.documentElement.lang || undefined
+                    );
+                }}
+                const text = String(value);
+                return text.length > 260 ? `${{text.slice(0, 257)}}...` : text;
+            }};
+            const formatMonitorMetricProvenance = (metric) => {{
+                const provenance = metric?.provenance || {{}};
+                const sourceLabels = {{
+                    api: "API source",
+                    dom: "DOM source",
+                    absent: "No source",
+                }};
+                const precisionLabels = {{
+                    exact: "Exact value",
+                    rounded: "Rounded value",
+                    hidden: "Hidden value",
+                    unknown: "Unknown precision",
+                }};
+                const parts = [];
+                const source = String(provenance?.source || "");
+                if (sourceLabels[source]) {{
+                    parts.push(translate(sourceLabels[source]));
+                }}
+                const precision = String(metric?.precision || "");
+                if (precisionLabels[precision]) {{
+                    parts.push(translate(precisionLabels[precision]));
+                }}
+                const parser = String(provenance?.parser || "");
+                const version = Number(provenance?.parser_version || 0);
+                if (parser) {{
+                    parts.push(version > 0 ? `${{parser}} v${{version}}` : parser);
+                }}
+                return parts.join(" · ");
+            }};
+            const safeFacebookUrl = (value, options = {{}}) => {{
+                const media = Boolean(options.media);
+                try {{
+                    const parsed = new URL(String(value || ""));
+                    if (parsed.protocol !== "https:") {{
+                        return "";
+                    }}
+                    const hostname = parsed.hostname.toLowerCase();
+                    const allowed = hostname === "facebook.com"
+                        || hostname.endsWith(".facebook.com")
+                        || hostname === "fbcdn.net"
+                        || hostname.endsWith(".fbcdn.net");
+                    return allowed || !media ? parsed.href : "";
+                }} catch (_error) {{
+                    return "";
+                }}
+            }};
+            const monitorMetricValue = (metrics, name) => {{
+                const metric = metrics?.[name];
+                return String(metric?.status || "") === "ok"
+                    ? metric?.value : null;
+            }};
+            const appendFacebookMedia = (
+                host,
+                source,
+                label,
+                className
+            ) => {{
+                const url = safeFacebookUrl(source, {{ media: true }});
+                if (!url) {{
+                    return;
+                }}
+                const link = document.createElement("a");
+                link.className = className;
+                link.href = url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.title = translate("Open original image");
+                const image = document.createElement("img");
+                image.src = url;
+                image.alt = label;
+                image.loading = "lazy";
+                image.referrerPolicy = "no-referrer";
+                image.addEventListener("error", () => {{
+                    link.classList.add("is-unavailable");
+                }});
+                link.append(image);
+                host.append(link);
+            }};
+            const renderFacebookMonitorSummary = (host, monitor) => {{
+                if (!host) {{
+                    return;
+                }}
+                const isFacebook = String(monitor?.monitor_profile || "")
+                    === "facebook_page";
+                const panel = host.closest("[data-monitor-facebook-panel]");
+                if (panel) {{
+                    panel.hidden = !isFacebook;
+                }}
+                host.hidden = !isFacebook;
+                host.replaceChildren();
+                if (!isFacebook) {{
+                    return;
+                }}
+                const detailed = Boolean(panel);
+                const latest = Array.isArray(monitor?.observations)
+                    ? monitor.observations[0] : null;
+                const metrics = latest?.data?.metrics || {{}};
+                if (!latest) {{
+                    const empty = document.createElement("p");
+                    empty.className = "session-note";
+                    empty.textContent = translate(
+                        "Run the monitor to collect the Facebook profile."
+                    );
+                    host.append(empty);
+                    return;
+                }}
+                const profile = document.createElement("article");
+                profile.className = "facebook-profile-snapshot";
+                const media = document.createElement("div");
+                media.className = "facebook-profile-snapshot__media";
+                const displayName = String(
+                    monitorMetricValue(metrics, "display_name")
+                    || monitor?.result_title
+                    || translate("Facebook profile")
+                );
+                appendFacebookMedia(
+                    media,
+                    monitorMetricValue(metrics, "profile_photo"),
+                    `${{translate("Profile photo")}} — ${{displayName}}`,
+                    "facebook-profile-snapshot__photo"
+                );
+                if (detailed) {{
+                    appendFacebookMedia(
+                        media,
+                        monitorMetricValue(metrics, "cover_photo"),
+                        `${{translate("Cover photo")}} — ${{displayName}}`,
+                        "facebook-profile-snapshot__cover"
+                    );
+                }}
+                if (media.childElementCount) {{
+                    profile.append(media);
+                }}
+
+                const content = document.createElement("div");
+                content.className = "facebook-profile-snapshot__content";
+                const name = document.createElement("a");
+                name.className = "facebook-profile-snapshot__name";
+                name.textContent = displayName;
+                name.href = safeFacebookUrl(monitor?.result_url) || "#";
+                name.target = "_blank";
+                name.rel = "noopener noreferrer";
+                content.append(name);
+
+                const facts = document.createElement("div");
+                facts.className = "facebook-profile-snapshot__facts";
+                const friends = monitorMetricValue(metrics, "friends_count");
+                if (typeof friends === "number") {{
+                    const item = document.createElement("span");
+                    item.textContent = `${{friends.toLocaleString(
+                        document.documentElement.lang || undefined
+                    )}} ${{translate("friends")}}`;
+                    facts.append(item);
+                }}
+                const followers = monitorMetricValue(metrics, "followers");
+                if (typeof followers === "number") {{
+                    const item = document.createElement("span");
+                    item.textContent = `${{followers.toLocaleString(
+                        document.documentElement.lang || undefined
+                    )}} ${{translate("followers")}}`;
+                    facts.append(item);
+                }}
+                if (facts.childElementCount) {{
+                    content.append(facts);
+                }}
+
+                const bio = monitorMetricValue(metrics, "bio")
+                    || monitorMetricValue(metrics, "description");
+                if (bio) {{
+                    const paragraph = document.createElement("p");
+                    paragraph.className = "facebook-profile-snapshot__bio";
+                    paragraph.textContent = String(bio);
+                    content.append(paragraph);
+                }}
+                const details = monitorMetricValue(metrics, "profile_details");
+                if (Array.isArray(details) && details.length) {{
+                    const list = document.createElement("ul");
+                    list.className = "facebook-profile-snapshot__details";
+                    details.slice(0, detailed ? 16 : 4).forEach((detail) => {{
+                        const item = document.createElement("li");
+                        item.textContent = String(detail);
+                        list.append(item);
+                    }});
+                    content.append(list);
+                }}
+                if (detailed) {{
+                    const externalLinks = monitorMetricValue(
+                        metrics,
+                        "external_links"
+                    );
+                    if (Array.isArray(externalLinks) && externalLinks.length) {{
+                        const links = document.createElement("section");
+                        links.className = "facebook-profile-snapshot__links";
+                        const heading = document.createElement("strong");
+                        heading.textContent = translate("External Links");
+                        const list = document.createElement("ul");
+                        externalLinks.slice(0, 12).forEach((value) => {{
+                            const url = safeFacebookUrl(value);
+                            if (!url) {{
+                                return;
+                            }}
+                            const item = document.createElement("li");
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.target = "_blank";
+                            link.rel = "noopener noreferrer";
+                            link.textContent = url;
+                            item.append(link);
+                            list.append(item);
+                        }});
+                        if (list.childElementCount) {{
+                            links.append(heading, list);
+                            content.append(links);
+                        }}
+                    }}
+                    const postContent = monitorMetricValue(
+                        metrics,
+                        "latest_post_content"
+                    );
+                    const postDate = monitorMetricValue(
+                        metrics,
+                        "latest_post_date"
+                    );
+                    const postUrl = safeFacebookUrl(
+                        monitorMetricValue(metrics, "latest_post_permalink")
+                    );
+                    if (postContent || postDate || postUrl) {{
+                        const post = document.createElement("section");
+                        post.className = "facebook-profile-snapshot__post";
+                        const heading = document.createElement("strong");
+                        heading.textContent = translate("Latest Facebook post");
+                        post.append(heading);
+                        if (postDate) {{
+                            const date = document.createElement("span");
+                            date.textContent = String(postDate);
+                            post.append(date);
+                        }}
+                        if (postContent) {{
+                            const paragraph = document.createElement("p");
+                            paragraph.textContent = String(postContent);
+                            post.append(paragraph);
+                        }}
+                        if (postUrl) {{
+                            const link = document.createElement("a");
+                            link.href = postUrl;
+                            link.target = "_blank";
+                            link.rel = "noopener noreferrer";
+                            link.textContent = translate("Open Facebook post");
+                            post.append(link);
+                        }}
+                        content.append(post);
+                    }}
+                }}
+                profile.append(content);
+                host.append(profile);
+            }};
+            const renderMonitorHistory = (monitor) => {{
+                const list = monitorDialog?.querySelector(
+                    "[data-monitor-history-list]"
+                );
+                const observations = Array.isArray(monitor?.observations)
+                    ? monitor.observations : [];
+                setTranslatedText(
+                    monitorDialog?.querySelector("[data-monitor-history-count]"),
+                    `${{observations.length}} observation${{observations.length === 1 ? "" : "s"}}`
+                );
+                if (!list) {{
+                    return;
+                }}
+                list.replaceChildren();
+                if (!observations.length) {{
+                    const empty = document.createElement("div");
+                    empty.className = "investigation-empty";
+                    empty.textContent = translate(
+                        "No observation yet. Run the monitor to create a baseline."
+                    );
+                    list.append(empty);
+                    return;
+                }}
+                observations.forEach((observation) => {{
+                    const article = document.createElement("article");
+                    const changeStatus = String(
+                        observation?.change_status || "baseline"
+                    );
+                    article.className = "monitor-observation";
+                    article.dataset.changeStatus = changeStatus;
+
+                    const header = document.createElement("header");
+                    const heading = document.createElement("div");
+                    const time = document.createElement("time");
+                    time.dateTime = String(observation?.observed_at || "");
+                    time.textContent = formatMonitorDate(
+                        observation?.observed_at,
+                        "Unknown"
+                    );
+                    const duration = document.createElement("span");
+                    duration.textContent = `${{Number(observation?.duration_ms || 0)}} ms`;
+                    heading.append(time, duration);
+
+                    const badges = document.createElement("div");
+                    badges.className = "monitor-observation__badges";
+                    const changeBadge = document.createElement("span");
+                    changeBadge.className = "monitor-change-badge";
+                    changeBadge.dataset.changeStatus = changeStatus;
+                    changeBadge.textContent = translate(
+                        monitorChangeLabels[changeStatus] || titleCaseMetric(changeStatus)
+                    );
+                    badges.append(changeBadge);
+                    if (String(observation?.status || "ok") !== "ok") {{
+                        const statusBadge = document.createElement("span");
+                        statusBadge.className = "meta-pill";
+                        statusBadge.textContent = translate(
+                            titleCaseMetric(observation?.status)
+                        );
+                        badges.append(statusBadge);
+                    }}
+                    if (observation?.archive_recommended) {{
+                        const archiveBadge = document.createElement("span");
+                        archiveBadge.className = "meta-pill";
+                        archiveBadge.textContent = translate(
+                            "Full archive recommended"
+                        );
+                        badges.append(archiveBadge);
+                    }}
+                    header.append(heading, badges);
+                    article.append(header);
+
+                    const changedMetrics = Object.entries(
+                        observation?.changes || {{}}
+                    ).filter(([, change]) => (
+                        String(change?.status || "unchanged") !== "unchanged"
+                    ));
+                    const summary = document.createElement("p");
+                    summary.className = "monitor-observation__summary";
+                    if (changeStatus === "baseline") {{
+                        summary.textContent = translate(
+                            "Baseline observation recorded."
+                        );
+                    }} else if (!changedMetrics.length) {{
+                        summary.textContent = translate(
+                            "No meaningful metric change detected."
+                        );
+                    }} else {{
+                        summary.textContent = changedMetrics
+                            .map(([metric, change]) => (
+                                `${{translate(titleCaseMetric(metric))}}: `
+                                + translate(
+                                    monitorChangeLabels[String(change?.status || "")]
+                                    || titleCaseMetric(change?.status)
+                                )
+                            ))
+                            .join(" · ");
+                    }}
+                    article.append(summary);
+
+                    const metrics = observation?.data?.metrics || {{}};
+                    const metricEntries = Object.entries(metrics);
+                    if (metricEntries.length) {{
+                        const details = document.createElement("details");
+                        const detailsSummary = document.createElement("summary");
+                        detailsSummary.textContent = translate("Observed values");
+                        const values = document.createElement("dl");
+                        values.className = "monitor-observation__values";
+                        metricEntries.forEach(([metricName, metric]) => {{
+                            const row = document.createElement("div");
+                            const name = document.createElement("dt");
+                            name.textContent = translate(
+                                titleCaseMetric(metricName)
+                            );
+                            const value = document.createElement("dd");
+                            value.dataset.metricStatus = String(
+                                metric?.status || "unavailable"
+                            );
+                            const isFacebookImage = [
+                                "profile_photo",
+                                "cover_photo"
+                            ].includes(metricName);
+                            const imageUrl = isFacebookImage
+                                ? safeFacebookUrl(metric?.value, {{ media: true }})
+                                : "";
+                            if (imageUrl) {{
+                                appendFacebookMedia(
+                                    value,
+                                    imageUrl,
+                                    translate(titleCaseMetric(metricName)),
+                                    "monitor-observation__photo"
+                                );
+                            }} else {{
+                                const valueText = document.createElement("span");
+                                valueText.textContent = formatMonitorMetricValue(metric);
+                                value.append(valueText);
+                            }}
+                            const provenance = formatMonitorMetricProvenance(
+                                metric
+                            );
+                            if (provenance) {{
+                                const meta = document.createElement("small");
+                                meta.className =
+                                    "monitor-observation__metric-meta";
+                                meta.textContent = provenance;
+                                value.append(meta);
+                            }}
+                            row.append(name, value);
+                            values.append(row);
+                        }});
+                        details.append(detailsSummary, values);
+                        article.append(details);
+                    }}
+
+                    const errors = Array.isArray(observation?.errors)
+                        ? observation.errors : [];
+                    if (errors.length) {{
+                        const details = document.createElement("details");
+                        details.className = "monitor-observation__errors";
+                        const detailsSummary = document.createElement("summary");
+                        detailsSummary.textContent = translate("Errors and warnings");
+                        const errorList = document.createElement("ul");
+                        errors.forEach((error) => {{
+                            const item = document.createElement("li");
+                            item.textContent = String(
+                                error?.message || error?.code || "Unknown error"
+                            );
+                            errorList.append(item);
+                        }});
+                        details.append(detailsSummary, errorList);
+                        article.append(details);
+                    }}
+                    list.append(article);
+                }});
+            }};
+            const updateMonitorCard = (card, monitor) => {{
+                if (!card || !monitor) {{
+                    return;
+                }}
+                const observations = Array.isArray(monitor.observations)
+                    ? monitor.observations : [];
+                const latest = observations[0] || null;
+                const enabled = Boolean(monitor.is_enabled);
+                const checkStatus = String(monitor.check_status || "pending");
+                const changeStatus = String(
+                    latest?.change_status || "baseline"
+                );
+                renderFacebookMonitorSummary(
+                    card.querySelector("[data-facebook-monitor-summary]"),
+                    monitor
+                );
+                card.dataset.monitorEnabled = String(enabled);
+                const state = card.querySelector("[data-monitor-state]");
+                if (state) {{
+                    state.dataset.state = enabled ? "active" : "paused";
+                    state.textContent = translate(enabled ? "Active" : "Paused");
+                }}
+                setTranslatedText(
+                    card.querySelector("[data-monitor-mode]"),
+                    String(monitor.monitor_mode || "automatic") === "automatic"
+                        ? "Automatic" : "Custom"
+                );
+                setTranslatedText(
+                    card.querySelector("[data-monitor-profile]"),
+                    monitorProfileLabels[String(monitor.monitor_profile || "")]
+                    || titleCaseMetric(monitor.monitor_profile)
+                );
+                const change = card.querySelector("[data-monitor-change]");
+                if (change) {{
+                    change.dataset.changeStatus = changeStatus;
+                    change.textContent = translate(
+                        monitorChangeLabels[changeStatus]
+                        || "Waiting for first check"
+                    );
+                }}
+                setTranslatedText(
+                    card.querySelector("[data-monitor-check-status]"),
+                    monitorCheckStatusLabels[checkStatus]
+                    || titleCaseMetric(checkStatus)
+                );
+                setTranslatedText(
+                    card.querySelector("[data-monitor-observation-count]"),
+                    `${{observations.length}} observation${{observations.length === 1 ? "" : "s"}}`
+                );
+                setTranslatedText(
+                    card.querySelector("[data-monitor-last-checked]"),
+                    formatMonitorDate(monitor.last_checked_at, "Never")
+                );
+                setTranslatedText(
+                    card.querySelector("[data-monitor-next-check]"),
+                    enabled
+                        ? formatMonitorDate(
+                            monitor.next_check_at,
+                            "As soon as possible"
+                        )
+                        : "Paused"
+                );
+                const run = card.querySelector(".run-page-monitor-now");
+                if (run) {{
+                    run.disabled = !enabled;
+                }}
+                const toggle = card.querySelector(".toggle-page-monitor");
+                if (toggle) {{
+                    toggle.dataset.monitorEnabled = String(enabled);
+                    toggle.textContent = translate(enabled ? "Pause" : "Resume");
+                }}
+            }};
+            const renderMonitorDialogStatus = (monitor) => {{
+                renderFacebookMonitorSummary(
+                    monitorDialog?.querySelector(
+                        "[data-monitor-facebook-panel] "
+                        + "[data-facebook-monitor-summary]"
+                    ),
+                    monitor
+                );
+                const latest = Array.isArray(monitor?.observations)
+                    ? monitor.observations[0] : null;
+                const enabled = monitor ? Boolean(monitor.is_enabled) : true;
+                const state = monitorDialog?.querySelector(
+                    "[data-monitor-dialog-state]"
+                );
+                if (state) {{
+                    state.dataset.state = enabled ? "active" : "paused";
+                    state.textContent = translate(enabled ? "Active" : "Paused");
+                }}
+                setTranslatedText(
+                    monitorDialog?.querySelector("[data-monitor-dialog-last]"),
+                    formatMonitorDate(monitor?.last_checked_at, "Never")
+                );
+                setTranslatedText(
+                    monitorDialog?.querySelector("[data-monitor-dialog-next]"),
+                    enabled
+                        ? formatMonitorDate(
+                            monitor?.next_check_at,
+                            "As soon as possible"
+                        )
+                        : "Paused"
+                );
+                const status = String(monitor?.check_status || "pending");
+                setTranslatedText(
+                    monitorDialog?.querySelector("[data-monitor-dialog-status]"),
+                    monitorCheckStatusLabels[status] || titleCaseMetric(status)
+                );
+                const failures = monitorDialog?.querySelector(
+                    "[data-monitor-dialog-failures]"
+                );
+                if (failures) {{
+                    failures.textContent = String(
+                        Number(monitor?.consecutive_failures || 0)
+                    );
+                }}
+                const change = monitorDialog?.querySelector(
+                    "[data-monitor-dialog-change]"
+                );
+                const changeStatus = String(
+                    latest?.change_status || "baseline"
+                );
+                if (change) {{
+                    change.dataset.changeStatus = changeStatus;
+                    change.textContent = translate(
+                        monitorChangeLabels[changeStatus]
+                        || "Waiting for first check"
+                    );
+                }}
+            }};
+            const syncMonitorMode = () => {{
+                if (!monitorDialogContext || !monitorProfileSelect) {{
+                    return;
+                }}
+                const previousProfile = String(monitorProfileSelect.value || "");
+                const automatic = monitorForm?.querySelector(
+                    'input[name="monitor-mode"][value="automatic"]'
+                )?.checked;
+                if (automatic) {{
+                    monitorProfileSelect.value = monitorDialogContext.detectedProfile;
+                }}
+                monitorProfileSelect.disabled = Boolean(
+                    automatic || {str(read_only).lower()}
+                );
+                const profile = String(
+                    monitorProfileSelect.value
+                    || monitorDialogContext.detectedProfile
+                );
+                if (profile !== previousProfile) {{
+                    const customMetrics = selectedMonitorMetrics().filter(
+                        (metric) => !allKnownMonitorMetrics().has(metric)
+                    );
+                    renderMonitorMetrics(
+                        [
+                            ...profileMonitorMetrics(profile),
+                            ...customMetrics
+                        ],
+                        currentSelectorValues(),
+                        profile
+                    );
+                }}
+                setTranslatedText(
+                    monitorDialog?.querySelector(
+                        "[data-monitor-detected-profile]"
+                    ),
+                    monitorProfileLabels[profile] || titleCaseMetric(profile)
+                );
+            }};
+            const populateMonitorProfiles = () => {{
+                if (!monitorProfileSelect) {{
+                    return;
+                }}
+                monitorProfileSelect.replaceChildren();
+                Object.keys(monitorProfiles).forEach((profile) => {{
+                    const option = document.createElement("option");
+                    option.value = profile;
+                    option.textContent = translate(
+                        monitorProfileLabels[profile] || titleCaseMetric(profile)
+                    );
+                    monitorProfileSelect.append(option);
+                }});
+                const archivePolicyLabels = {{
+                    never: "Never archive automatically",
+                    on_change: "Archive significant changes"
+                }};
+                monitorArchivePolicy?.querySelectorAll("option")
+                    .forEach((option) => {{
+                        option.textContent = translate(
+                            archivePolicyLabels[option.value] || option.textContent
+                        );
+                    }});
+            }};
+            const openMonitorDialog = (resultId, monitorId = "") => {{
+                if (!monitorDialog || !monitorForm) {{
+                    return;
+                }}
+                const monitor = monitorId
+                    ? monitorById(monitorId) : monitorForResult(resultId);
+                const result = resultById(resultId || monitor?.result_id);
+                const config = normalizedMonitorConfiguration(
+                    monitor,
+                    resultId || monitor?.result_id
+                );
+                monitorDialogContext = {{
+                    resultId: String(resultId || monitor?.result_id || ""),
+                    monitorId: String(monitor?.id || ""),
+                    detectedProfile: config.detectedProfile,
+                    selectors: {{ ...config.selectors }}
+                }};
+                setTranslatedText(
+                    monitorDialog.querySelector("[data-monitor-dialog-url]"),
+                    result?.url || monitor?.result_url || ""
+                );
+                populateMonitorProfiles();
+                const modeInput = monitorForm.querySelector(
+                    `input[name="monitor-mode"][value="${{config.mode}}"]`
+                );
+                if (modeInput) {{
+                    modeInput.checked = true;
+                }}
+                monitorProfileSelect.value = config.profile;
+                monitorIntervalInput.value = String(
+                    config.check_interval_minutes
+                );
+                monitorArchivePolicy.value = config.archive_policy;
+                renderMonitorMetrics(
+                    config.metrics,
+                    config.selectors,
+                    config.profile
+                );
+                syncMonitorMode();
+                renderMonitorDialogStatus(monitor);
+                renderMonitorHistory(monitor);
+
+                const deleteButton = monitorDialog.querySelector(
+                    "[data-monitor-delete]"
+                );
+                const toggleButton = monitorDialog.querySelector(
+                    "[data-monitor-toggle]"
+                );
+                const runButton = monitorDialog.querySelector(
+                    "[data-monitor-run-now]"
+                );
+                deleteButton.hidden = !monitor;
+                toggleButton.hidden = !monitor;
+                runButton.hidden = !monitor;
+                if (monitor) {{
+                    toggleButton.textContent = translate(
+                        monitor.is_enabled ? "Pause" : "Resume"
+                    );
+                    toggleButton.dataset.monitorEnabled = String(
+                        Boolean(monitor.is_enabled)
+                    );
+                    runButton.disabled = Boolean(
+                        {str(read_only).lower()} || !monitor.is_enabled
+                    );
+                }}
+                monitorDialog.showModal();
+                requestAnimationFrame(() => {{
+                    monitorForm.querySelector(
+                        'input[name="monitor-mode"]:checked'
+                    )?.focus();
+                }});
+            }};
+            const closeMonitorDialog = () => {{
+                if (monitorDialog?.open) {{
+                    monitorDialog.close();
+                }}
+                monitorDialogContext = null;
+            }};
+            const collectMonitorDialogConfiguration = (
+                enabledOverride = null
+            ) => {{
+                const mode = String(
+                    monitorForm?.querySelector(
+                        'input[name="monitor-mode"]:checked'
+                    )?.value || "automatic"
+                );
+                const profile = String(
+                    mode === "automatic"
+                        ? monitorDialogContext?.detectedProfile
+                        : monitorProfileSelect?.value
+                );
+                const metrics = selectedMonitorMetrics();
+                if (!metrics.length) {{
+                    throw new Error(
+                        translate("Select at least one observed metric.")
+                    );
+                }}
+                const interval = Number(monitorIntervalInput?.value || 0);
+                if (!Number.isInteger(interval) || interval < 15 || interval > 43200) {{
+                    throw new Error(
+                        translate(
+                            "The check interval must be between 15 and 43200 minutes."
+                        )
+                    );
+                }}
+                const monitor = monitorDialogContext?.monitorId
+                    ? monitorById(monitorDialogContext.monitorId) : null;
+                return {{
+                    mode,
+                    profile,
+                    metrics,
+                    selectors: currentSelectorValues(),
+                    archive_policy: String(
+                        monitorArchivePolicy?.value || "never"
+                    ),
+                    check_interval_minutes: interval,
+                    is_enabled: enabledOverride === null
+                        ? Boolean(monitor?.is_enabled ?? true)
+                        : Boolean(enabledOverride)
+                }};
+            }};
+            const removeMonitorFromPage = (monitorId, resultId) => {{
+                document.querySelector(
+                    `[data-page-monitor-id="${{CSS.escape(String(monitorId))}}"]`
+                )?.remove();
+                document.querySelectorAll(
+                    `.open-page-monitor-dialog[data-monitor-id="${{CSS.escape(String(monitorId))}}"]`
+                ).forEach((button) => {{
+                    button.removeAttribute("data-monitor-id");
+                    button.dataset.resultId = String(resultId || "");
+                    button.title = translate("Monitor changes");
+                    const label = button.querySelector("span");
+                    if (label) {{
+                        label.textContent = translate("Monitor changes");
+                    }}
+                }});
+                updateMonitorCount();
+            }};
+
+            monitorForm?.querySelectorAll('input[name="monitor-mode"]')
+                .forEach((input) => {{
+                    input.addEventListener("change", () => {{
+                        syncMonitorMode();
+                    }});
+                }});
+            monitorProfileSelect?.addEventListener("change", () => {{
+                const profile = String(monitorProfileSelect.value);
+                const customMetrics = selectedMonitorMetrics().filter(
+                    (metric) => !allKnownMonitorMetrics().has(metric)
+                );
+                renderMonitorMetrics(
+                    [
+                        ...Array.from(monitorProfiles[profile] || []),
+                        ...customMetrics
+                    ],
+                    currentSelectorValues(),
+                    profile
+                );
+                syncMonitorMode();
+            }});
+            monitorDialog?.querySelector("[data-monitor-add-custom-target]")
+                ?.addEventListener("click", () => {{
+                    const metric = String(
+                        monitorCustomMetricInput?.value || ""
+                    ).trim().toLowerCase();
+                    const selector = String(
+                        monitorCustomSelectorInput?.value || ""
+                    ).trim();
+                    if (!/^[a-z][a-z0-9_]*$/.test(metric)) {{
+                        window.synthesixPage.setStatus(
+                            translate(
+                                "Custom field names use lowercase letters, numbers and underscores."
+                            ),
+                            true
+                        );
+                        monitorCustomMetricInput?.focus();
+                        return;
+                    }}
+                    if (!selector) {{
+                        window.synthesixPage.setStatus(
+                            translate("Enter a CSS selector for the custom field."),
+                            true
+                        );
+                        monitorCustomSelectorInput?.focus();
+                        return;
+                    }}
+                    const selectors = {{
+                        ...currentSelectorValues(),
+                        [metric]: selector
+                    }};
+                    const selected = Array.from(new Set([
+                        ...selectedMonitorMetrics(),
+                        metric
+                    ]));
+                    renderMonitorMetrics(
+                        selected,
+                        selectors,
+                        String(monitorProfileSelect?.value || "generic_page")
+                    );
+                    if (monitorCustomMetricInput) {{
+                        monitorCustomMetricInput.value = "";
+                    }}
+                    if (monitorCustomSelectorInput) {{
+                        monitorCustomSelectorInput.value = "";
+                    }}
+                }});
+            monitorForm?.addEventListener("submit", (event) => {{
+                event.preventDefault();
+                if (!monitorDialogContext) {{
+                    return;
+                }}
+                try {{
+                    const configuration = collectMonitorDialogConfiguration();
+                    if (monitorDialogContext.monitorId) {{
+                        queueAction("update_page_monitor_configuration", {{
+                            monitorId: monitorDialogContext.monitorId,
+                            configuration
+                        }});
+                        window.synthesixPage.setStatus(
+                            "Saving monitoring settings..."
+                        );
+                    }} else {{
+                        storeViewState({{
+                            inspectorType: "page",
+                            inspectorId: monitorDialogContext.resultId
+                        }});
+                        queueAction("create_page_monitor", {{
+                            resultId: monitorDialogContext.resultId,
+                            configuration
+                        }});
+                        window.synthesixPage.setStatus(
+                            "Creating page monitor..."
+                        );
+                    }}
+                    closeMonitorDialog();
+                }} catch (error) {{
+                    window.synthesixPage.setStatus(
+                        error?.message || "Invalid monitoring settings.",
+                        true
+                    );
+                }}
+            }});
+            monitorDialog?.querySelectorAll("[data-monitor-dialog-close]")
+                .forEach((button) => {{
+                    button.addEventListener("click", closeMonitorDialog);
+                }});
+            monitorDialog?.addEventListener("click", (event) => {{
+                if (event.target === monitorDialog) {{
+                    closeMonitorDialog();
+                }}
+            }});
+            monitorDialog?.querySelector("[data-monitor-toggle]")
+                ?.addEventListener("click", () => {{
+                    if (!monitorDialogContext?.monitorId) {{
+                        return;
+                    }}
+                    const monitor = monitorById(monitorDialogContext.monitorId);
+                    try {{
+                        const configuration = collectMonitorDialogConfiguration(
+                            !Boolean(monitor?.is_enabled)
+                        );
+                        queueAction("update_page_monitor_configuration", {{
+                            monitorId: monitorDialogContext.monitorId,
+                            configuration
+                        }});
+                        window.synthesixPage.setStatus(
+                            monitor?.is_enabled
+                                ? "Pausing page monitor..."
+                                : "Resuming page monitor..."
+                        );
+                        closeMonitorDialog();
+                    }} catch (error) {{
+                        window.synthesixPage.setStatus(
+                            error?.message || "Invalid monitoring settings.",
+                            true
+                        );
+                    }}
+                }});
+            monitorDialog?.querySelector("[data-monitor-run-now]")
+                ?.addEventListener("click", () => {{
+                    if (!monitorDialogContext?.monitorId) {{
+                        return;
+                    }}
+                    queueAction("run_page_monitor_now", {{
+                        monitorId: monitorDialogContext.monitorId
+                    }});
+                    window.synthesixPage.setStatus(
+                        "Monitoring check in progress..."
+                    );
+                    closeMonitorDialog();
+                }});
+            monitorDialog?.querySelector("[data-monitor-delete]")
+                ?.addEventListener("click", () => {{
+                    if (
+                        !monitorDialogContext?.monitorId
+                        || !confirm("Stop monitoring this page?")
+                    ) {{
+                        return;
+                    }}
+                    const monitorId = monitorDialogContext.monitorId;
+                    const resultId = monitorDialogContext.resultId;
+                    queueAction("delete_page_monitor", {{ monitorId }});
+                    removeMonitorFromPage(monitorId, resultId);
+                    closeMonitorDialog();
+                    flashSaved();
+                }});
+            document.addEventListener("click", (event) => {{
+                const opener = event.target.closest(
+                    ".open-page-monitor-dialog"
+                );
+                if (opener) {{
+                    openMonitorDialog(
+                        opener.dataset.resultId,
+                        opener.dataset.monitorId
+                    );
+                    return;
+                }}
+                const runButton = event.target.closest(
+                    ".run-page-monitor-now"
+                );
+                if (runButton) {{
+                    runButton.disabled = true;
+                    queueAction("run_page_monitor_now", {{
+                        monitorId: runButton.dataset.monitorId
+                    }});
+                    window.synthesixPage.setStatus(
+                        "Monitoring check in progress..."
+                    );
+                    return;
+                }}
+                const toggleButton = event.target.closest(
+                    ".toggle-page-monitor"
+                );
+                if (toggleButton) {{
+                    const monitor = monitorById(
+                        toggleButton.dataset.monitorId
+                    );
+                    if (!monitor) {{
+                        return;
+                    }}
+                    const nextEnabled = !Boolean(monitor.is_enabled);
+                    queueAction("update_page_monitor_configuration", {{
+                        monitorId: monitor.id,
+                        configuration: monitorConfigurationPayload(
+                            monitor,
+                            nextEnabled
+                        )
+                    }});
+                    window.synthesixPage.setStatus(
+                        nextEnabled
+                            ? "Resuming page monitor..."
+                            : "Pausing page monitor..."
+                    );
+                }}
+            }});
             const viewStateKey = `synthesix:view-state:${{investigationId}}`;
             const storeViewState = (state = {{}}) => {{
                 try {{
@@ -3975,6 +5599,7 @@ def generate_investigation_page(
                 }});
             }};
             const reconcileWorkspace = (workspace) => {{
+                currentWorkspace = workspace || {{}};
                 reconcileGraphProperties(workspace);
                 const resultsById = new Map(
                     (Array.isArray(workspace?.results) ? workspace.results : [])
@@ -4189,6 +5814,31 @@ def generate_investigation_page(
                 document.querySelectorAll("[data-monitor-count]").forEach(
                     (node) => {{ node.textContent = `${{monitorCount}} monitored`; }}
                 );
+                const monitorsById = new Map(
+                    (Array.isArray(workspace?.page_monitors)
+                        ? workspace.page_monitors : [])
+                        .map((monitor) => [String(monitor?.id || ""), monitor])
+                );
+                document.querySelectorAll("[data-page-monitor-id]")
+                    .forEach((card) => {{
+                        const monitor = monitorsById.get(
+                            String(card.dataset.pageMonitorId || "")
+                        );
+                        if (monitor) {{
+                            updateMonitorCard(card, monitor);
+                        }}
+                    }});
+                if (monitorDialog?.open && monitorDialogContext?.monitorId) {{
+                    const openMonitor = monitorsById.get(
+                        String(monitorDialogContext.monitorId)
+                    );
+                    if (openMonitor) {{
+                        renderMonitorDialogStatus(openMonitor);
+                        renderMonitorHistory(openMonitor);
+                    }} else {{
+                        closeMonitorDialog();
+                    }}
+                }}
                 const exportCount = Array.isArray(workspace?.exports)
                     ? workspace.exports.length : 0;
                 document.querySelectorAll("[data-export-count]").forEach(
@@ -4493,18 +6143,6 @@ def generate_investigation_page(
                         saveResult(card);
                     }}
                 );
-                card.querySelector(".start-page-monitor")?.addEventListener(
-                    "click",
-                    () => {{
-                        storeViewState({{
-                            inspectorType: "page",
-                            inspectorId: card.dataset.resultId
-                        }});
-                        queueAction("create_page_monitor", {{
-                            resultId: card.dataset.resultId
-                        }});
-                    }}
-                );
                 card.querySelector(".extract-result-entities")?.addEventListener(
                     "click",
                     () => {{
@@ -4708,52 +6346,6 @@ def generate_investigation_page(
                     (node) => {{ node.textContent = `${{count}} monitored`; }}
                 );
             }};
-            document.querySelectorAll(".stop-page-monitor").forEach((button) => {{
-                button.addEventListener("click", () => {{
-                    if (confirm("Stop monitoring this page?")) {{
-                        queueAction("delete_page_monitor", {{
-                            monitorId: button.dataset.monitorId
-                        }});
-                        document.querySelectorAll(
-                            `[data-monitor-id="${{button.dataset.monitorId}}"]`
-                        ).forEach((control) => {{
-                            const card = control.closest("[data-page-monitor-id]");
-                            if (card) {{
-                                card.remove();
-                                return;
-                            }}
-                            const hostCard = control.closest(
-                                ".investigation-result"
-                            );
-                            const start = document.createElement("button");
-                            start.type = "button";
-                            start.className = (
-                                "saved-card__menu-item start-page-monitor"
-                            );
-                            start.setAttribute("role", "menuitem");
-                            start.setAttribute("slot", "menu");
-                            start.title = "Monitor changes";
-                            start.innerHTML = (
-                                {json.dumps(_icon("activity"))}
-                                + "<span>Monitor changes</span>"
-                            );
-                            start.addEventListener("click", () => {{
-                                if (!hostCard) return;
-                                storeViewState({{
-                                    inspectorType: "page",
-                                    inspectorId: hostCard.dataset.resultId
-                                }});
-                                queueAction("create_page_monitor", {{
-                                    resultId: hostCard.dataset.resultId
-                                }});
-                            }});
-                            control.replaceWith(start);
-                        }});
-                        updateMonitorCount();
-                        flashSaved();
-                    }}
-                }});
-            }});
 
             const normalize = (value) => String(value || "").toLowerCase().trim();
             const applyFilters = () => {{

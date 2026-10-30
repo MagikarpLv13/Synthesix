@@ -92,6 +92,7 @@ Optional logging flags:
 python main.py --quiet
 python main.py --verbose
 python main.py --debug-html
+python main.py --monitor-once
 ```
 
 `--debug-html` keeps unique raw search-engine pages in `history/debug_pages/`. Filenames include the timestamp, engine, and capture stage, for example `20260608_190000_000000_duckduckgo_results.html`. Combine it with `--verbose` to see every saved path in the console:
@@ -262,15 +263,97 @@ when one of its artifacts is unavailable; the investigation page exposes only
 the visual capture, MHTML, and text. The provenance manifest is kept locally
 for verification rather than shown as an analyst action.
 
-Saved pages can be monitored manually. Monitoring never reruns a search: each
-new explicit page archive is compared with the previous archive's normalized
-text. Exact matches, minor changes above the similarity threshold, significant
-changes, and inconclusive comparisons are reported separately to reduce noisy
-alerts from dynamic page details. Screenshots are not compared automatically.
-The investigation page includes a section navbar, monitor controls, archive
-history, and links to local comparison reports. A saved page with evidence
-cannot be removed until its captures are deleted. The **Verify** action
-recalculates every recorded artifact hash locally.
+Saved pages can be monitored manually without rerunning a search. The
+investigation page opens one configuration dialog from every saved page and
+from the monitoring section. It explains the automatically detected profile,
+allows automatic or custom mode, metric and CSS-selector selection, interval
+and archive-policy changes, pause/resume, and an immediate targeted check. The
+monitor cards expose last/next check, health and the latest significant or minor
+change. The dialog keeps the recent observation history and typed deltas, with
+missing or unavailable values rendered explicitly instead of as zero.
+
+Full probative archives remain separate from lightweight observations.
+Screenshots are not compared automatically. When page archives exist, their
+normalized text comparison and local report remain available beside the light
+monitoring status. A saved page with evidence cannot be removed until its
+captures are deleted. The **Verify** action recalculates every recorded artifact
+hash locally.
+
+Page monitors persist an automatic or custom mode, detected profile, selected
+metrics, optional CSS selectors, checking interval and enabled/paused state.
+The lightweight probe runner opens a dedicated Zendriver tab, waits for a real
+document instead of accepting the initial `about:blank`, and performs one
+bounded composite extraction without writing PNG or MHTML. Versioned
+observations store final URL, duration, content hash, metadata, typed metrics,
+diagnostics and extraction errors. Missing, unavailable and failed values stay
+distinct from numeric zero; significant typed changes recommend a full archive.
+Generic title, description, visible text and links are supported. Social
+profiles use versioned adapters. When configured, Synthesix tries the official
+[YouTube channel API](https://developers.google.com/youtube/v3/docs/channels/list),
+[X user lookup API](https://docs.x.com/x-api/users/lookup/introduction), or
+[TikTok Research user API](https://developers.tiktok.com/doc/research-api-specs-query-user-info)
+before opening a browser tab. Instagram and Facebook currently use only the
+bounded browser extractor. Missing credentials or one failed API metric do not
+block the remaining metrics: the unresolved subset falls back to a single DOM
+snapshot containing bounded metadata, visible text, links, accessibility
+labels and JSON-LD, while authentication, consent and challenge pages remain
+explicit intervention states.
+
+Facebook profile monitors have a dedicated, visible configuration instead of
+mixing their fields with other social platforms. Their defaults cover displayed
+name, profile and cover photos, exact friend count when Facebook renders it,
+followers, biography, visible profile details, external profile links and the
+latest non-pinned publication (stable identifier, displayed date, bounded text
+and canonical permalink). The monitor card displays the current profile photo
+as a small thumbnail linked to the original; the dialog adds the cover, visible
+details and latest-post preview. Analysts can disable any built-in field or add
+a named CSS target whose selector also supports image `src` and SVG
+`xlink:href` values.
+
+The Facebook parser uses profile URLs, accessibility labels and semantic
+`data-*` attributes rather than generated `x...` class names. It associates
+the header, friends card, photos and post feed with the requested profile so
+unrelated navigation, recommendations and mutual-friend values are ignored.
+When both a rounded header count and a detailed friends-card total are visible,
+the exact total wins. Volatile CDN parameters and relative date labels use
+stable comparison keys, so an unchanged photo or publication does not create
+false changes. A missing total publication count is not inferred from the
+number of virtualized cards currently loaded.
+
+Every social metric records its source (`api`, `dom`, or `absent`), parser name
+and parser version. Numeric values also record whether they are exact, rounded,
+hidden or of unknown precision. YouTube subscriber counts are therefore never
+presented as exact. The observation history displays this provenance under
+each value. API keys and bearer tokens are read only from environment variables,
+are excluded from settings representations, and are never written to SQLite,
+evidence artifacts or observation errors.
+
+The local background scheduler is disabled by default, so opening Synthesix
+does not automatically contact monitored sites before a VPN is ready. Set
+`SYNTHESIX_MONITOR_AUTOSTART=true` to run it while the application is open;
+the per-monitor **Run now** action and `python main.py --monitor-once` remain
+available regardless of that setting. Due monitors are claimed through
+expiring SQLite leases, processed with bounded concurrency, timeout, jitter,
+retries and exponential backoff, then rescheduled.
+Authentication, CAPTCHA/challenge and consent pages pause the affected monitor
+for analyst intervention; repeated transient failures also pause it. One site
+failure does not stop the other probes and monitoring never starts a
+multi-engine search. Full page archives are disabled by default and are created
+only when a monitor explicitly uses `archive_policy=on_change` and the light
+probe detects a significant change.
+
+For Windows Task Scheduler or another local scheduler, run one short cycle:
+
+```powershell
+.venv\Scripts\python.exe main.py --monitor-once
+```
+
+Set the task's working directory to the Synthesix project root and configure it
+not to overlap an already-running instance. The command prints a stable
+single-line summary. Exit code `0` means no probe/archive failure, `1` means at
+least one monitor or automatic archive failed, and `2` means the command could
+not initialize. When no monitor is due, no browser is launched.
+The social-platform metric adapters remain tracked in T-057.
 
 Archived investigations remain available from the selector and open in read-only
 mode. They cannot receive new searches or analyst edits.
@@ -401,13 +484,22 @@ engines and leave DuckDuckGo on its worldwide region.
 
 Search engines can change their markup or anti-bot behavior at any time. When a parser starts returning poor results, update only the affected engine and add or adjust a focused test.
 
+Google result links are resolved before filtering, scoring, deduplication and
+storage. Legacy `/url` wrappers are decoded locally; opaque `/goto` links use
+Google's HTTP redirect headers to recover the destination URL and domain. This
+step contacts only Google's HTTPS redirect endpoint and does not load the
+destination pages. It runs outside the async event loop, with at most four
+concurrent requests, a three-second socket timeout and an eight-second batch
+budget. If a redirect cannot be resolved, its clickable Google URL is retained
+so that a single failure does not discard the remaining results.
+
 ## Runtime Data
 
 Synthesix generates local runtime artifacts. They are ignored by Git and should not be committed.
 
 | Path | Role |
 | --- | --- |
-| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result observations, explainable score components, analyst metadata, and the rebuildable FTS5 archive index. |
+| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result and page-monitor observations, explainable score components, analyst metadata, and the rebuildable FTS5 archive index. |
 | `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
 | `data/evidence/` | Explicit PNG screenshots, sanitized page archives, normalized text, comparison reports, and provenance manifests. |
 | `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
@@ -464,11 +556,30 @@ Runtime settings can be overridden with environment variables:
 | `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT` | Maximum time allowed for manual DuckDuckGo challenge resolution. |
 | `SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL` | Polling interval while waiting for DuckDuckGo results after manual resolution. |
 | `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` | Global timeout for one engine search. |
+| `SYNTHESIX_BING_RESULTS_TIMEOUT` | Maximum wait for Bing's hydrated organic result rows. |
+| `SYNTHESIX_BING_RESULTS_INTERVAL` | Bing result-row polling interval. |
 | `SYNTHESIX_ENGINE_CONCURRENCY` | Maximum number of engines searched at the same time. |
 | `SYNTHESIX_ENGINE_RETRY_ATTEMPTS` | Retry attempts for transient engine failures. |
 | `SYNTHESIX_ENGINE_RETRY_DELAY` | Initial retry delay. |
 | `SYNTHESIX_ENGINE_RETRY_BACKOFF` | Retry delay multiplier. |
 | `SYNTHESIX_MAX_QUERY_VARIANTS` | Maximum total query variants per search, including the main query. Defaults to `6`. |
+| `SYNTHESIX_MONITOR_AUTOSTART` | Start the background monitoring scheduler when Synthesix opens. Defaults to `false`; manual runs remain available. |
+| `SYNTHESIX_MONITOR_POLL_INTERVAL` | Seconds between scheduler cycles while Synthesix is open. Defaults to `60`. |
+| `SYNTHESIX_MONITOR_BATCH_SIZE` | Maximum monitors atomically claimed per cycle. Defaults to `4`. |
+| `SYNTHESIX_MONITOR_CONCURRENCY` | Maximum simultaneous lightweight probes. Defaults to `2`. |
+| `SYNTHESIX_MONITOR_LEASE_SECONDS` | Expiring SQLite lease duration protecting a claimed monitor. Defaults to `300`. |
+| `SYNTHESIX_MONITOR_ATTEMPT_TIMEOUT` | Wall-clock timeout for one probe attempt. Defaults to `75`. |
+| `SYNTHESIX_MONITOR_RETRY_ATTEMPTS` | Additional attempts after a transient probe failure. Defaults to `1`. |
+| `SYNTHESIX_MONITOR_RETRY_DELAY` | Initial delay in seconds before a retry. Defaults to `1`. |
+| `SYNTHESIX_MONITOR_RETRY_BACKOFF` | Retry and failure-backoff multiplier. Defaults to `2`. |
+| `SYNTHESIX_MONITOR_JITTER_SECONDS` | Maximum random delay added before probes/retries. Defaults to `2`. |
+| `SYNTHESIX_MONITOR_FAILURE_BACKOFF_SECONDS` | Initial rescheduling delay after a failed cycle. Defaults to `300`. |
+| `SYNTHESIX_MONITOR_MAX_FAILURES` | Consecutive failures before automatic suspension. Defaults to `3`. |
+| `SYNTHESIX_MONITOR_HEADLESS` | Use a headless browser for `--monitor-once`. Defaults to `true`. |
+| `SYNTHESIX_SOCIAL_API_TIMEOUT` | Timeout in seconds for one official social API request. Defaults to `10`. |
+| `SYNTHESIX_YOUTUBE_API_KEY` | Optional YouTube Data API key used only for channel monitoring. |
+| `SYNTHESIX_X_BEARER_TOKEN` | Optional X API bearer token used only for public user lookup. |
+| `SYNTHESIX_TIKTOK_RESEARCH_ACCESS_TOKEN` | Optional approved TikTok Research API client access token. |
 | `SYNTHESIX_EXPORTS_DIR` | Local directory for versioned investigation export bundles. Defaults to `data/exports`. |
 
 Example:

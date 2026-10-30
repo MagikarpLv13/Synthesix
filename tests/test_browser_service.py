@@ -23,6 +23,8 @@ from browser import (
     eval_js,
     get_browser_service,
     mhtml,
+    monitor_probe_page_state,
+    monitor_probe_snapshot,
     outer_html,
     page_layout,
     screenshot,
@@ -440,6 +442,81 @@ class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tab.url, "file:///index.html")
         self.assertEqual(observability.snapshot()["calls"]["open_tab"], 1)
+
+    async def test_monitor_probe_snapshot_uses_one_bounded_evaluate(self):
+        tab = FakeTab("https://example.org/final")
+        tab.program(
+            "evaluate",
+            {
+                "final_url": "https://example.org/final",
+                "metadata": {"ready_state": "complete"},
+                "metrics": {
+                    "title": {
+                        "status": "ok",
+                        "kind": "text",
+                        "value": "Example",
+                    }
+                },
+                "errors": [],
+                "diagnostics": {"requested_metrics": 1, "ok_metrics": 1},
+            },
+        )
+
+        result = await monitor_probe_snapshot(
+            tab,
+            ["title"],
+            {"title": "h1"},
+        )
+
+        self.assertEqual(result["metrics"]["title"]["value"], "Example")
+        self.assertEqual(tab.journal.count("evaluate"), 1)
+        script = tab.journal.calls("evaluate")[0].args[0]
+        self.assertIn('"metrics": ["title"]', script)
+        self.assertIn('"title": "h1"', script)
+        self.assertIn("maxListItems", script)
+        self.assertEqual(
+            observability.snapshot()["calls"]["monitor_probe"],
+            1,
+        )
+
+    async def test_monitor_probe_page_state_reports_navigation_readiness(self):
+        tab = FakeTab("https://example.org/final")
+        tab.program(
+            "evaluate",
+            {
+                "marker": "synthesixMonitorNavigationState",
+                "final_url": "https://example.org/final",
+                "ready_state": "complete",
+                "has_body": True,
+            },
+        )
+
+        state = await monitor_probe_page_state(tab)
+
+        self.assertTrue(state["has_body"])
+        self.assertEqual(state["ready_state"], "complete")
+        self.assertEqual(
+            observability.snapshot()["calls"]["monitor_probe_wait"],
+            1,
+        )
+
+    async def test_monitor_probe_snapshot_rejects_invalid_response(self):
+        tab = FakeTab()
+        tab.program("evaluate", "not-a-mapping")
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Invalid monitoring probe response",
+        ):
+            await monitor_probe_snapshot(tab, ["title"], {})
+
+    async def test_close_tab_is_bounded_and_best_effort(self):
+        tab = FakeTab("https://example.org")
+        service = BrowserService(FakeBrowser([tab]))
+
+        self.assertTrue(await service.close_tab(tab))
+        self.assertTrue(tab.closed)
+        self.assertEqual(observability.snapshot()["calls"]["close_tab"], 1)
 
     async def test_close_blank_tabs_leaves_content_tabs_open(self):
         blank = FakeTab("about:blank", "blank")

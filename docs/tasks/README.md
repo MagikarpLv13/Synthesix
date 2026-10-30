@@ -71,8 +71,18 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 | [T-040](T-040-navigateur-recherche-separe.md) | Navigateur de recherche séparé | P1 | Claude | done |
 | [T-041](T-041-sqlite-hors-event-loop.md) | Écritures SQLite lourdes hors event loop | P2 | Codex | review |
 | [T-042](T-042-hydratation-json-page-enquete.md) | Page enquête hydratée par workspace.json | P2 | Les deux | done |
-| [T-043](T-043-retrait-pandas-agregation.md) | Retrait de pandas de l'agrégation | P3 | Codex | todo |
+| [T-043](T-043-retrait-pandas-agregation.md) | Retrait de pandas de l'agrégation | P3 | Codex | done |
 | [T-052](T-052-capture-visuelle-integrale.md) | Capture visuelle intégrale des archives de page | P1 | Codex | done |
+
+### Phase 5 — Monitoring périodique
+
+| ID | Titre | Priorité | Outil | Statut |
+|---|---|---|---|---|
+| [T-053](T-053-monitoring-configurable.md) | Configuration automatique ou personnalisée | P1 | Codex | done |
+| [T-054](T-054-sonde-legere-observations.md) | Sonde légère et observations structurées | P1 | Les deux | done |
+| [T-055](T-055-scheduler-monitoring.md) | Scheduler local du monitoring | P1 | Claude | done |
+| [T-056](T-056-interface-monitoring.md) | Interface et historique du monitoring | P1 | Les deux | done |
+| [T-057](T-057-adaptateurs-sociaux.md) | Adaptateurs de métriques sociales | P2 | Les deux | done |
 
 ### QA transverse
 

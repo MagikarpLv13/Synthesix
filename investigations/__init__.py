@@ -5,10 +5,20 @@ from investigations.models import (
     InvestigationSearchRun,
     PageComparison,
     PageMonitor,
+    PageMonitorObservation,
     UrlAnalysis,
 )
 from investigations.repository import InvestigationRepository
+from investigations.scheduler import (
+    MonitorRunSummary,
+    MonitorSchedulerOptions,
+    PageMonitorScheduler,
+)
 from investigations.service import InvestigationService
+from investigations.social_adapters import (
+    SocialAdapterRegistry,
+    SocialApiCredentials,
+)
 
 __all__ = (
     "Investigation",
@@ -17,7 +27,13 @@ __all__ = (
     "InvestigationRepository",
     "InvestigationSearchRun",
     "InvestigationService",
+    "MonitorRunSummary",
+    "MonitorSchedulerOptions",
     "PageComparison",
     "PageMonitor",
+    "PageMonitorObservation",
+    "PageMonitorScheduler",
+    "SocialAdapterRegistry",
+    "SocialApiCredentials",
     "UrlAnalysis",
 )

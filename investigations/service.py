@@ -23,6 +23,7 @@ from investigations.models import (
     LocalSearchFilters,
     PageComparison,
     PageMonitor,
+    PageMonitorObservation,
     EvidenceCapture,
 )
 from investigations.repository import InvestigationRepository
@@ -47,6 +48,7 @@ MAX_ENTITY_PROPERTY_KEY_LENGTH = 100
 MAX_ENTITY_PROPERTY_VALUE_LENGTH = 4000
 MAX_ENTITY_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_ENTITY_SOURCE_TOTAL_CHARS = 2_000_000
+PAGE_MONITOR_OBSERVATION_HISTORY_LIMIT = 20
 PROPERTY_TYPES = {
     "text",
     "number",
@@ -363,6 +365,13 @@ class InvestigationService:
         relations_by_target = self.repository.list_entity_relations_by_target(
             investigation_id
         )
+        page_monitors = self.repository.list_page_monitors(investigation_id)
+        monitor_observations = (
+            self.repository.list_page_monitor_observations_for_investigation(
+                investigation_id,
+                limit_per_monitor=PAGE_MONITOR_OBSERVATION_HISTORY_LIMIT,
+            )
+        )
         return {
             "investigation": investigation.to_payload(),
             "results": [
@@ -382,10 +391,17 @@ class InvestigationService:
                 for search in self.repository.list_unassigned_searches()
             ],
             "page_monitors": [
-                monitor.to_payload()
-                for monitor in self.repository.list_page_monitors(
-                    investigation_id
-                )
+                {
+                    **monitor.to_payload(),
+                    "observations": [
+                        observation.to_payload()
+                        for observation in monitor_observations.get(
+                            monitor.id,
+                            [],
+                        )
+                    ],
+                }
+                for monitor in page_monitors
             ],
             "evidence": [
                 capture.to_payload()
@@ -1148,10 +1164,12 @@ class InvestigationService:
         self,
         investigation_id: str,
         result_id: str,
+        configuration: Mapping[str, object] | None = None,
     ) -> PageMonitor:
         return self.repository.create_page_monitor(
             investigation_id,
             result_id,
+            configuration,
         )
 
     def get_page_monitor(
@@ -1182,6 +1200,100 @@ class InvestigationService:
         self.repository.delete_page_monitor(
             investigation_id,
             monitor_id,
+        )
+
+    def update_page_monitor_configuration(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        configuration: Mapping[str, object],
+    ) -> PageMonitor:
+        return self.repository.update_page_monitor_configuration(
+            investigation_id,
+            monitor_id,
+            configuration,
+        )
+
+    def list_page_monitor_observations(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[PageMonitorObservation]:
+        return self.repository.list_page_monitor_observations(
+            investigation_id,
+            monitor_id,
+            limit=limit,
+        )
+
+    def get_latest_page_monitor_observation(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+    ) -> PageMonitorObservation | None:
+        return self.repository.get_latest_page_monitor_observation(
+            investigation_id,
+            monitor_id,
+        )
+
+    def claim_page_monitor_now(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        worker_id: str,
+        *,
+        lease_seconds: float = 300.0,
+    ) -> PageMonitor:
+        return self.repository.claim_page_monitor_now(
+            investigation_id,
+            monitor_id,
+            worker_id,
+            lease_seconds=lease_seconds,
+        )
+
+    def has_due_page_monitors(self, *, due_at: str | None = None) -> bool:
+        return self.repository.has_due_page_monitors(due_at=due_at)
+
+    def claim_due_page_monitors(
+        self,
+        worker_id: str,
+        *,
+        due_at: str | None = None,
+        limit: int = 4,
+        lease_seconds: float = 300.0,
+    ) -> list[PageMonitor]:
+        return self.repository.claim_due_page_monitors(
+            worker_id,
+            due_at=due_at,
+            limit=limit,
+            lease_seconds=lease_seconds,
+        )
+
+    def finish_page_monitor_claim(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        worker_id: str,
+        **kwargs,
+    ) -> PageMonitor:
+        return self.repository.finish_page_monitor_claim(
+            investigation_id,
+            monitor_id,
+            worker_id,
+            **kwargs,
+        )
+
+    def record_page_monitor_observation(
+        self,
+        investigation_id: str,
+        monitor_id: str,
+        **kwargs,
+    ) -> PageMonitorObservation:
+        return self.repository.record_page_monitor_observation(
+            investigation_id,
+            monitor_id,
+            **kwargs,
         )
 
     def advance_page_monitor(

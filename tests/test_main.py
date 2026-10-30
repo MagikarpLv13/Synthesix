@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 import unittest
@@ -35,10 +35,12 @@ from main import (
     perform_search,
     _prepare_base_query,
     _retry_search_combination,
+    _run_page_monitor_now_action,
     _run_retry_search_action,
     _run_search_action,
     _search_task_running,
     _set_overlay_save_status,
+    _start_monitor_scheduler,
     _start_search_task,
     _sync_extension_overlay_context,
     _verify_evidence_capture,
@@ -46,11 +48,14 @@ from main import (
     configure_event_loop_policy,
     InvestigationPayloadCache,
     parse_cli_args,
+    run_cli,
+    run_monitor_once,
     SearchBrowserProvider,
     wait_for_home_action,
 )
 from browser import BrowserService, get_browser_service
 from exceptions import InvestigationValidationError, RobotChallengeError
+from investigations.scheduler import MonitorRunSummary
 from settings import get_settings
 
 
@@ -114,6 +119,22 @@ class OverlayBundleReuseTestCase(unittest.TestCase):
 
 
 class MainCliTestCase(unittest.TestCase):
+    def test_monitor_scheduler_autostart_is_explicit(self):
+        async def scenario():
+            scheduler = SimpleNamespace(run_forever=AsyncMock())
+
+            self.assertIsNone(
+                _start_monitor_scheduler(scheduler, enabled=False)
+            )
+            scheduler.run_forever.assert_not_called()
+
+            task = _start_monitor_scheduler(scheduler, enabled=True)
+            self.assertIsNotNone(task)
+            await task
+            scheduler.run_forever.assert_awaited_once()
+
+        asyncio.run(scenario())
+
     def test_automatic_dorks_can_be_disabled(self):
         self.assertEqual(
             _prepare_base_query("john doe", automatic_dorks=True),
@@ -166,6 +187,47 @@ class MainCliTestCase(unittest.TestCase):
 
         self.assertTrue(settings.debug_html)
 
+    def test_monitor_once_flag_is_parsed(self):
+        self.assertTrue(parse_cli_args(["--monitor-once"]).monitor_once)
+
+    def test_monitor_once_skips_browser_when_nothing_is_due(self):
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {"SYNTHESIX_BASE_DIR": temp_dir},
+                clear=True,
+            ):
+                settings = get_settings()
+                with patch(
+                    "main.HeadlessBrowserManager.create",
+                    new=AsyncMock(),
+                ) as create_browser:
+                    summary = asyncio.run(run_monitor_once(settings))
+
+        self.assertEqual(summary.claimed, 0)
+        self.assertEqual(summary.exit_code, 0)
+        self.assertEqual(
+            summary.to_line(),
+            "Monitoring: claimed=0 succeeded=0 partial=0 failed=0 "
+            "archived=0 archive_failed=0 paused=0",
+        )
+        create_browser.assert_not_awaited()
+
+    def test_monitor_once_cli_returns_summary_exit_code(self):
+        output = StringIO()
+        summary = MonitorRunSummary(claimed=2, succeeded=1, failed=1)
+        with patch(
+            "main.run_monitor_once",
+            new=AsyncMock(return_value=summary),
+        ):
+            with redirect_stdout(output):
+                exit_code = asyncio.run(
+                    run_cli(parse_cli_args(["--monitor-once"]))
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue().strip(), summary.to_line())
+
     def test_windows_event_loop_policy_is_configured_on_windows(self):
         policy = object()
         with patch("main.sys.platform", "win32"):
@@ -174,6 +236,49 @@ class MainCliTestCase(unittest.TestCase):
                     configure_event_loop_policy()
 
         set_policy.assert_called_once_with(policy)
+
+
+class MonitorActionTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_immediate_monitor_action_refreshes_workspace_and_status(self):
+        scheduler = SimpleNamespace(
+            run_monitor_now=AsyncMock(
+                return_value=MonitorRunSummary(claimed=1, partial=1)
+            )
+        )
+        service = object()
+        settings = object()
+        source_tab = object()
+
+        with (
+            patch("main._save_in_place", new=AsyncMock()) as save_in_place,
+            patch("main._set_page_status", new=AsyncMock()) as set_status,
+        ):
+            await _run_page_monitor_now_action(
+                scheduler,
+                service,
+                settings,
+                source_tab,
+                "case-1",
+                "monitor-1",
+            )
+
+        scheduler.run_monitor_now.assert_awaited_once_with(
+            "case-1",
+            "monitor-1",
+        )
+        save_in_place.assert_awaited_once_with(
+            service,
+            settings,
+            source_tab,
+            "case-1",
+        )
+        self.assertEqual(
+            set_status.await_args_list[-1].args,
+            (
+                source_tab,
+                "Monitoring check completed with partial data.",
+            ),
+        )
 
 
 class HomeHistoryCacheTestCase(unittest.TestCase):
@@ -961,7 +1066,7 @@ class InvestigationPageRoutingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Case One", tab.script)
         self.assertIn("Save page", tab.script)
         self.assertIn("observe_saved_page", tab.script)
-        self.assertIn("M58 12 69 6l9 38-12 9-9-7z", tab.script)
+        self.assertIn("#8AA0EE", tab.script)
         self.assertIn("Capture screenshot", tab.script)
         self.assertIn("Save page with HTML archive", tab.script)
         self.assertIn("archive_page_to_investigation", tab.script)

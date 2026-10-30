@@ -49,7 +49,19 @@ from exports.zeroneurone_tagsets import (
     zeroneurone_tagset_suggested_properties,
 )
 import observability
-from investigations import InvestigationRepository, InvestigationService
+from investigations import (
+    InvestigationRepository,
+    InvestigationService,
+    MonitorRunSummary,
+    MonitorSchedulerOptions,
+    PageMonitor,
+    PageMonitorScheduler,
+)
+from investigations.probe import (
+    PageMonitorProbe,
+    ProbeResult,
+    wait_for_monitor_navigation,
+)
 from investigations.repository import utc_now
 from investigations.monitoring_view import generate_page_comparison_report
 from investigations.search_view import generate_local_search_page
@@ -426,6 +438,14 @@ def parse_cli_args(argv=None):
         "--debug-html",
         action="store_true",
         help="Keep raw search-engine HTML pages in history/debug_pages/.",
+    )
+    parser.add_argument(
+        "--monitor-once",
+        action="store_true",
+        help=(
+            "Run one bounded monitoring cycle and exit with a deterministic "
+            "summary."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -2247,6 +2267,148 @@ async def _archive_page(
     return investigation, saved, capture, comparison
 
 
+def _monitor_scheduler_options(
+    settings: AppSettings,
+) -> MonitorSchedulerOptions:
+    return MonitorSchedulerOptions(
+        poll_interval=settings.monitor_poll_interval,
+        batch_size=settings.monitor_batch_size,
+        concurrency=min(
+            settings.monitor_concurrency,
+            settings.monitor_batch_size,
+        ),
+        lease_seconds=settings.monitor_lease_seconds,
+        attempt_timeout=settings.monitor_attempt_timeout,
+        retry_attempts=settings.monitor_retry_attempts,
+        retry_delay=settings.monitor_retry_delay,
+        retry_backoff=settings.monitor_retry_backoff,
+        jitter_seconds=settings.monitor_jitter_seconds,
+        failure_backoff_seconds=settings.monitor_failure_backoff_seconds,
+        max_failures=settings.monitor_max_failures,
+    )
+
+
+async def _archive_monitor_change(
+    browser_service: BrowserService,
+    investigation_service: InvestigationService,
+    settings: AppSettings,
+    monitor: PageMonitor,
+    _probe_result: ProbeResult,
+) -> None:
+    tab = None
+    try:
+        tab = await browser_service.open_tab(
+            monitor.result_url,
+            new_tab=True,
+        )
+        await wait_for_monitor_navigation(tab)
+        await _archive_page(
+            investigation_service,
+            settings,
+            tab,
+            monitor.investigation_id,
+            {
+                "page": {
+                    "url": monitor.result_url,
+                    "title": monitor.result_title,
+                    "description": "",
+                    "referrer": "",
+                },
+            },
+        )
+        investigation_service.mark_changed()
+    finally:
+        if tab is not None:
+            await browser_service.close_tab(tab)
+
+
+def _build_monitor_scheduler(
+    browser_service: BrowserService,
+    investigation_service: InvestigationService,
+    settings: AppSettings,
+) -> PageMonitorScheduler:
+    async def archive_handler(
+        monitor: PageMonitor,
+        result: ProbeResult,
+    ) -> None:
+        await _archive_monitor_change(
+            browser_service,
+            investigation_service,
+            settings,
+            monitor,
+            result,
+        )
+
+    return PageMonitorScheduler(
+        investigation_service,
+        PageMonitorProbe(browser_service, investigation_service),
+        options=_monitor_scheduler_options(settings),
+        archive_handler=archive_handler,
+    )
+
+
+def _start_monitor_scheduler(
+    scheduler: PageMonitorScheduler,
+    *,
+    enabled: bool,
+) -> asyncio.Task | None:
+    """Start the background loop only when explicitly enabled."""
+    if not enabled:
+        return None
+    return asyncio.create_task(
+        scheduler.run_forever(),
+        name="synthesix-page-monitor-scheduler",
+    )
+
+
+async def run_monitor_once(
+    settings: AppSettings | None = None,
+) -> MonitorRunSummary:
+    settings = settings or get_settings()
+    investigation_service = InvestigationService(
+        InvestigationRepository(settings.database_path),
+        base_dir=settings.base_dir,
+    )
+    investigation_service.initialize(settings.history_json_path)
+    has_due = await asyncio.to_thread(
+        investigation_service.has_due_page_monitors
+    )
+    if not has_due:
+        return MonitorRunSummary()
+
+    browser_manager = await HeadlessBrowserManager.create(
+        settings=settings,
+        profile_dir=settings.browser_profile_dir,
+        ensure_bookmark=False,
+        load_extension=False,
+        headless=settings.monitor_headless,
+    )
+    try:
+        browser = await browser_manager.get_driver()
+        scheduler = _build_monitor_scheduler(
+            get_browser_service(browser),
+            investigation_service,
+            settings,
+        )
+        return await scheduler.run_once()
+    finally:
+        await browser_manager.stop()
+
+
+async def run_cli(args) -> int:
+    if args.monitor_once:
+        try:
+            summary = await run_monitor_once()
+        except Exception:
+            logger.exception("Monitoring command failed.")
+            print("Monitoring: fatal_error=1")
+            return 2
+        print(summary.to_line())
+        return summary.exit_code
+    await main()
+    return 0
+
+
 def _parse_capture_time(value: object) -> datetime:
     try:
         parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
@@ -2748,6 +2910,55 @@ async def _save_in_place(
     if version is not None:
         await _reload_workspace_from_sidecar(source_tab, version)
     await _set_page_status(source_tab, "Saved.")
+
+
+async def _run_page_monitor_now_action(
+    scheduler: PageMonitorScheduler,
+    service: InvestigationService,
+    settings: AppSettings,
+    source_tab,
+    investigation_id: str,
+    monitor_id: str,
+) -> None:
+    await _set_page_status(
+        source_tab,
+        "Monitoring check in progress...",
+    )
+    try:
+        summary = await scheduler.run_monitor_now(
+            investigation_id,
+            monitor_id,
+        )
+        await _save_in_place(
+            service,
+            settings,
+            source_tab,
+            investigation_id,
+        )
+        if summary.succeeded:
+            message = "Monitoring check completed."
+            is_error = False
+        elif summary.partial:
+            message = "Monitoring check completed with partial data."
+            is_error = False
+        else:
+            message = "Monitoring check failed. Review the observation history."
+            is_error = True
+        await _set_page_status(source_tab, message, is_error=is_error)
+    except asyncio.CancelledError:
+        raise
+    except InvestigationError as exc:
+        await _set_page_status(source_tab, str(exc), is_error=True)
+    except Exception:
+        logger.exception(
+            "Immediate page monitoring check failed for %s.",
+            monitor_id,
+        )
+        await _set_page_status(
+            source_tab,
+            "Monitoring check failed. Review the logs for details.",
+            is_error=True,
+        )
 
 
 async def _open_or_refresh_investigation_page(
@@ -3355,8 +3566,18 @@ async def main():
     # consuming actions; one search at a time, backend is the source of
     # truth for the "search running" state.
     active_search_task: asyncio.Task | None = None
+    monitor_action_tasks: set[asyncio.Task] = set()
     extension_context_cache: dict[str, str] = {}
     extension_revision = _expected_extension_revision(settings)
+    monitor_scheduler = _build_monitor_scheduler(
+        browser_service,
+        investigation_service,
+        settings,
+    )
+    monitor_scheduler_task = _start_monitor_scheduler(
+        monitor_scheduler,
+        enabled=settings.monitor_autostart,
+    )
 
     try:
         while True:
@@ -4708,11 +4929,20 @@ async def main():
                     result.get("investigationId", "") or ""
                 ).strip()
                 result_id = str(result.get("resultId", "") or "").strip()
+                configuration = result.get("configuration")
                 source_tab = result.get("_source_tab")
                 try:
+                    if (
+                        configuration is not None
+                        and not isinstance(configuration, Mapping)
+                    ):
+                        raise InvestigationValidationError(
+                            "Page monitor configuration must be an object."
+                        )
                     investigation_service.create_page_monitor(
                         investigation_id,
                         result_id,
+                        configuration,
                     )
                     page_path = await _generate_investigation_page_async(
                         investigation_service,
@@ -4746,6 +4976,56 @@ async def main():
                     )
                 except InvestigationError as exc:
                     await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "update_page_monitor_configuration":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                monitor_id = str(
+                    result.get("monitorId", "") or ""
+                ).strip()
+                configuration = result.get("configuration", {})
+                source_tab = result.get("_source_tab")
+                try:
+                    if not isinstance(configuration, Mapping):
+                        raise InvestigationValidationError(
+                            "Page monitor configuration must be an object."
+                        )
+                    investigation_service.update_page_monitor_configuration(
+                        investigation_id,
+                        monitor_id,
+                        configuration,
+                    )
+                    await _save_in_place(
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                    )
+                except InvestigationError as exc:
+                    await _set_page_status(source_tab, str(exc), is_error=True)
+                continue
+            if result["action"] == "run_page_monitor_now":
+                investigation_id = str(
+                    result.get("investigationId", "") or ""
+                ).strip()
+                monitor_id = str(
+                    result.get("monitorId", "") or ""
+                ).strip()
+                source_tab = result.get("_source_tab")
+                task = asyncio.create_task(
+                    _run_page_monitor_now_action(
+                        monitor_scheduler,
+                        investigation_service,
+                        settings,
+                        source_tab,
+                        investigation_id,
+                        monitor_id,
+                    ),
+                    name=f"synthesix-page-monitor-now-{monitor_id}",
+                )
+                monitor_action_tasks.add(task)
+                task.add_done_callback(monitor_action_tasks.discard)
                 continue
             if result["action"] == "attach_investigation_search":
                 investigation_id = str(result.get("investigationId", "") or "").strip()
@@ -4903,6 +5183,16 @@ async def main():
             )
 
     finally:
+        if monitor_scheduler_task is not None:
+            monitor_scheduler_task.cancel()
+        pending_monitor_tasks = tuple(monitor_action_tasks)
+        for task in pending_monitor_tasks:
+            task.cancel()
+        await asyncio.gather(
+            *(() if monitor_scheduler_task is None else (monitor_scheduler_task,)),
+            *pending_monitor_tasks,
+            return_exceptions=True,
+        )
         if _search_task_running(active_search_task):
             active_search_task.cancel()
             await asyncio.gather(active_search_task, return_exceptions=True)
@@ -5019,4 +5309,4 @@ if __name__ == "__main__":
     apply_cli_runtime_overrides(cli_args)
     configure_logging(cli_args)
     configure_event_loop_policy()
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(run_cli(cli_args)))

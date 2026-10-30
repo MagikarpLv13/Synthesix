@@ -24,7 +24,11 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
 
     def test_initializes_versioned_schema(self):
         self.assertTrue(self.database_path.exists())
-        self.assertEqual(self.repository.schema_version(), 17)
+        self.assertEqual(self.repository.schema_version(), 20)
+        self.assertEqual(
+            self.repository.table_count("page_monitor_observations"),
+            0,
+        )
 
     def test_v1_automatic_result_links_are_hidden_after_migration(self):
         with TemporaryDirectory() as temp_dir:
@@ -92,7 +96,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             service = InvestigationService(repository)
             service.initialize()
 
-            self.assertEqual(repository.schema_version(), 17)
+            self.assertEqual(repository.schema_version(), 20)
             self.assertEqual(repository.table_count("investigation_results"), 1)
             self.assertEqual(repository.get_investigation("case-1").result_count, 0)
             self.assertEqual(repository.list_investigation_results("case-1"), [])
@@ -194,7 +198,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             )
             service.initialize()
 
-            self.assertEqual(service.repository.schema_version(), 17)
+            self.assertEqual(service.repository.schema_version(), 20)
             results = service.search_local_archive({"query": "legacy"})
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["investigation_title"], "Legacy indexed case")
@@ -235,7 +239,7 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             repository = InvestigationRepository(database_path)
             repository.initialize()
 
-            self.assertEqual(repository.schema_version(), 17)
+            self.assertEqual(repository.schema_version(), 20)
             self.assertEqual(repository.table_count("page_monitors"), 0)
             repaired = sqlite3.connect(database_path)
             try:
@@ -248,6 +252,102 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             finally:
                 repaired.close()
             self.assertIn("capture_kind", columns)
+
+    def test_v17_page_monitors_receive_safe_configuration_defaults(self):
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "legacy-v17.db"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TEXT NOT NULL
+                    )
+                    """
+                )
+                for version, sql in MIGRATIONS[:17]:
+                    connection.executescript(sql)
+                    connection.execute(
+                        """
+                        INSERT INTO schema_migrations(version, applied_at)
+                        VALUES (?, ?)
+                        """,
+                        (version, "2026-07-16T00:00:00+00:00"),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO investigations(
+                        id, title, created_at, updated_at
+                    )
+                    VALUES ('case-1', 'Legacy monitor', ?, ?)
+                    """,
+                    (
+                        "2026-07-16T00:00:00+00:00",
+                        "2026-07-16T00:00:00+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO results(
+                        id, canonical_url, url, title, first_observed_at,
+                        last_observed_at
+                    )
+                    VALUES (
+                        'result-1',
+                        'https://example.org/watch',
+                        'https://example.org/watch',
+                        'Watched page',
+                        ?,
+                        ?
+                    )
+                    """,
+                    (
+                        "2026-07-16T00:00:00+00:00",
+                        "2026-07-16T00:00:00+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO investigation_results(
+                        investigation_id, result_id, is_saved,
+                        added_at, updated_at
+                    )
+                    VALUES ('case-1', 'result-1', 1, ?, ?)
+                    """,
+                    (
+                        "2026-07-16T00:00:00+00:00",
+                        "2026-07-16T00:00:00+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO page_monitors(
+                        id, investigation_id, result_id, created_at, updated_at
+                    )
+                    VALUES ('monitor-1', 'case-1', 'result-1', ?, ?)
+                    """,
+                    (
+                        "2026-07-16T00:00:00+00:00",
+                        "2026-07-16T00:00:00+00:00",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            service = InvestigationService(
+                InvestigationRepository(database_path)
+            )
+            service.initialize()
+            monitor = service.get_page_monitor("case-1", "monitor-1")
+
+            self.assertEqual(service.repository.schema_version(), 20)
+            self.assertEqual(monitor.monitor_mode, "automatic")
+            self.assertEqual(monitor.monitor_profile, "generic_page")
+            self.assertEqual(monitor.check_interval_minutes, 1440)
+            self.assertTrue(monitor.is_enabled)
+            self.assertEqual(monitor.check_status, "pending")
 
     def test_creates_updates_and_archives_investigation(self):
         created = self.service.create(
@@ -1928,6 +2028,16 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
             saved.id,
         )
         self.assertIsNone(monitor.last_capture_id)
+        self.assertEqual(monitor.monitor_mode, "automatic")
+        self.assertEqual(monitor.monitor_profile, "generic_page")
+        self.assertEqual(
+            monitor.monitor_config["metrics"],
+            ["title", "description", "visible_text", "links"],
+        )
+        self.assertEqual(monitor.check_interval_minutes, 1440)
+        self.assertTrue(monitor.is_enabled)
+        self.assertEqual(monitor.check_status, "pending")
+        self.assertEqual(monitor.monitor_config["archive_policy"], "never")
 
         def record_archive(capture_id: str, captured_at: str):
             return self.service.record_evidence_capture(
@@ -1996,6 +2106,213 @@ class InvestigationRepositoryTestCase(unittest.TestCase):
         self.service.delete_page_monitor(investigation.id, monitor.id)
         self.assertEqual(self.repository.table_count("page_monitors"), 0)
         self.assertEqual(self.repository.table_count("page_comparisons"), 0)
+
+    def test_page_monitor_persists_automatic_and_custom_configuration(self):
+        investigation = self.service.create({"title": "Configure monitoring"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://www.instagram.com/example/",
+                "title": "Example profile",
+                "description": "",
+                "referrer": "",
+            },
+        )
+
+        automatic = self.service.create_page_monitor(
+            investigation.id,
+            saved.id,
+            {
+                "mode": "automatic",
+                "metrics": ["followers", "posts", "bio"],
+                "check_interval_minutes": 360,
+            },
+        )
+
+        self.assertEqual(automatic.monitor_mode, "automatic")
+        self.assertEqual(automatic.monitor_profile, "instagram_profile")
+        self.assertEqual(
+            automatic.monitor_config["metrics"],
+            ["followers", "posts", "bio"],
+        )
+        self.assertEqual(automatic.check_interval_minutes, 360)
+        self.assertEqual(
+            automatic.to_payload()["monitor_profile"],
+            "instagram_profile",
+        )
+
+        custom = self.service.update_page_monitor_configuration(
+            investigation.id,
+            automatic.id,
+            {
+                "mode": "custom",
+                "profile": "generic_page",
+                "metrics": ["profile_name", "followers"],
+                "selectors": {
+                    "profile_name": "header h1",
+                    "followers": "[data-followers]",
+                },
+                "check_interval_minutes": 60,
+                "is_enabled": False,
+            },
+        )
+
+        self.assertEqual(custom.monitor_mode, "custom")
+        self.assertEqual(custom.monitor_profile, "generic_page")
+        self.assertEqual(
+            custom.monitor_config["selectors"],
+            {
+                "followers": "[data-followers]",
+                "profile_name": "header h1",
+            },
+        )
+        self.assertEqual(custom.check_interval_minutes, 60)
+        self.assertFalse(custom.is_enabled)
+        self.assertEqual(custom.check_status, "paused")
+        self.assertIsNone(custom.next_check_at)
+
+        reenabled = self.service.create_page_monitor(
+            investigation.id,
+            saved.id,
+            {
+                "mode": "automatic",
+                "is_enabled": True,
+            },
+        )
+        self.assertEqual(reenabled.id, automatic.id)
+        self.assertEqual(reenabled.monitor_mode, "automatic")
+        self.assertEqual(reenabled.monitor_profile, "instagram_profile")
+        self.assertTrue(reenabled.is_enabled)
+        self.assertEqual(reenabled.check_status, "pending")
+
+    def test_page_monitor_records_versioned_observations_and_change_trigger(self):
+        investigation = self.service.create({"title": "Observe monitoring"})
+        saved = self.service.save_page(
+            investigation.id,
+            {
+                "url": "https://example.org/watch",
+                "title": "Observed page",
+                "description": "",
+                "referrer": "",
+            },
+        )
+        monitor = self.service.create_page_monitor(
+            investigation.id,
+            saved.id,
+            {
+                "metrics": ["title", "count"],
+                "check_interval_minutes": 60,
+            },
+        )
+
+        baseline = self.service.record_page_monitor_observation(
+            investigation.id,
+            monitor.id,
+            previous_observation_id=None,
+            schema_version=1,
+            observed_at="2026-07-16T10:00:00+00:00",
+            final_url="https://example.org/watch?resolved=1",
+            duration_ms=125,
+            status="ok",
+            content_sha256="a" * 64,
+            metadata={
+                "profile": "generic_page",
+                "ready_state": "complete",
+            },
+            metrics={
+                "title": {
+                    "status": "ok",
+                    "kind": "text",
+                    "value": "Observed page",
+                },
+                "count": {
+                    "status": "ok",
+                    "kind": "number",
+                    "value": 10,
+                },
+            },
+            errors=[],
+            changes={},
+            change_status="baseline",
+            archive_recommended=False,
+        )
+        changed = self.service.record_page_monitor_observation(
+            investigation.id,
+            monitor.id,
+            previous_observation_id=baseline.id,
+            schema_version=1,
+            observed_at="2026-07-16T11:00:00+00:00",
+            final_url="https://example.org/watch?resolved=1",
+            duration_ms=150,
+            status="partial",
+            content_sha256="b" * 64,
+            metadata={"profile": "generic_page"},
+            metrics={
+                "title": {
+                    "status": "ok",
+                    "kind": "text",
+                    "value": "Changed page",
+                },
+                "count": {
+                    "status": "missing",
+                    "kind": "number",
+                    "value": None,
+                },
+            },
+            errors=[],
+            changes={"title": {"status": "changed", "kind": "text"}},
+            change_status="changed",
+            archive_recommended=True,
+        )
+
+        observations = self.service.list_page_monitor_observations(
+            investigation.id,
+            monitor.id,
+        )
+        latest = self.service.get_latest_page_monitor_observation(
+            investigation.id,
+            monitor.id,
+        )
+        refreshed = self.service.get_page_monitor(
+            investigation.id,
+            monitor.id,
+        )
+
+        self.assertEqual([item.id for item in observations], [changed.id, baseline.id])
+        self.assertEqual(latest.id, changed.id)
+        self.assertEqual(changed.previous_observation_id, baseline.id)
+        self.assertEqual(changed.to_payload()["data"]["schema_version"], 1)
+        self.assertTrue(changed.archive_recommended)
+        self.assertEqual(refreshed.last_checked_at, changed.observed_at)
+        self.assertEqual(
+            refreshed.next_check_at,
+            "2026-07-16T12:00:00.000000+00:00",
+        )
+        self.assertEqual(refreshed.check_status, "changed")
+        self.assertEqual(refreshed.consecutive_failures, 0)
+        workspace = self.service.workspace_payload(investigation.id)
+        monitor_payload = workspace["page_monitors"][0]
+        self.assertEqual(
+            [item["id"] for item in monitor_payload["observations"]],
+            [changed.id, baseline.id],
+        )
+        self.assertIsNone(
+            monitor_payload["observations"][0]["data"]["metrics"]["count"][
+                "value"
+            ]
+        )
+        self.assertEqual(
+            monitor_payload["observations"][0]["data"]["metrics"]["count"][
+                "status"
+            ],
+            "missing",
+        )
+
+        self.service.delete_page_monitor(investigation.id, monitor.id)
+        self.assertEqual(
+            self.repository.table_count("page_monitor_observations"),
+            0,
+        )
 
     def test_attaches_unassigned_search_and_results(self):
         investigation = self.service.create({"title": "Case"})

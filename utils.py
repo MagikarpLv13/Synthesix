@@ -3,10 +3,9 @@ import json
 import os
 import logging
 from html import escape, unescape
-import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Mapping, Optional, Sequence
 from settings import get_settings
 
 import ui
@@ -414,11 +413,13 @@ def is_advanced_query(query: str) -> bool:
     return re.search(r"\b(AND|OR|NOT)\b", query) is not None
 
 
-def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, nb_results: int) -> Optional[str]:
+def generate_html_report(
+    results: Sequence[Mapping], search_term: str, total_time: float, nb_results: int
+) -> Optional[str]:
     """Generate an HTML report of the search results
     
     Args:
-        df (pd.DataFrame): The DataFrame containing the search results
+        results: The structured search results
         search_term (str): The search term
         total_time (float): The total time taken to perform the search
         nb_results (int): The number of results
@@ -427,15 +428,16 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         str: The path to the generated HTML report
     """
 
-    coverage = tuple(df.attrs.get("query_coverage", ()))
-    search_context = df.attrs.get("search_context", {})
+    attrs = getattr(results, "attrs", {})
+    coverage = tuple(attrs.get("query_coverage", ()))
+    search_context = attrs.get("search_context", {})
     if not isinstance(search_context, dict):
         search_context = {}
-    if "relevance_score" in df.columns:
-        df = (
-            df.sort_values("relevance_score", ascending=False, kind="stable")
-            .reset_index(drop=True)
-        )
+    results = sorted(
+        results,
+        key=lambda row: float(row.get("relevance_score", 0) or 0),
+        reverse=True,
+    )
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     settings = get_settings()
     output_path = settings.search_results_path(date_str)
@@ -444,6 +446,18 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
     history_href = _relative_href(settings.history_report_path, output_path.parent)
     safe_search_term = _html_escape(search_term)
+    filter_bar_html = """
+        <div class="result-filter">
+            <label for="result-filter-field">Filter results</label>
+            <input
+                type="search"
+                id="result-filter-field"
+                data-results-filter
+                placeholder="Filter results"
+                autocomplete="off"
+            >
+        </div>
+    """
     coverage_engines = sorted({
         str(engine)
         for item in coverage
@@ -507,7 +521,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 <summary>Query coverage ({len(coverage)} variants)</summary>
                 <p>Counts distinguish successful zero-result searches from timeouts,
                 challenges, and other errors.</p>
-                <p class="action-status" data-page-status aria-live="polite"></p>
                 <div class="table-shell">
                     <table class="data-table coverage-table">
                         <thead>
@@ -519,21 +532,15 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             </details>
         """
 
-    if "relevance_score" in df.columns and not df.empty:
-        scores = [float(value) for value in df["relevance_score"].tolist()]
-    else:
-        scores = []
+    scores = [float(row.get("relevance_score", 0) or 0) for row in results]
     strong_count = sum(1 for value in scores if value >= 8.0)
     top_score = max(scores) if scores else 0.0
-    if "source" in df.columns:
-        source_names = sorted({
-            part.strip()
-            for value in df["source"].tolist()
-            for part in str(value).split(",")
-            if part.strip()
-        })
-    else:
-        source_names = []
+    source_names = sorted({
+        part.strip()
+        for row in results
+        for part in str(row.get("source", "")).split(",")
+        if part.strip()
+    })
 
     insights_html = ui.insight_grid([
         {"value": str(nb_results), "label": "relevant results",
@@ -562,7 +569,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         hint_html = ""
     else:
         cards = []
-        for _, row in df.iterrows():
+        for row in results:
             link = str(row["link"])
             display_domain = ui.domain_of(link)
             safe_link = link if display_domain else "#"
@@ -644,6 +651,7 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         + '<div class="page-head">'
         + '<p class="eyebrow">Search results</p>'
         + f'<h1 class="page-title">{safe_search_term}</h1>'
+        + filter_bar_html
         + f'<div class="context-bar">{meta_html}</div>'
         + "</div>"
         + insights_html

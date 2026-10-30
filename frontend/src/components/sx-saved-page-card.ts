@@ -144,6 +144,8 @@ export class SxSavedPageCard extends LitElement {
     :host {
       display: block;
       position: relative;
+      box-sizing: border-box;
+      height: 100%;
       min-width: 0;
       border: 1px solid var(--line, #1e293b);
       border-radius: 10px;
@@ -166,13 +168,15 @@ export class SxSavedPageCard extends LitElement {
     :host([menu-open]) {
       z-index: 20;
     }
-    /* Same idea for the collapsed-group panel, one layer below the overflow
-       menu so both can coexist without the menu getting hidden underneath. */
+    /* The group is a popover: it must cover the following grid cards without
+       increasing this card's row height. */
     :host([group-open]) {
       z-index: 15;
     }
     .card {
       display: grid;
+      box-sizing: border-box;
+      height: 100%;
       gap: 7px;
       padding: 11px 12px;
     }
@@ -288,10 +292,10 @@ export class SxSavedPageCard extends LitElement {
       flex: 0 0 auto;
       margin-left: auto;
       padding: 3px 8px;
-      border: 1px solid var(--line, #334155);
+      border: 1px solid var(--accent-border, var(--line, #dad4c7));
       border-radius: 999px;
-      background: transparent;
-      color: var(--muted, #94a3b8);
+      background: var(--surface, #fbf9f4);
+      color: var(--accent-ink, #17225a);
       font: 600 11px/1 var(--font-ui, system-ui, sans-serif);
       font-variant-numeric: tabular-nums;
       cursor: pointer;
@@ -303,17 +307,14 @@ export class SxSavedPageCard extends LitElement {
     }
     .group-toggle:hover,
     .group-toggle[aria-expanded="true"] {
-      background: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
-      color: var(--text, #e2e8f0);
-      border-color: var(--accent, #6366f1);
+      background: var(--accent, #2a46a6);
+      color: #ffffff;
+      border-color: var(--accent, #2a46a6);
     }
     .group-toggle:focus-visible {
-      outline: 2px solid var(--accent, #6366f1);
+      outline: 2px solid var(--accent, #2a46a6);
       outline-offset: 1px;
     }
-    /* Overlay the collapsed group members instead of pushing this card's grid
-       neighbours down - same technique as .menu above (position: absolute
-       under the card, not extra height added to the grid cell). */
     .group-panel {
       display: none;
       position: absolute;
@@ -321,16 +322,26 @@ export class SxSavedPageCard extends LitElement {
       left: 0;
       right: 0;
       z-index: 15;
-      flex-direction: column;
-      gap: 6px;
+      min-width: 0;
+      max-height: min(70vh, 560px);
       padding: 8px;
-      border: 1px solid var(--line, #334155);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      border: 1px solid var(--accent-border, var(--line, #dad4c7));
       border-radius: 10px;
-      background: var(--surface, #0b1220);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.38);
+      background: var(--surface, #fbf9f4);
+      box-shadow: var(--shadow-menu, 0 18px 42px rgba(14, 15, 18, 0.4));
+      cursor: default;
     }
     .group-panel:not([hidden]) {
+      display: block;
+    }
+    ::slotted([slot="group-items"]) {
       display: flex;
+      flex-direction: column;
+      gap: 7px;
+      min-width: 0;
     }
   `;
 
@@ -369,9 +380,17 @@ export class SxSavedPageCard extends LitElement {
   };
 
   private _onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape" && this._menuOpen) {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (this._menuOpen) {
       event.stopPropagation();
       this._closeMenu();
+    }
+    if (this._groupOpen) {
+      event.stopPropagation();
+      this._groupOpen = false;
+      this.toggleAttribute("group-open", false);
     }
   };
 

@@ -49,8 +49,8 @@ export class SxOverlayRoot extends LitElement {
       bottom: 18px;
       z-index: 2147483647;
       display: block;
-      color: var(--text, #0f172a);
-      font: 13px/1.2 system-ui, Arial, sans-serif;
+      color: var(--on-ink, #edeae2);
+      font: 13px/1.2 var(--font-ui, system-ui, Arial, sans-serif);
       pointer-events: auto;
     }
 
@@ -80,7 +80,7 @@ export class SxOverlayRoot extends LitElement {
       height: 32px;
       place-items: center;
       border-radius: 999px;
-      color: rgba(226, 232, 240, 0.95);
+      color: rgba(237, 234, 226, 0.95);
       cursor: grab;
       pointer-events: auto;
       touch-action: none;
@@ -99,7 +99,7 @@ export class SxOverlayRoot extends LitElement {
 
     .grip:hover,
     .grip:focus-visible {
-      background: rgba(15, 23, 42, 0.28);
+      background: rgba(23, 24, 29, 0.68);
       outline: none;
     }
 
@@ -113,13 +113,13 @@ export class SxOverlayRoot extends LitElement {
       box-sizing: border-box;
       display: inline-grid;
       place-items: center;
-      border: 1px solid rgba(148, 163, 184, 0.55);
+      border: 1px solid rgba(218, 212, 199, 0.42);
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.92);
-      color: #f8fafc;
-      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.26);
+      background: rgba(23, 24, 29, 0.96);
+      color: #f7f5ef;
+      box-shadow: 0 10px 26px rgba(23, 24, 30, 0.26);
       cursor: pointer;
-      font: 800 12px/1 system-ui, Arial, sans-serif;
+      font: 800 12px/1 var(--font-ui, system-ui, Arial, sans-serif);
       user-select: none;
     }
 
@@ -138,8 +138,8 @@ export class SxOverlayRoot extends LitElement {
     .toggle:focus-visible,
     .collapsed-toggle:hover,
     .collapsed-toggle:focus-visible {
-      border-color: var(--accent, #2563eb);
-      background: var(--accent-strong, #1d4ed8);
+      border-color: var(--accent, #2a46a6);
+      background: var(--accent-strong, #23408f);
       outline: none;
     }
 
@@ -182,9 +182,9 @@ export class SxOverlayRoot extends LitElement {
     :host([collapsed]) .grip {
       width: 42px;
       height: 36px;
-      background: rgba(15, 23, 42, 0.92);
-      border: 1px solid rgba(148, 163, 184, 0.45);
-      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.2);
+      background: rgba(23, 24, 29, 0.96);
+      border: 1px solid rgba(218, 212, 199, 0.34);
+      box-shadow: 0 10px 26px rgba(23, 24, 30, 0.2);
     }
 
     :host([collapsed]) ::slotted(sx-overlay-capture-menu) {

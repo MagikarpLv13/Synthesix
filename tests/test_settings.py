@@ -88,6 +88,8 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.empty_tabs_grace_seconds, 2.0)
             self.assertEqual(settings.page_load_timeout, 2.5)
             self.assertEqual(settings.page_load_interval, 0.1)
+            self.assertEqual(settings.bing_results_timeout, 10.0)
+            self.assertEqual(settings.bing_results_interval, 0.25)
             self.assertEqual(settings.brave_results_timeout, 45.0)
             self.assertEqual(settings.brave_results_interval, 0.25)
             self.assertEqual(settings.brave_robot_find_timeout, 0.2)
@@ -99,6 +101,26 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.engine_retry_attempts, 1)
             self.assertEqual(settings.engine_retry_delay, 0.5)
             self.assertEqual(settings.engine_retry_backoff, 2.0)
+            self.assertFalse(settings.monitor_autostart)
+            self.assertEqual(settings.monitor_poll_interval, 60.0)
+            self.assertEqual(settings.monitor_batch_size, 4)
+            self.assertEqual(settings.monitor_concurrency, 2)
+            self.assertEqual(settings.monitor_lease_seconds, 300.0)
+            self.assertEqual(settings.monitor_attempt_timeout, 75.0)
+            self.assertEqual(settings.monitor_retry_attempts, 1)
+            self.assertEqual(settings.monitor_retry_delay, 1.0)
+            self.assertEqual(settings.monitor_retry_backoff, 2.0)
+            self.assertEqual(settings.monitor_jitter_seconds, 2.0)
+            self.assertEqual(
+                settings.monitor_failure_backoff_seconds,
+                300.0,
+            )
+            self.assertEqual(settings.monitor_max_failures, 3)
+            self.assertTrue(settings.monitor_headless)
+            self.assertEqual(settings.social_api_timeout, 10.0)
+            self.assertEqual(settings.youtube_api_key, "")
+            self.assertEqual(settings.x_bearer_token, "")
+            self.assertEqual(settings.tiktok_research_access_token, "")
 
     def test_environment_overrides_runtime_settings(self):
         with TemporaryDirectory() as temp_dir:
@@ -130,6 +152,8 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_EMPTY_TABS_GRACE_SECONDS": "3",
                 "SYNTHESIX_PAGE_LOAD_TIMEOUT": "9",
                 "SYNTHESIX_PAGE_LOAD_INTERVAL": "0.3",
+                "SYNTHESIX_BING_RESULTS_TIMEOUT": "14",
+                "SYNTHESIX_BING_RESULTS_INTERVAL": "0.4",
                 "SYNTHESIX_BRAVE_RESULTS_TIMEOUT": "60",
                 "SYNTHESIX_BRAVE_RESULTS_INTERVAL": "0.75",
                 "SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT": "0.4",
@@ -141,6 +165,23 @@ class SettingsTestCase(unittest.TestCase):
                 "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "3",
                 "SYNTHESIX_ENGINE_RETRY_DELAY": "0.2",
                 "SYNTHESIX_ENGINE_RETRY_BACKOFF": "1.5",
+                "SYNTHESIX_MONITOR_AUTOSTART": "true",
+                "SYNTHESIX_MONITOR_POLL_INTERVAL": "15",
+                "SYNTHESIX_MONITOR_BATCH_SIZE": "8",
+                "SYNTHESIX_MONITOR_CONCURRENCY": "3",
+                "SYNTHESIX_MONITOR_LEASE_SECONDS": "120",
+                "SYNTHESIX_MONITOR_ATTEMPT_TIMEOUT": "45",
+                "SYNTHESIX_MONITOR_RETRY_ATTEMPTS": "2",
+                "SYNTHESIX_MONITOR_RETRY_DELAY": "0.4",
+                "SYNTHESIX_MONITOR_RETRY_BACKOFF": "3",
+                "SYNTHESIX_MONITOR_JITTER_SECONDS": "0.5",
+                "SYNTHESIX_MONITOR_FAILURE_BACKOFF_SECONDS": "90",
+                "SYNTHESIX_MONITOR_MAX_FAILURES": "6",
+                "SYNTHESIX_MONITOR_HEADLESS": "false",
+                "SYNTHESIX_SOCIAL_API_TIMEOUT": "7.5",
+                "SYNTHESIX_YOUTUBE_API_KEY": "youtube-secret",
+                "SYNTHESIX_X_BEARER_TOKEN": "x-secret",
+                "SYNTHESIX_TIKTOK_RESEARCH_ACCESS_TOKEN": "tiktok-secret",
             }
             with patch.dict("os.environ", env, clear=True):
                 settings = get_settings()
@@ -189,6 +230,8 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.empty_tabs_grace_seconds, 3.0)
             self.assertEqual(settings.page_load_timeout, 9.0)
             self.assertEqual(settings.page_load_interval, 0.3)
+            self.assertEqual(settings.bing_results_timeout, 14.0)
+            self.assertEqual(settings.bing_results_interval, 0.4)
             self.assertEqual(settings.brave_results_timeout, 60.0)
             self.assertEqual(settings.brave_results_interval, 0.75)
             self.assertEqual(settings.brave_robot_find_timeout, 0.4)
@@ -200,6 +243,33 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.engine_retry_attempts, 3)
             self.assertEqual(settings.engine_retry_delay, 0.2)
             self.assertEqual(settings.engine_retry_backoff, 1.5)
+            self.assertTrue(settings.monitor_autostart)
+            self.assertEqual(settings.monitor_poll_interval, 15.0)
+            self.assertEqual(settings.monitor_batch_size, 8)
+            self.assertEqual(settings.monitor_concurrency, 3)
+            self.assertEqual(settings.monitor_lease_seconds, 120.0)
+            self.assertEqual(settings.monitor_attempt_timeout, 45.0)
+            self.assertEqual(settings.monitor_retry_attempts, 2)
+            self.assertEqual(settings.monitor_retry_delay, 0.4)
+            self.assertEqual(settings.monitor_retry_backoff, 3.0)
+            self.assertEqual(settings.monitor_jitter_seconds, 0.5)
+            self.assertEqual(
+                settings.monitor_failure_backoff_seconds,
+                90.0,
+            )
+            self.assertEqual(settings.monitor_max_failures, 6)
+            self.assertFalse(settings.monitor_headless)
+            self.assertEqual(settings.social_api_timeout, 7.5)
+            self.assertEqual(settings.youtube_api_key, "youtube-secret")
+            self.assertEqual(settings.x_bearer_token, "x-secret")
+            self.assertEqual(
+                settings.tiktok_research_access_token,
+                "tiktok-secret",
+            )
+            rendered = repr(settings)
+            self.assertNotIn("youtube-secret", rendered)
+            self.assertNotIn("x-secret", rendered)
+            self.assertNotIn("tiktok-secret", rendered)
 
     def test_invalid_search_browser_mode_falls_back_to_separate(self):
         with TemporaryDirectory() as temp_dir:

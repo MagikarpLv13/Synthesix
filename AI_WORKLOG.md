@@ -22,9 +22,15 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
+| AI-20261030-002 | Codex | in_progress | 2026-10-30 18:57 | 2026-10-30 18:57 | Implémenter le navigateur recentré : dorks, résultats progressifs, historique et profils persistants ; retirer le parcours investigation | Point de sauvegarde des sources existantes ; `app/`, `main.py`, home/CSS/i18n, moteur/orchestrateur, navigateur/settings, frontend/build/bundle, tests concernés, documentation ; retrait des modules et tests exclusivement investigation après sauvegarde | Tests ciblés TDD, suite unittest, typecheck/build, smoke CDP réel avec profils temporaires, clair/sombre/étroit/long/vide, contrôles Git | `codex/browser-refocus` ; source initiale sale préservée dans un commit distinct ; pas de pull |
 
 ## Travaux planifiés (à reprendre)
+
+**Priorité produit depuis le 2026-10-30 :** recentrer Synthesix sur une application
+navigateur prête à lancer, les dorks multi-requêtes, l'agrégation et les profils
+persistants. L'investigation revient à ZeroNeurone/ZNELFP. Les travaux historiques
+ci-dessous ne sont plus à poursuivre automatiquement. État des lieux et solution
+proposée dans `docs/ARCHITECTURE_NAVIGATEUR.md` ; bascule applicative non réalisée.
 
 Les lots #1 (archive auto + archive protégée), #2 (provenance vers le snapshot
 archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
@@ -44,7 +50,22 @@ archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
 
 | Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
 |---|---|---|---|---|---|
-| _Aucun verrou actif_ |  |  |  |  |  |
+| `main.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `index.html` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `theme.css` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `i18n.js` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `settings.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `search_orchestrator.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `utils.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `ui.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `browser_manager.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `browser/service.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `frontend/build.mjs` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `frontend/src/index.ts` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `assets/synthesix-ui.js` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `AI_WORKLOG.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `PROJECT_STATE.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `README.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
 
 Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `frontend/**`. Pour un lot multi-fichiers, lister les fichiers chauds ; les fichiers dédiés à un nouveau composant peuvent rester couverts par la tâche sans verrou séparé.
 
@@ -61,6 +82,7 @@ Les décisions doivent décrire un choix durable qui affecte plusieurs tâches. 
 | ID | Date UTC | Auteur | Décision | Motif | Fichiers / contrats concernés | Remplace |
 |---|---|---|---|---|---|---|
 | DEC-001 | 2026-06-21 | Initialisation | `AI_WORKLOG.md` est la source de vérité pour les claims et verrous IA actifs. | Éviter la dispersion entre plusieurs journaux. | `AGENTS.md`, `CLAUDE.md`, `frontend/TASKS.md` | — |
+| DEC-002 | 2026-10-30 | Demande utilisateur | Cible produit : application navigateur prête à lancer, dorks multi-requêtes, agrégation et profils persistants de sock puppets ; missions/enquêtes et fonctions associées sortent du produit au profit de ZeroNeurone/ZNELFP. Préserver les données existantes. L'architecture technique reste proposée, pas implémentée. | Réduire le périmètre à maintenir et revenir à l'usage initial. | `PROJECT_STATE.md`, `docs/ARCHITECTURE_NAVIGATEUR.md` ; le plan historique sera réévalué lors de la bascule | Complète DEC-001 ; réoriente la cible produit sans modifier rétroactivement le plan technique |
 
 ## Travaux terminés
 
@@ -4963,3 +4985,684 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
 - **Relais :** prochaine implémentation recommandée : T-051, test E2E du
   workflow investigation ; T-041 attend toujours une observation utilisateur
   sur une grosse enquête réelle.
+
+### AI-20260713-001 — T-043 retrait de pandas
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-13
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Résultat :** `pandas` est retiré du manifeste, des sources et des tests.
+  Les moteurs et l'orchestrateur échangent des listes de dictionnaires ;
+  `SearchResults` porte uniquement les métadonnées de couverture nécessaires
+  au rapport. La déduplication, le meilleur score par lien, les sources,
+  variantes et le tri déterministe sont couverts par les tests.
+- **Fichiers modifiés :** `search_engine.py`, `search_orchestrator.py`,
+  `utils.py`, `requirements.txt`, `tests/test_search_orchestrator.py`,
+  `tests/test_utils.py`, suivi T-043 et `AI_WORKLOG.md`.
+- **Mesure :** import neuf de `search_orchestrator` : 1 267,4–1 487,4 ms
+  avant ; 715,8–786,5 ms après.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile search_engine.py search_orchestrator.py utils.py tests\test_search_orchestrator.py tests\test_utils.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_engine_golden tests.test_search_orchestrator tests.test_scoring tests.test_utils` — 48 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 423 OK
+  - `git diff --check` — OK, avertissements CRLF uniquement.
+- **Non exécuté :** smoke de recherche réel/CDP ; les golden files et la suite
+  complète exercent le pipeline hors navigateur.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260713-002 — Fiabilisation Bing et recherche depuis un rapport
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-13
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Résultat :** les actions `Rejeter` et de déplacement de portée des
+  propriétés extraites sont inversées. Bing attend désormais les lignes
+  hydratées `#b_results li.b_algo`, au lieu du seul conteneur vide. Les
+  rapports de résultats offrent une barre de recherche qui déclenche une
+  nouvelle recherche via l'action CDP existante, avec les moteurs et réglages
+  par défaut.
+- **Fichiers modifiés :** `investigations/view.py`, `bing.py`, `ui.py`,
+  `utils.py`, `tests/test_investigation_view.py`, `tests/test_engines.py`,
+  `tests/test_utils.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile bing.py investigations\view.py ui.py utils.py tests\test_engines.py tests\test_investigation_view.py tests\test_utils.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_engines tests.test_investigation_view tests.test_utils` — 99 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 425 OK
+  - `git diff --check` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** smoke CDP réel de la recherche Bing et vérification
+  visuelle interactive de la barre de recherche.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260713-003 — Filtre de résultats et attente Bing multi-moteur
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-13
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Résultat :** l’action de rejet (poubelle) est la dernière de chaque barre
+  d’entité. La barre relançant une recherche a été retirée et remplacée par un
+  filtre local, instantané et insensible à la casse des cartes du rapport.
+  Bing attend ses résultats organiques jusqu’à 10 secondes par défaut (au lieu
+  du délai de chargement générique de 2,5 s), avec délai et fréquence de
+  polling configurables par variables d’environnement.
+- **Fichiers modifiés :** `investigations/view.py`, `bing.py`, `settings.py`,
+  `ui.py`, `utils.py`, `theme.css`, `i18n.js`, `README.md`,
+  `tests/test_investigation_view.py`, `tests/test_engines.py`,
+  `tests/test_settings.py`, `tests/test_utils.py`,
+  `tests/test_i18n_coverage.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile bing.py settings.py investigations\view.py ui.py utils.py tests\test_engines.py tests\test_settings.py tests\test_utils.py tests\test_i18n_coverage.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_engines tests.test_settings tests.test_investigation_view tests.test_utils tests.test_i18n_coverage` — 110 OK
+  - `.venv\Scripts\python.exe -m unittest discover` — 426 OK
+  - `git diff --check` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** smoke CDP réel de `sandwich au jambon` avec les quatre
+  moteurs et vérification visuelle interactive du filtre.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260715-004 — Correctif du filtre local des rapports
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-15
+- **Branche / commits :** `feat/lit-frontend`, non committé
+- **Résultat :** les cartes de résultat déclarent désormais la propriété
+  publique `triage` de `sx-result-card`, au lieu de son marqueur interne
+  transitoire. Après l'initialisation Lit, le marqueur `data-triage-item`
+  reste donc présent et le filtre local comme la navigation clavier retrouvent
+  les cartes. Bing n'a pas été modifié : le journal montre une réponse Bing
+  réussie et paginée ; la variabilité constatée vient du classement de Bing et
+  du rapport qui n'affiche que les résultats dont le score de pertinence est
+  strictement positif.
+- **Fichiers modifiés :** `ui.py`, `tests/test_utils.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m py_compile ui.py tests\test_utils.py`
+  - `.venv\Scripts\python.exe -m unittest tests.test_utils` — 16 OK
+  - smoke CDP de rapport local : saisie `alpha`, 2 cartes détectées, 1 masquée,
+    1 visible.
+  - `git diff --check` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** suite Python complète ; changement ciblé au rendu des
+  cartes et couvert par le test de rendu et le smoke CDP.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260716-001 — Identité visuelle et regroupement des pages
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 07:05–07:33
+- **Branche / commits :** `feat/lit-frontend`, non committé ; distant non
+  synchronisé car l'arbre contenait déjà des modifications utilisateur.
+- **Résultat :** le pack d'identité visuelle fourni est appliqué aux pages
+  locales, aux logos et aux overlays. L'affichage des pages enregistrées
+  conserve les règles de regroupement existantes et présente désormais chaque
+  groupe dans un bloc en ligne explicite, dépliable au clavier ou à la souris,
+  sans panneau flottant ni chevauchement de la grille.
+- **Fichiers modifiés :** `theme.css`, SVG de marque sous `assets/`,
+  `frontend/src/tokens.ts`, composants sous `frontend/src/overlay/`,
+  `frontend/src/components/sx-saved-page-card.ts`,
+  `assets/synthesix-ui.js`, `assets/synthesix-overlay.js`,
+  `extension/dist/overlay-main.js`, `tests/test_home_ui.py`,
+  `tests/test_main.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `cd frontend ; npm run typecheck ; npm run build` — OK ;
+  - `.venv\Scripts\python.exe -m unittest tests.test_home_ui` — 11 OK ;
+  - test ciblé du contrat overlay dans `tests.test_main` — OK ;
+  - tests ciblés des règles de regroupement, du rendu groupé, du garde-clic
+    des cartes imbriquées et du panneau de règles — 5 OK ;
+  - smoke Chrome headless sur fixture locale : groupe développé avec deux
+    cartes imbriquées, vérifié en thèmes clair et sombre ;
+  - `git diff --check -- . ':(exclude)extension/dist/overlay-main.js'` — OK,
+    avertissements CRLF uniquement.
+- **Non exécuté :** suite Python complète et smoke CDP dans une enquête
+  utilisateur réelle.
+- **Limite :** `git diff --check` signale deux espaces de fin de ligne dans
+  `extension/dist/overlay-main.js`, au sein d'une classe de caractères
+  multi-ligne générée par esbuild ; le bundle n'a pas été édité manuellement.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260716-002 — Popover de regroupement et cartes uniformes
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 07:38–07:44
+- **Branche / commits :** `feat/lit-frontend`, non committé ; distant non
+  synchronisé car l'arbre contenait déjà des modifications utilisateur.
+- **Résultat :** le compteur de groupe est replacé sur la ligne compacte des
+  métadonnées. À l'ouverture, les pages associées sont rendues dans un popover
+  absolu au-dessus des cartes suivantes, avec hauteur maximale et défilement,
+  sans modifier la taille de la carte représentative. Toutes les pistes de la
+  grille utilisent la même hauteur et les cartes remplissent leur piste.
+- **Fichiers modifiés :** `frontend/src/components/sx-saved-page-card.ts`,
+  `theme.css`, `tests/test_home_ui.py`, `assets/synthesix-ui.js`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `cd frontend ; npm run typecheck ; npm run build` — OK ;
+  - `.venv\Scripts\python.exe -m unittest tests.test_home_ui` et trois tests
+    ciblés des règles/rendus de regroupement — 15 OK ;
+  - smoke Chrome headless en thèmes clair et sombre : six cartes sur deux
+    lignes, hauteurs identiques avant/après ouverture et popover recouvrant la
+    ligne suivante — OK ;
+  - smoke Chrome headless à 900 px de large — OK ;
+  - `git diff --check -- . ':(exclude)extension/dist/overlay-main.js'` — OK,
+    avertissements CRLF uniquement.
+- **Non exécuté :** suite Python complète et smoke CDP dans une enquête
+  utilisateur réelle.
+- **Limite :** `git diff --check` conserve le signalement déjà documenté de
+  deux espaces générés par esbuild dans `extension/dist/overlay-main.js`.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260716-003 — Panneaux avancés de l'accueil compacts
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot.
+- **Résultat :** les cartes repliées du bloc d'outils avancés ne sont plus
+  étirées à la hauteur de leur voisine ouverte. L'action de suggestion de
+  variantes est placée sur sa propre ligne, ce qui conserve la saisie, l'ajout
+  et l'effacement lisibles dans une colonne étroite.
+- **Fichiers modifiés :** `theme.css`, `tests/test_home_ui.py`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_home_ui` — 13 OK ;
+  - smoke Chrome headless local à 1026 × 660, panneaux Variantes/Archive/Données
+    ouverts, en thèmes clair et sombre — OK ;
+  - smoke Chrome headless local à 900 × 660, avec les mêmes panneaux ouverts
+    en thème sombre — OK ;
+  - `git diff --check -- theme.css tests/test_home_ui.py` — OK,
+    avertissements CRLF uniquement.
+- **Non exécuté :** suite Python complète ; le changement ne touche que la
+  composition CSS de l'accueil et son test de contrat ciblé.
+- **Limite :** le contrôle global `git diff --check` conserve les deux espaces
+  de fin de ligne préexistants dans `extension/dist/overlay-main.js`, bundle
+  généré hors de ce lot.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260716-004 — Accueil aligné sur la maquette de référence
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 13:03–13:10
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot.
+- **Résultat :** l'accueil adopte la hiérarchie de la maquette : titre et
+  enquête active en deux colonnes, panneau de recherche principal, chips des
+  moteurs et panneau avancé à onglets. Les IDs des contrôles, la file
+  d'actions `window.synthesixHome` et les payloads backend sont conservés.
+  Les tokens dédiés aux champs et aux chips ont une déclinaison sombre ; les
+  onglets sont accessibles au clavier (gauche, droite, début, fin).
+- **Fichiers modifiés :** `index.html`, `theme.css`,
+  `tests/test_home_ui.py`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_home_ui` — 14 OK ;
+  - validation syntaxique des 2 scripts inline de `index.html` avec Node — OK ;
+  - `.venv\Scripts\python.exe -m unittest tests.test_home_ui tests.test_main`
+    — 77 OK ;
+  - `git diff --check -- index.html theme.css tests/test_home_ui.py
+    AI_WORKLOG.md` — OK (avertissements CRLF uniquement).
+- **Non exécuté :** smoke visuel interactif clair/sombre : l'ouverture de la
+  maquette locale dans le navigateur intégré est interdite par sa politique
+  d'URL locale ; aucun contournement n'a été tenté.
+- **Relais :** valider visuellement l'accueil dans Synthesix en clair et
+  sombre si un navigateur local autorisé est disponible.
+
+### AI-20260716-005 — Configuration du monitoring périodique
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 14:37–14:49
+- **Branche / commits :** `feat/lit-frontend`, non committé ; distant non
+  synchronisé car l'arbre contenait déjà des modifications utilisateur.
+- **Résultat :** les moniteurs de page portent désormais un mode automatique
+  ou personnalisé, un profil, des métriques, des sélecteurs CSS, une fréquence
+  et un état activé/pausé. La sélection automatique reconnaît les profils
+  Facebook, Instagram, TikTok, X et YouTube sans confondre les URLs de posts
+  ou vidéos avec des profils. La migration v18 préserve les moniteurs existants
+  avec une configuration générique sûre.
+- **Fichiers modifiés :** `investigations/monitoring.py`,
+  `investigations/models.py`, `investigations/migrations.py`,
+  `investigations/repository.py`, `investigations/service.py`,
+  `tests/test_monitoring.py`, `tests/test_investigations.py`, `README.md`,
+  `PROJECT_STATE.md`, `docs/tasks/README.md`, tâches T-053 à T-057 et
+  `AI_WORKLOG.md` ; mémoire de requête locale sous `graphify-out/memory/`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés — OK ;
+  - `tests.test_monitoring` — 5 OK ;
+  - `tests.test_investigations` — 52 OK ;
+  - monitoring, rendu enquête et rapport de comparaison — 40 OK ;
+  - `tests.test_main` — 63 OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 436 OK ;
+  - `git diff --check` ciblé sur le lot — OK.
+- **Vérifications non exécutées :** aucune sonde Zendriver réelle, aucun
+  scheduler et aucune interface de configuration ; ils relèvent de T-054 à
+  T-056. Aucun build frontend requis, aucune source TypeScript modifiée.
+- **Limite :** le `git diff --check` global conserve deux espaces de fin de
+  ligne préexistants dans `extension/dist/overlay-main.js`, bundle généré
+  déjà documenté par les travaux AI-20260716-001 à 003.
+- **Relais :** implémenter T-054 : table d'observations, extracteur générique
+  et sonde légère via un onglet Zendriver dédié.
+
+### AI-20260716-006 — Sonde légère et observations structurées
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 16:45–16:58
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot.
+- **Résultat :** la migration v19 ajoute `page_monitor_observations` et son
+  modèle public versionné. `PageMonitorProbe` ouvre un onglet Zendriver dédié,
+  attend la navigation réelle au-delà de `about:blank`, exécute une extraction
+  composite bornée puis ferme l'onglet. Les métriques texte, nombre, liste et
+  état distinguent `missing`, `unavailable` et `error`, sont comparées à
+  l'observation précédente et recommandent une archive uniquement lors d'un
+  changement significatif. Authentification, challenge, consentement et erreur
+  de navigation restent explicites.
+- **Fichiers modifiés :** `browser/service.py`, `browser/__init__.py`,
+  `investigations/probe.py`, `investigations/migrations.py`,
+  `investigations/models.py`, `investigations/repository.py`,
+  `investigations/service.py`, `investigations/__init__.py`,
+  `tests/test_monitoring.py`, `tests/test_browser_service.py`,
+  `tests/test_investigations.py`, `README.md`, `PROJECT_STATE.md`,
+  `docs/tasks/T-054-sonde-legere-observations.md`,
+  `docs/tasks/README.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés — OK ;
+  - `tests.test_monitoring tests.test_browser_service
+    tests.test_investigations` — 109 OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 449 OK ;
+  - smoke Brave headless réel sur `https://example.com/` — observation
+    partielle valide en 389 ms, URL finale correcte, titre/texte/liens extraits,
+    aucun PNG ni MHTML ;
+  - `git diff --check` ciblé sur le lot — OK ;
+  - `git diff --check -- . ':(exclude)extension/dist/overlay-main.js'` — OK.
+- **Vérifications non exécutées :** aucun build frontend, aucune source
+  TypeScript modifiée ; Graphify non régénéré afin de ne pas réécrire les
+  sorties `graphify-out/` déjà modifiées hors de ce lot.
+- **Limite :** le `git diff --check` global conserve les deux espaces de fin de
+  ligne préexistants dans `extension/dist/overlay-main.js`, bundle généré déjà
+  documenté par les travaux AI-20260716-001 à 005.
+- **Relais :** implémenter T-055, le scheduler local qui sélectionne les
+  moniteurs arrivés à échéance et appelle `PageMonitorProbe`.
+
+### AI-20260716-007 — Scheduler local du monitoring
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 17:44–17:55
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot.
+- **Résultat :** la migration v20 ajoute des baux SQLite expirants pour
+  réclamer atomiquement les moniteurs dus. Le scheduler intégré et la commande
+  `python main.py --monitor-once` appliquent batch, concurrence limitée,
+  jitter, timeout, retries et backoff sans lancer de recherche. Les pannes sont
+  isolées ; authentification, challenge et consentement suspendent
+  immédiatement le moniteur, comme les échecs répétés. Le résumé ponctuel et
+  ses codes de sortie sont déterministes. L'archive complète est désactivée par
+  défaut et ne s'exécute que pour la politique explicite `on_change`.
+- **Fichiers modifiés :** `investigations/scheduler.py`,
+  `investigations/monitoring.py`, `investigations/probe.py`,
+  `investigations/models.py`, `investigations/migrations.py`,
+  `investigations/repository.py`, `investigations/service.py`,
+  `investigations/__init__.py`, `main.py`, `settings.py`,
+  `tests/test_monitoring.py`, `tests/test_investigations.py`,
+  `tests/test_main.py`, `tests/test_settings.py`, `README.md`,
+  `PROJECT_STATE.md`, `docs/tasks/T-055-scheduler-monitoring.md`,
+  `docs/tasks/README.md`, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés — OK ;
+  - `tests.test_monitoring tests.test_browser_service
+    tests.test_investigations tests.test_main tests.test_settings` — 185 OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 455 OK ;
+  - smoke `--monitor-once` sur base temporaire vide — résumé stable,
+    code `0`, aucun navigateur lancé ;
+  - smoke Chrome headless réel sur `https://example.com/` — 1 moniteur réclamé,
+    1 observation `ok`, code `0`, bail libéré et `next_check_at` recalculé ;
+  - `git diff --check` ciblé — OK ;
+  - `git diff --check -- . ':(exclude)extension/dist/overlay-main.js'` — OK.
+- **Vérifications non exécutées :** pas de test réel du scheduler pendant une
+  longue session UI, pas d'exécution depuis le Planificateur de tâches Windows,
+  pas de smoke d'archive automatique `on_change` afin de ne pas générer
+  d'artefacts de preuve.
+- **Limite :** le `git diff --check` global conserve les deux espaces de fin de
+  ligne préexistants dans `extension/dist/overlay-main.js`, bundle généré déjà
+  documenté par les travaux précédents.
+- **Relais :** implémenter T-056, l'interface de configuration et l'historique
+  des observations du monitoring.
+
+### AI-20260716-008 — Interface et historique du monitoring
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 18:21–18:39
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** chaque page enregistrée et chaque carte de moniteur ouvre un
+  dialogue de configuration accessible. Le profil automatique est expliqué ;
+  mode, métriques, sélecteurs CSS, fréquence et politique d'archive sont
+  modifiables. Les cartes affichent santé et échéances. Le dialogue sépare les
+  changements significatifs du bruit mineur et montre les vingt observations
+  récentes, valeurs typées, deltas et erreurs sans transformer les états
+  `missing`/`unavailable`/`error` en zéro. Pause, reprise, suppression et
+  exécution immédiate sont disponibles ; cette dernière utilise un bail SQLite
+  ciblé et s'exécute hors de la boucle d'actions.
+- **Fichiers modifiés :** `investigations/repository.py`,
+  `investigations/service.py`, `investigations/scheduler.py`,
+  `investigations/view.py`, `main.py`, `theme.css`, `i18n.js`, `README.md`,
+  `tests/test_monitoring.py`, `tests/test_investigations.py`,
+  `tests/test_investigation_view.py`, `tests/test_main.py`,
+  `tests/test_i18n_coverage.py`, suivi T-056, `PROJECT_STATE.md` et
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés — OK ;
+  - `node --check i18n.js` et validation Node du script inline généré — OK ;
+  - tests ciblés vue/i18n — 38 OK ;
+  - tests ciblés monitoring/investigations/main — inclus dans 175 OK ;
+  - `cd frontend ; npm run typecheck ; npm run build` — OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 458 OK ;
+  - `git diff --check` ciblé sur le lot — OK.
+- **Vérifications non exécutées :** smoke visuel interactif clair/sombre/étroit,
+  le runtime du navigateur intégré n'étant pas exposé dans cette session ;
+  aucun smoke de plateforme sociale réelle, réservé à T-057.
+- **Limite :** l'arbre contient de nombreux changements antérieurs hors T-056.
+  Le contrôle ciblé est propre ; le signalement global déjà documenté dans
+  `extension/dist/overlay-main.js` reste hors de ce lot.
+- **Relais :** implémenter T-057, les adaptateurs de métriques sociales.
+
+### AI-20260716-009 — Adaptateurs de métriques sociales
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-16 19:00–19:04
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** un registre versionné couvre Facebook, Instagram, TikTok, X
+  et YouTube. YouTube Data API, X API v2 et TikTok Research API sont essayées
+  en priorité lorsqu'un secret est configuré ; seules les métriques non
+  résolues utilisent ensuite un snapshot DOM borné. Chaque métrique porte sa
+  source, sa précision, son parseur et sa version. Les valeurs YouTube
+  arrondies ou masquées restent explicites, un sélecteur analyste garde la
+  priorité, et une panne d'adaptateur reste isolée. L'historique affiche la
+  provenance sous la valeur. Les secrets sont masqués dans les représentations
+  et absents des observations, erreurs et preuves.
+- **Fichiers modifiés :** `investigations/social_adapters.py`,
+  `browser/social.py`, `browser/__init__.py`, `investigations/probe.py`,
+  `investigations/__init__.py`, `settings.py`, `investigations/view.py`,
+  `theme.css`, `i18n.js`, `tests/test_monitoring.py`,
+  `tests/test_settings.py`, `tests/test_investigation_view.py`,
+  `tests/test_i18n_coverage.py`, `README.md`, `PROJECT_STATE.md`,
+  `docs/tasks/T-057-adaptateurs-sociaux.md`, `docs/tasks/README.md` et
+  `AI_WORKLOG.md` ; mémoire Graphify locale
+  `graphify-out/memory/query_20260716_190510_continuer_t_057__les_adaptateurs_de_métriques_soci.md`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés — OK ;
+  - `node --check i18n.js`, script DOM social et script inline de la page
+    d'enquête générée — OK ;
+  - monitoring/settings — 34 OK ; vue/i18n — 38 OK ; ciblés transversaux
+    main/investigations/browser — 163 OK ;
+  - `cd frontend ; npm run typecheck ; npm run build` — OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 468 OK ;
+  - smoke Chrome headless DOM sur fixture Instagram locale — compteurs exacts
+    et arrondis, lien externe, provenance et absence de blocage validés ;
+  - smoke visuel Chrome à 884 px en clair et sombre — dialogue contenu,
+    provenance traduite visible et aucun débordement horizontal ;
+  - `git diff --check` ciblé et global hors
+    `extension/dist/overlay-main.js` — OK.
+- **Vérifications non exécutées :** aucun appel réel aux API YouTube, X ou
+  TikTok et aucun smoke de plateforme sociale réelle, faute d'identifiants
+  approuvés et afin de respecter les conditions d'accès. Graphify n'a pas été
+  régénéré pour ne pas réécrire les sorties déjà modifiées hors de ce lot ;
+  sa traversée obsolète a seulement été enregistrée comme impasse locale.
+- **Limite :** le `git diff --check` global conserve les deux espaces de fin de
+  ligne générés dans `extension/dist/overlay-main.js`, déjà documentés avant
+  T-057. L'arbre contient de nombreux changements antérieurs hors de ce lot.
+- **Relais :** phase 5 terminée ; prochaine tâche recommandée T-051.
+
+### AI-20260721-001 — Métriques Facebook fiables et autostart explicite
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-21 16:02–16:23
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** le parseur DOM Facebook v2 extrait désormais le nom affiché,
+  le nombre d'amis, la photo de profil et la dernière publication non épinglée
+  (identifiant, date affichée, contenu borné et permalien canonique). Il utilise
+  des attributs sémantiques et des clés de comparaison stables pour éviter les
+  faux changements dus aux URL CDN ou aux dates relatives. Le nombre de cartes
+  virtualisées reste un diagnostic et n'est jamais présenté comme le total des
+  publications. La boucle de surveillance ne démarre plus à l'ouverture par
+  défaut ; `SYNTHESIX_MONITOR_AUTOSTART=true` l'active explicitement, sans
+  affecter `Lancer maintenant` ni `--monitor-once`.
+- **Fichiers modifiés :** `browser/social.py`,
+  `investigations/monitoring.py`, `investigations/probe.py`,
+  `investigations/social_adapters.py`, `settings.py`, `main.py`, `i18n.js`,
+  `tests/test_monitoring.py`, `tests/test_settings.py`, `tests/test_main.py`,
+  `tests/test_i18n_coverage.py`, `README.md`, `PROJECT_STATE.md`, suivis T-055
+  et T-057, `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` des sources et tests concernés et `node --check i18n.js` — OK ;
+  - monitoring/settings/main/i18n ciblés — 109 OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 473 OK ;
+  - smoke Chrome headless local sur les deux fragments fournis et une fixture
+    de date obfusquée par CSS — nom, 52 amis, photo, publication non épinglée,
+    identifiant, contenu, permalien et date rendue validés ;
+  - `git diff --check` global hors bundle généré connu et contrôle des sources
+    non suivies — OK.
+- **Vérifications non exécutées :** aucun accès à un profil Facebook réel et
+  aucune vérification visuelle interactive dans l'interface Synthesix.
+- **Limites :** une date exacte exige la page Facebook rendue avec ses styles
+  ou la cible complète de `aria-labelledby`; un fragment statique incomplet
+  produit volontairement `missing` au lieu d'une valeur douteuse. Les
+  moniteurs existants conservent leur sélection de métriques et doivent être
+  reconfigurés une fois pour ajouter les nouveaux champs. Le contrôle global
+  brut signale toujours deux espaces dans `extension/dist/overlay-main.js`,
+  bundle généré déjà modifié avant ce lot.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260721-002 — Surveillance de profil Facebook dédiée
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-21 16:50–17:19
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** le parseur Facebook v3 rattache les données au profil
+  demandé et collecte séparément nom affiché, photo de profil, couverture,
+  total d'amis, abonnés, bio, informations visibles, liens externes et
+  dernière publication. La carte d'amis exacte est prioritaire sur le compteur
+  arrondi du bandeau et le nombre d'amis en commun est exclu. L'interface
+  dispose d'une catégorie Facebook propre, affiche la photo en miniature
+  cliquable et présente couverture, détails, liens et publication dans le
+  dialogue. Tous les champs restent sélectionnables ; une cible CSS nommée
+  peut être ajoutée, y compris pour lire `src` ou `xlink:href` d'une image.
+- **Fichiers modifiés :** `browser/social.py`,
+  `investigations/monitoring.py`, `investigations/social_adapters.py`,
+  `investigations/view.py`, `theme.css`, `i18n.js`,
+  `tests/test_monitoring.py`, `tests/test_investigation_view.py`,
+  `tests/test_i18n_coverage.py`, `README.md`, `PROJECT_STATE.md`,
+  `docs/tasks/T-057-adaptateurs-sociaux.md` et `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` des quatre modules Python concernés et
+    `node --check i18n.js` — OK ;
+  - monitoring/vue/i18n ciblés après les dernières modifications — 70 OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 474 OK ;
+  - smoke Chrome headless sur la page HTML Facebook complète fournie — nom
+    du profil ciblé, photo, couverture, total exact `4 784` avec `6 en commun`
+    exclu, détails visibles, date, contenu dédupliqué et permalien de la
+    dernière publication validés sans erreur d'extraction ;
+  - contrôle ciblé des espaces sur tous les fichiers du lot — OK.
+- **Vérifications non exécutées :** aucun accès réseau à Facebook et
+  aucun appel aux API ; le smoke visuel interactif clair/sombre/étroit n'a
+  pas été exécuté, le navigateur intégré ayant refusé l'URL locale
+  `file://` par politique de sécurité. Le DOM généré et son JavaScript ont
+  toutefois été validés par les tests ciblés.
+- **Limites :** Facebook peut faire évoluer son DOM ; les ancres sémantiques
+  et les cibles CSS analyste limitent ce risque sans permettre une garantie
+  absolue. Les URL CDN signées des photos peuvent expirer dans l'historique,
+  même si leur identité stable évite les faux changements. Les moniteurs
+  existants conservent leur ancienne liste de métriques et doivent être
+  enregistrés une fois pour adopter tous les nouveaux champs. Le contrôle
+  global brut signale toujours deux espaces préexistants dans
+  `extension/dist/overlay-main.js`, hors de ce lot.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260724-001 — Scoring adaptatif des requêtes sans dork
+
+- **Agent :** Codex
+- **Période UTC :** 2026-07-24 13:09–13:15
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** les requêtes naturelles ne sont plus évaluées comme une
+  phrase exacte unique. Le scoring normalise Unicode et les accents, pondère
+  les termes trouvés dans le titre, la description et l'URL, valorise leur
+  ordre et leur couverture complète, et exige une couverture minimale pour
+  bloquer les correspondances faibles. `Miguel Moron 1976` conserve ainsi un
+  profil dont le titre contient `Miguel Morón` et l'extrait `1976`, tandis
+  qu'un résultat contenant seulement l'année reste exclu. Les requêtes
+  structurées avec guillemets, opérateurs ou dorks conservent leur sémantique
+  exacte et les variantes compactes d'URL.
+- **Fichiers modifiés :** `scoring.py`, `tests/test_scoring.py`, `i18n.js`,
+  `AI_WORKLOG.md`.
+- **Tests exécutés :**
+  - `py_compile` de `scoring.py` et `tests/test_scoring.py` — OK ;
+  - scoring, orchestrateur et couverture i18n ciblés — 39 OK ;
+  - `node --check i18n.js` — OK ;
+  - `.venv\Scripts\python.exe -m unittest discover` — 480 OK ;
+  - `git diff --check` ciblé et global hors
+    `extension/dist/overlay-main.js` — OK.
+- **Vérifications non exécutées :** aucune recherche Google/CDP réelle et
+  aucun smoke visuel interactif ; le cas utilisateur est couvert par une
+  fixture déterministe de résultat Google.
+- **Limites :** le classement reste fondé sur le titre, l'extrait, l'URL et
+  le consensus des moteurs ; il n'analyse pas le contenu complet des pages à
+  ce stade. L'arbre contient de nombreux changements antérieurs hors de ce
+  lot. Le contrôle global brut conserve les deux espaces de fin de ligne
+  préexistants dans `extension/dist/overlay-main.js`, bundle généré hors de ce
+  lot.
+- **Relais :** aucun ; verrous libérés.
+
+### AI-20260907-001 — Liens Google relatifs dans les résultats
+
+- **Agent :** Codex
+- **Période UTC :** 2026-09-07 17:20–17:27
+- **Branche / commits :** `feat/lit-frontend`, non committé ; arbre déjà
+  modifié avant le lot, sans synchronisation distante.
+- **Résultat :** le parseur Google résout les liens relatifs contre son
+  origine HTTPS. Les redirections `/goto?url=…` restent opaques et sont
+  conservées comme liens Google complets, ouvrables depuis les rapports
+  `file://`. Les liens absolus conservent leur destination. Aucun changement
+  du rendu partagé, des autres moteurs, du scoring ou des contrats CDP.
+- **Fichiers modifiés :** `google.py`, `tests/test_engines.py`,
+  `tests/test_utils.py`, `AI_WORKLOG.md`. Le rapport local correspondant à
+  la capture a également été réparé : quatre titres redevenus cliquables,
+  à partir des observations de la recherche correspondante, avec une seule
+  URL candidate par titre et extrait. Sauvegarde préalable et fixtures de
+  vérification dans `tmp_ui_render/`, ignoré par Git ; base runtime consultée
+  en lecture seule. Aucun contenu d'enquête recopié dans les sources.
+- **Tests exécutés :**
+  - régression reproduite avant correction : liens `/goto`, `/url`, URL
+    sans schéma et titre inerte dans le rapport ;
+  - `.venv\Scripts\python.exe -m unittest tests.test_engines tests.test_utils
+    tests.test_search_orchestrator tests.test_local_search_view` — 93 OK ;
+  - `py_compile` des trois fichiers Python du lot — OK ;
+  - smoke Chrome headless avec profil temporaire : chargement `file://`,
+    composants Lit hydratés, clic souris CDP, raccourci `o`, lien dangereux
+    inerte, absence de débordement à 420 px — OK ; captures inspectées en
+    clair/sombre, texte long, affichage étroit et état vide ;
+  - une redirection Google réelle — HTTP 302 vers une destination HTTP(S)
+    valide, sans charger la page de destination ;
+  - contrôle DOM du rapport réparé — quatre ancres avec les bonnes URL ;
+  - `git diff --staged` — vide ; `git diff --check` ciblé — OK.
+- **Vérifications non exécutées :** suite Python complète et nouvelle
+  recherche Google dans l'application ; build frontend inutile, aucune
+  source TypeScript ni aucun bundle modifié.
+- **Limites :** le contrôle global des espaces conserve les deux anomalies
+  préexistantes de `extension/dist/overlay-main.js`, hors périmètre. Les
+  destinations opaques restent affichées sous le domaine Google et leur
+  ouverture dépend de sa redirection. Les autres rapports et anciennes
+  observations n'ont pas été migrés. Un faible contraste de la carte avec
+  focus en thème sombre est visible dans les styles existants, hors de cette
+  correction de liens.
+- **Relais :** recharger la page réparée ; redémarrer Synthesix pour appliquer
+  le parseur corrigé aux prochaines recherches. Aucun verrou restant.
+
+### AI-20260907-002 — Destinations finales des redirections Google
+
+- **Agent :** Codex
+- **Période UTC :** 2026-09-07 17:36–17:45
+- **Branche / commits :** `feat/lit-frontend`, non committé ; changements
+  antérieurs préservés, sans synchronisation distante.
+- **Résultat :** complément à AI-20260907-001 : les liens Google `/url`
+  sont décodés localement et les `/goto` résolus via leur en-tête HTTP
+  `Location`. Le hook Google `post_execute_search` effectue cette résolution
+  avant le filtrage, le scoring, la déduplication et la persistance, ce qui
+  restitue le domaine du site et permet de fusionner ses résultats avec ceux
+  des autres moteurs. Aucune navigation vers les sites de destination.
+- **Implémentation :** bibliothèque standard `urllib`, appels hors boucle
+  asyncio, quatre requêtes simultanées maximum, timeout socket de 3 s et
+  budget de lot de 8 s. Une seule requête par URL identique dans le lot.
+  Les requêtes sont limitées aux redirections HTTPS des hôtes Google Search
+  reconnus, sans suivi automatique ; les destinations invalides et pages
+  intermédiaires Google ne remplacent pas le résultat. Une erreur conserve
+  le lien Google cliquable ; les annulations restent propagées.
+- **Fichiers modifiés :** `google.py`, `tests/test_google_redirects.py`,
+  `tests/test_engines.py`, `README.md`, `AI_WORKLOG.md`. Deux rapports locaux
+  réparés avec sauvegardes préalables dans `tmp_ui_render/` : douze liens
+  remplacés par leur destination et leurs slots de domaine actualisés.
+  La base runtime est restée en lecture seule ; les contenus des rapports
+  et les fixtures locales ne sont pas versionnés.
+- **Tests exécutés :**
+  - `.venv\Scripts\python.exe -m unittest tests.test_google_redirects
+    tests.test_engines tests.test_utils tests.test_search_orchestrator
+    tests.test_local_search_view` — 106 OK ;
+  - cas couverts : décodage, hôtes autorisés, réponses HTTP, destinations
+    invalides, erreurs isolées, doublons, parallélisme borné, délai global,
+    annulation et intégration moteur → fusion Google/Bing → rapport final ;
+  - `py_compile` de Google et des deux fichiers de tests du lot — OK ;
+  - smoke réseau réel : 12 redirections sur 12 résolues, sans lecture des
+    pages de destination ;
+  - smoke Chrome headless sur fixture synthétique : URL finale, clic souris
+    CDP, raccourci `o`, lien dangereux inerte, clair/sombre, texte long,
+    écran étroit et état vide ; captures inspectées ;
+  - deux rapports réparés chargés en `file://` dans Chrome avec Lit hydraté :
+    aucune redirection Google restante, domaines cohérents avec les ancres ;
+  - `git diff --check` ciblé et vérification des espaces du nouveau test —
+    OK ; `git diff --staged` vide, état Git relu.
+- **Vérifications non exécutées :** suite Python complète et nouvelle
+  recherche Google dans l'application. Build frontend non requis, aucune
+  modification TypeScript ni de bundle. Les destinations après une éventuelle
+  redirection propre au site final n'ont pas été suivies.
+- **Limites :** les redirections Google indisponibles ou dépassant le délai
+  restent cliquables sous leur URL Google. Pas de migration des anciennes
+  observations ou des autres rapports. Le contrôle Git global conserve les
+  deux espaces préexistants de `extension/dist/overlay-main.js`, hors lot.
+- **Relais :** recharger les rapports réparés ; redémarrer Synthesix pour
+  utiliser la résolution finale sur les prochaines recherches. Aucun verrou.
+
+### AI-20261030-001 — État des lieux et cible navigateur multi-requêtes
+
+- **Agent :** Codex.
+- **Période UTC :** 2026-10-30 18:46–18:50.
+- **Branche / commits :** `feat/lit-frontend`, non committé ; nombreux
+  changements antérieurs préservés. Pas de synchronisation distante, arbre sale.
+- **Demande établie :** application Synthesix prête à lancer, dorks,
+  multi-requêtes, agrégation et profils persistants de sock puppets. Retirer
+  missions/enquêtes et fonctions associées de la cible produit ; investigation
+  confiée à ZeroNeurone/ZNELFP, données historiques à préserver.
+- **Résultat :** état des lieux sourcé, comparaison des architectures et
+  recommandation d'un lanceur léger autour d'un vrai Chrome/Brave, avec
+  recherche Python/Zendriver réutilisée et UI Lit recentrée. Séparation proposée
+  entre recherche, profils et présentation/historique. Ordre de bascule,
+  critères vérifiables et limites de compatibilité documentés. La proposition
+  technique n'est pas une décision d'implémentation déjà appliquée.
+- **Fichiers modifiés par ce lot :** `docs/ARCHITECTURE_NAVIGATEUR.md` (nouveau),
+  `PROJECT_STATE.md`, `AI_WORKLOG.md`. Aucun changement de code ou de bundle.
+- **Vérifications exécutées :**
+  - requêtes Graphify, puis lecture directe des sources et comptage des lignes ;
+  - `.venv\Scripts\python.exe -m unittest discover` — **495 tests OK**, 38,993 s ;
+  - consultation des documentations officielles Chromium, Chrome et Electron ;
+  - `git diff --check` ciblé — OK ; contrôle direct des espaces du nouveau
+    document, références locales et marqueurs de conflit ;
+  - diff des documents et état Git relus ; `git diff --staged` vide.
+- **Vérifications non exécutées :** nouvelle recherche réelle sur les moteurs,
+  smoke CDP, profils connectés, benchmark démarrage/mémoire, smoke visuel,
+  build/typecheck frontend (aucune source TypeScript modifiée), intégration
+  ZNELFP. Le contrat/source de ZNELFP n'a pas été identifié lors de l'étude.
+- **Limites :** aucune bascule applicative réalisée ; les fonctions d'enquête
+  restent présentes. Les tests unitaires ne prouvent pas les gains de vitesse.
+  Le contrôle Git global relève toujours les deux espaces préexistants de
+  `extension/dist/overlay-main.js:30` et `:31`, hors lot ; ils n'ont pas été
+  corrigés dans ce changement documentaire. Graphe non reconstruit, aucun
+  changement d'architecture applicative implémenté.
+- **Prochaine action exacte :** réaliser le lancement recentré
+  accueil → dorks → résultats, sans import d'investigations/evidence/exports/
+  analysis, puis ajouter les profils persistants et vérifier le vrai contrat
+  ZNELFP avant toute passerelle. Les détails techniques du lancement restent
+  une proposition à discuter avec l'utilisateur. Aucun verrou restant.

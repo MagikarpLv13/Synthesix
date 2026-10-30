@@ -49,49 +49,52 @@ export class SxOverlayAction extends LitElement {
 
     :host {
       display: inline-flex;
-      --sx-action-bg: var(--accent, #2563eb);
-      --sx-action-border: var(--accent-strong, #1d4ed8);
-      --sx-action-hover: var(--accent-strong, #1d4ed8);
-      --sx-action-hover-border: #1e40af;
+      --sx-action-bg: var(--accent, #2a46a6);
+      --sx-action-border: var(--accent-strong, #23408f);
+      --sx-action-hover: var(--accent-strong, #23408f);
+      --sx-action-hover-border: var(--accent-ink, #17225a);
+      --sx-action-text: #ffffff;
     }
 
     :host([variant="archive"]) {
-      --sx-action-bg: #0891b2;
-      --sx-action-border: #0e7490;
-      --sx-action-hover: #0e7490;
-      --sx-action-hover-border: #155e75;
+      --sx-action-bg: var(--ink-surface, #17181d);
+      --sx-action-border: var(--ink-border, #2b2d34);
+      --sx-action-hover: var(--ink-border, #2b2d34);
+      --sx-action-hover-border: #41434d;
+      --sx-action-text: var(--on-ink-strong, #f7f5ef);
     }
 
     :host([variant="capture"]) {
-      --sx-action-bg: var(--text, #0f172a);
-      --sx-action-border: #334155;
-      --sx-action-hover: #334155;
-      --sx-action-hover-border: #475569;
+      --sx-action-bg: var(--surface, #fbf9f4);
+      --sx-action-border: var(--line, #dad4c7);
+      --sx-action-hover: var(--surface-sunken, #ece8de);
+      --sx-action-hover-border: #c9c2b2;
+      --sx-action-text: var(--text, #191a1e);
     }
 
     :host([state="saving"]),
     :host([state="archiving"]),
     :host([state="capturing"]) {
-      --sx-action-bg: #475569;
-      --sx-action-border: #334155;
-      --sx-action-hover: #475569;
-      --sx-action-hover-border: #334155;
+      --sx-action-bg: #56513f;
+      --sx-action-border: #56513f;
+      --sx-action-hover: #56513f;
+      --sx-action-hover-border: #56513f;
     }
 
     :host([state="saved"]),
     :host([state="archived"]),
     :host([state="captured"]) {
-      --sx-action-bg: var(--success, #16a34a);
-      --sx-action-border: #047857;
-      --sx-action-hover: #047857;
-      --sx-action-hover-border: #065f46;
+      --sx-action-bg: var(--success, #28613c);
+      --sx-action-border: #1e4b2e;
+      --sx-action-hover: #1e4b2e;
+      --sx-action-hover-border: #173c25;
     }
 
     :host([state="error"]) {
-      --sx-action-bg: var(--danger, #dc2626);
-      --sx-action-border: #b91c1c;
-      --sx-action-hover: #b91c1c;
-      --sx-action-hover-border: #991b1b;
+      --sx-action-bg: var(--danger, #b33a3a);
+      --sx-action-border: #8f2e2e;
+      --sx-action-hover: #8f2e2e;
+      --sx-action-hover-border: #742525;
     }
 
     button {
@@ -107,10 +110,10 @@ export class SxOverlayAction extends LitElement {
       border: 1px solid var(--sx-action-border);
       border-radius: var(--radius-sm, 6px);
       background: var(--sx-action-bg);
-      color: #ffffff;
+      color: var(--sx-action-text);
       box-shadow: var(--shadow-soft, 0 8px 22px rgba(15, 23, 42, 0.18));
       cursor: pointer;
-      font: 700 14px/1 system-ui, Arial, sans-serif;
+      font: 700 14px/1 var(--font-ui, system-ui, Arial, sans-serif);
       white-space: nowrap;
       transition:
         background-color 140ms ease,
@@ -131,12 +134,12 @@ export class SxOverlayAction extends LitElement {
     button:hover:not(:disabled) {
       background: var(--sx-action-hover);
       border-color: var(--sx-action-hover-border);
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.34);
+      box-shadow: 0 12px 30px rgba(23, 24, 30, 0.34);
       transform: translateY(-1px);
     }
 
     button:focus-visible {
-      outline: 3px solid rgba(6, 182, 212, 0.55);
+      outline: 3px solid rgba(138, 160, 238, 0.55);
       outline-offset: 2px;
     }
 
@@ -188,15 +191,18 @@ export class SxOverlayAction extends LitElement {
   private renderIcon() {
     if (this.icon === "mark") {
       return html`
-        <svg viewBox="0 0 128 128" aria-hidden="true">
-          ${Array.from({ length: 10 }, (_unused, index) => html`
-            <path
-              d="M58 12 69 6l9 38-12 9-9-7z"
-              transform="rotate(${index * 36} 64 64)"
-              fill=${index % 2 === 0 ? "#FFFFFF" : "#67E8F9"}
-            ></path>
-          `)}
-          <circle cx="64" cy="64" r="14" fill="#FFFFFF"></circle>
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <line x1="6" y1="12" x2="33" y2="24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></line>
+          <line x1="6" y1="24" x2="33" y2="24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></line>
+          <line x1="6" y1="36" x2="33" y2="24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></line>
+          <line x1="16" y1="6" x2="33" y2="24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></line>
+          <line x1="16" y1="42" x2="33" y2="24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></line>
+          <circle cx="6" cy="12" r="2.5" fill="#8AA0EE"></circle>
+          <circle cx="6" cy="24" r="2.5" fill="#8AA0EE"></circle>
+          <circle cx="6" cy="36" r="2.5" fill="#8AA0EE"></circle>
+          <circle cx="16" cy="6" r="2.5" fill="#8AA0EE"></circle>
+          <circle cx="16" cy="42" r="2.5" fill="#8AA0EE"></circle>
+          <circle cx="34" cy="24" r="5.5" fill="#8AA0EE"></circle>
         </svg>
       `;
     }

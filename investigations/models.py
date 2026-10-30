@@ -442,6 +442,17 @@ class PageMonitor:
     last_capture_id: str | None
     created_at: str
     updated_at: str
+    monitor_mode: str = "automatic"
+    monitor_profile: str = "generic_page"
+    monitor_config: dict[str, Any] | None = None
+    check_interval_minutes: int = 1440
+    is_enabled: bool = True
+    last_checked_at: str | None = None
+    next_check_at: str | None = None
+    check_status: str = "pending"
+    consecutive_failures: int = 0
+    lease_owner: str | None = None
+    lease_expires_at: str | None = None
     archive_count: int = 0
     comparison_id: str | None = None
     comparison_status: str | None = None
@@ -460,12 +471,61 @@ class PageMonitor:
             "last_capture_id": self.last_capture_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "monitor_mode": self.monitor_mode,
+            "monitor_profile": self.monitor_profile,
+            "monitor_config": dict(self.monitor_config or {}),
+            "check_interval_minutes": self.check_interval_minutes,
+            "is_enabled": self.is_enabled,
+            "last_checked_at": self.last_checked_at,
+            "next_check_at": self.next_check_at,
+            "check_status": self.check_status,
+            "consecutive_failures": self.consecutive_failures,
             "archive_count": self.archive_count,
             "comparison_id": self.comparison_id,
             "comparison_status": self.comparison_status,
             "comparison_similarity": self.comparison_similarity,
             "comparison_report_path": self.comparison_report_path,
             "comparison_generated_at": self.comparison_generated_at,
+        }
+
+
+@dataclass(frozen=True)
+class PageMonitorObservation:
+    id: str
+    monitor_id: str
+    previous_observation_id: str | None
+    schema_version: int
+    observed_at: str
+    final_url: str
+    duration_ms: int
+    status: str
+    content_sha256: str
+    metadata: dict[str, Any]
+    metrics: dict[str, Any]
+    errors: list[dict[str, Any]]
+    changes: dict[str, Any]
+    change_status: str
+    archive_recommended: bool
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "monitor_id": self.monitor_id,
+            "previous_observation_id": self.previous_observation_id,
+            "observed_at": self.observed_at,
+            "final_url": self.final_url,
+            "duration_ms": self.duration_ms,
+            "status": self.status,
+            "content_sha256": self.content_sha256,
+            "data": {
+                "schema_version": self.schema_version,
+                "metadata": dict(self.metadata),
+                "metrics": dict(self.metrics),
+            },
+            "errors": [dict(error) for error in self.errors],
+            "changes": dict(self.changes),
+            "change_status": self.change_status,
+            "archive_recommended": self.archive_recommended,
         }
 
 

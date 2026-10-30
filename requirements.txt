@@ -1,4 +1,3 @@
-pandas
 setuptools
 zendriver==0.15.3
 lxml

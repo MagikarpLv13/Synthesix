@@ -89,13 +89,13 @@ export class SxOverlayEntityMenu extends LitElement {
       width: 318px;
       max-height: 430px;
       padding: 10px;
-      border: 1px solid rgba(34, 211, 238, 0.38);
-      border-left: 3px solid #22d3ee;
+      border: 1px solid #2b2d34;
+      border-left: 3px solid #2a46a6;
       border-radius: 10px;
-      background: #0f172a;
-      box-shadow: 0 18px 42px rgba(2, 6, 23, 0.38);
-      color: #e5edf8;
-      font: 600 13px system-ui, Arial, sans-serif;
+      background: #17181d;
+      box-shadow: 0 18px 42px rgba(14, 15, 18, 0.4);
+      color: #edeae2;
+      font: 600 13px var(--font-ui, system-ui, Arial, sans-serif);
       z-index: 2147483647;
     }
     .menu.is-visible {
@@ -103,26 +103,26 @@ export class SxOverlayEntityMenu extends LitElement {
     }
     .title {
       padding: 1px 2px 2px;
-      color: #67e8f9;
-      font: 800 12px system-ui, Arial, sans-serif;
+      color: #8aa0ee;
+      font: 600 11px var(--font-mono, monospace);
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.1em;
     }
     .preview {
       overflow: hidden;
       margin: 0 0 8px;
       padding: 0 2px;
-      color: #f8fafc;
-      font: 800 13px system-ui, Arial, sans-serif;
+      color: #f7f5ef;
+      font: 600 13px var(--font-ui, system-ui, Arial, sans-serif);
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .create-title,
     .attach-title {
       padding: 0 2px 5px;
-      color: #9fb0c6;
-      font: 800 11px system-ui, Arial, sans-serif;
-      letter-spacing: 0.02em;
+      color: #999488;
+      font: 600 11px var(--font-mono, monospace);
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .row {
@@ -137,19 +137,19 @@ export class SxOverlayEntityMenu extends LitElement {
       display: block;
       width: 100%;
       padding: 8px 9px;
-      border: 1px solid #334155;
+      border: 1px solid #2b2d34;
       border-radius: 7px;
-      background: #111c2f;
-      color: #f8fafc;
-      font: 600 13px system-ui, Arial, sans-serif;
+      background: #1f2027;
+      color: #f7f5ef;
+      font: 600 13px var(--font-ui, system-ui, Arial, sans-serif);
     }
     input::placeholder {
-      color: #94a3b8;
+      color: #999488;
     }
     input:focus,
     select:focus {
-      border-color: #22d3ee;
-      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+      border-color: #8aa0ee;
+      box-shadow: 0 0 0 2px rgba(138, 160, 238, 0.2);
     }
     .type-input {
       flex: 1;
@@ -158,7 +158,7 @@ export class SxOverlayEntityMenu extends LitElement {
     .attach {
       margin-top: 3px;
       padding-top: 9px;
-      border-top: 1px solid #243349;
+      border-top: 1px solid #262830;
     }
     .attach .prop-input,
     .entity-select,
@@ -170,24 +170,24 @@ export class SxOverlayEntityMenu extends LitElement {
       box-sizing: border-box;
       border-radius: 7px;
       cursor: pointer;
-      font: 800 13px system-ui, Arial, sans-serif;
+      font: 700 13px var(--font-ui, system-ui, Arial, sans-serif);
       color: #ffffff;
     }
     .create-btn {
       padding: 8px 10px;
-      background: #2563eb;
+      background: #2a46a6;
     }
     .attach-btn {
       display: block;
       width: 100%;
       padding: 9px 10px;
-      border: 1px solid rgba(34, 211, 238, 0.42);
-      background: #2563eb;
+      border: 1px solid #35406e;
+      background: #2a46a6;
       text-align: center;
     }
     .create-btn:hover,
     .attach-btn:hover {
-      background: #1d4ed8;
+      background: #23408f;
     }
     button[disabled] {
       opacity: 0.55;

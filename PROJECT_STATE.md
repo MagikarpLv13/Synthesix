@@ -6,12 +6,24 @@
 
 ## Vision courte
 
-Synthesix : outil OSINT local-first. Recherche multi-moteur pilotée par
-Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
-(pages sauvées, captures, entités, exports ZeroNeurone). UI = pages `file://`
-+ composants Lit. Pas de serveur, pas de cloud, usage PC.
+**Cible produit demandée le 2026-10-30 :** une application prête à lancer pour
+la navigation spécialisée, les dorks multi-requêtes, l'agrégation des résultats
+et les profils persistants de sock puppets. Missions, enquêtes, entités,
+preuves, graphes et monitoring sortent du périmètre produit ; l'investigation
+revient à ZeroNeurone avec ZNELFP. Préserver les données historiques.
+
+**Implémentation actuelle :** Python async + Zendriver/CDP, pages `file://`
+et composants Lit, avec les fonctions d'investigation toujours présentes.
+La bascule n'est pas encore implémentée. État des lieux et architecture
+proposée : [`docs/ARCHITECTURE_NAVIGATEUR.md`](docs/ARCHITECTURE_NAVIGATEUR.md).
+La préférence « application prête à lancer » est confirmée ; les choix
+techniques de la refonte restent proposés.
 
 ## Décisions structurantes en vigueur
+
+Les décisions ci-dessous décrivent l'implémentation existante. Celles qui
+concernent enquêtes, captures et overlay devront être remplacées lors de la
+bascule ; elles ne sont pas des obligations de la nouvelle cible produit.
 
 | ID | Décision |
 |---|---|
@@ -25,13 +37,17 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Phases du plan (voir docs/tasks/README.md)
 
+Plan antérieur conservé pour traçabilité. Réévaluer les tâches restantes selon
+le recentrage demandé avant de poursuivre des travaux d'investigation.
+
 | Phase | Contenu | Statut |
 |---|---|---|
 | 0 | Quick wins stabilité (file d'actions, caches, instrumentation CDP) | **terminée** (2026-07-06, T-001..T-006) |
 | 1 | Recherche robuste (deadline globale, non-bloquante, attentes optimisées, parsing durci) | **terminée** (2026-07-06, T-010..T-015) |
 | 2 | BrowserService + push CDP pour pages locales | en cours (T-020 done ; T-021/T-022 review, smoke live restant) |
 | 3 | Extension Chrome : squelette, spike transport, portage overlay, bascule | en cours (T-030..T-035 done ; T-036 attend une semaine d'usage extension) |
-| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | en cours (T-040/T-042 done ; T-041 review ; T-043 à faire) |
+| 4 | Navigateur de recherche séparé, SQLite hors event loop, hydratation JSON | en cours (T-040/T-042/T-043 done ; T-041 review) |
+| 5 | Monitoring périodique configurable et sondes légères | **terminée** (T-053..T-057 done) |
 | QA | Harness FakeTab/FakeBrowser, tests bout en bout | en cours (T-050 done ; T-051 à faire) |
 
 ## État courant
@@ -109,6 +125,48 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
   intégrées), en plus du MHTML et du texte. Le lecteur visuel est l'artefact
   principal ; le DOM est transitoire et le manifeste reste disponible pour la
   vérification sans être affiché à l'analyste.
+- La phase 5 démarre avec T-053 : le contrat des moniteurs distingue désormais
+  le choix automatique du profil et la configuration analyste. Les profils
+  générique, Facebook, Instagram, TikTok, X et YouTube portent des métriques
+  par défaut ; métriques, sélecteurs CSS, fréquence et état activé sont
+  persistés.
+- T-054 ajoute la sonde Zendriver légère et la table versionnée
+  `page_monitor_observations`. Chaque run utilise un onglet dédié, attend la
+  navigation réelle, exécute une extraction composite bornée et ferme l'onglet
+  sans produire PNG ni MHTML. Les métriques typées distinguent
+  `missing`/`unavailable`/`error`, sont comparées à l'observation précédente et
+  peuvent recommander une archive complète. Le smoke headless réel sur
+  `example.com` est validé.
+- T-055 ajoute le scheduler local intégré et le mode
+  `python main.py --monitor-once`. Les moniteurs dus sont réclamés
+  atomiquement par bail SQLite, puis exécutés avec concurrence, jitter,
+  timeout, retries et backoff bornés. Les challenges nécessitant une
+  intervention et les échecs répétés suspendent le moniteur. L'archive complète
+  est désactivée par défaut et n'est déclenchée que par la politique explicite
+  `on_change`. La boucle de fond est elle aussi désactivée par défaut et ne
+  démarre que si `SYNTHESIX_MONITOR_AUTOSTART=true`, sans désactiver les
+  lancements manuels.
+- T-056 livre l'interface de monitoring dans les enquêtes : dialogue depuis
+  chaque page enregistrée, profil automatique expliqué, configuration
+  métriques/sélecteurs/fréquence/archive, pause/reprise et sonde immédiate
+  ciblée. Les cartes exposent santé et échéances ; l'historique présente les
+  vingt observations récentes, deltas, erreurs et valeurs typées sans confondre
+  indisponible et zéro.
+- T-057 clôt la phase 5 avec des adaptateurs sociaux versionnés. YouTube, X et
+  TikTok Research utilisent leurs API officielles lorsque les secrets sont
+  configurés ; Facebook, Instagram et les métriques restantes passent par un
+  snapshot DOM borné. Chaque valeur conserve source, précision et parseur dans
+  l'observation et l'historique. Les secrets restent uniquement en mémoire.
+  Les smokes Chrome locaux valident le parseur DOM et l'affichage
+  clair/sombre/étroit ; aucun appel réel aux plateformes n'a été lancé.
+- L'extension Facebook du parseur DOM v3 isole désormais une catégorie de
+  surveillance configurable : identité (nom, photo de profil, couverture,
+  nombre exact d'amis lorsqu'il est affiché, abonnés), informations visibles
+  (bio, détails, liens externes) et dernière publication non épinglée
+  (identifiant, date, contenu borné et permalien). Les cartes montrent la photo
+  en miniature cliquable et le dialogue permet aussi d'ajouter une cible CSS
+  nommée. Le parseur rattache les signaux au profil demandé, exclut les amis en
+  commun du total et reste indépendant des classes Facebook `x...`.
 
 ## Risques ouverts majeurs
 
@@ -127,11 +185,12 @@ Zendriver/CDP, agrégation/scoring/rapports HTML, workflow d'investigation
 
 ## Prochaine action recommandée
 
+Phase 5 est terminée. Prochaine implémentation recommandée : T-051, le test
+bout en bout du workflow investigation.
 Phase 3 : T-030..T-035 livrés et validés. Ne pas démarrer T-036 avant une
 semaine d'usage quotidien en mode extension sans régression signalée. Garder
 Chrome stable en mode dégradé CDP tant que `--load-extension` y est ignoré.
 Prochaine validation prioritaire : observation T-041 sur grosse enquête réelle.
-Après validation, poursuivre T-043.
 Smokes réels toujours en attente au premier
 run interactif : phase 2
 (`eval_home`/`eval_page`, `targets_poll`, rafales tabs, kill/quit Chrome),

@@ -73,12 +73,13 @@ export class SxOverlayCaptureMenu extends LitElement {
       bottom: 50px;
       width: 220px;
       padding: 6px;
-      border: 1px solid var(--line, #cbd5e1);
-      border-radius: var(--radius-sm, 6px);
-      background: var(--surface, #ffffff);
-      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.24);
-      color: var(--text, #0f172a);
-      font: 600 13px/1.25 system-ui, Arial, sans-serif;
+      border: 1px solid var(--ink-border, #2b2d34);
+      border-left: 3px solid var(--accent, #2a46a6);
+      border-radius: var(--radius-sm, 7px);
+      background: var(--ink-surface, #17181d);
+      box-shadow: 0 18px 42px rgba(14, 15, 18, 0.4);
+      color: var(--on-ink, #edeae2);
+      font: 600 13px/1.25 var(--font-ui, system-ui, Arial, sans-serif);
     }
 
     :host([open]) {
@@ -93,25 +94,25 @@ export class SxOverlayCaptureMenu extends LitElement {
       width: 100%;
       margin-bottom: 5px;
       padding: 8px 9px;
-      border: 1px solid var(--line, #cbd5e1);
-      border-radius: 4px;
-      background: var(--surface, #ffffff);
-      color: var(--text, #0f172a);
-      font: 500 13px/1.2 system-ui, Arial, sans-serif;
+      border: 1px solid var(--ink-border, #2b2d34);
+      border-radius: var(--radius-sm, 7px);
+      background: var(--ink-surface-2, #1f2027);
+      color: var(--on-ink-strong, #f7f5ef);
+      font: 500 13px/1.2 var(--font-ui, system-ui, Arial, sans-serif);
     }
 
     .attach {
       margin: 2px 0 6px;
       padding-top: 6px;
-      border-top: 1px solid var(--line, #cbd5e1);
+      border-top: 1px solid #262830;
     }
 
     .attach-heading {
       margin-bottom: 4px;
-      color: var(--text-muted, #64748b);
-      font: 700 11px/1.2 system-ui, Arial, sans-serif;
+      color: var(--accent-on-dark, #8aa0ee);
+      font: 600 11px/1.2 var(--font-mono, monospace);
       text-transform: uppercase;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.08em;
     }
 
     button {
@@ -120,16 +121,16 @@ export class SxOverlayCaptureMenu extends LitElement {
       display: block;
       width: 100%;
       padding: 9px 10px;
-      border-radius: 4px;
-      color: var(--text, #0f172a);
+      border-radius: var(--radius-sm, 7px);
+      color: var(--on-ink, #edeae2);
       cursor: pointer;
-      font: 600 13px/1.2 system-ui, Arial, sans-serif;
+      font: 600 13px/1.2 var(--font-ui, system-ui, Arial, sans-serif);
     }
 
     button:hover,
     button:focus-visible {
-      background: var(--accent-soft, #eff6ff);
-      color: var(--accent-ink, #1d4ed8);
+      background: #2b2d34;
+      color: var(--accent-on-dark, #8aa0ee);
       outline: none;
     }
   `;

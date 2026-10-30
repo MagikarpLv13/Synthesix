@@ -9,6 +9,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 import brave as brave_module
+import bing as bing_module
 from bing import BingSearchEngine, resolve_bing_redirect
 from brave import (
     BraveSearchEngine,
@@ -130,6 +131,39 @@ class EngineUrlTestCase(unittest.TestCase):
         self.assertEqual(params["kl"], ["se-sv"])
 
 
+class GoogleParsingTestCase(unittest.TestCase):
+    def test_result_links_resolve_against_google_origin(self):
+        cases = (
+            (
+                "/goto?url=opaque_token-123&source=web",
+                "https://www.google.com/goto?url=opaque_token-123&source=web",
+            ),
+            (
+                "/url?q=https%3A%2F%2Fexample.com%2Farticle&sa=U",
+                "https://example.com/article",
+            ),
+            ("//example.com/article", "https://example.com/article"),
+            ("https://example.com/article?q=1#part", "https://example.com/article?q=1#part"),
+        )
+        for href, expected in cases:
+            with self.subTest(href=href):
+                raw = f"""
+                    <div id="search">
+                        <div jscontroller="result" data-ved="1" data-hveid="2">
+                            <a href="{href.replace('&', '&amp;')}"><h3>Example article</h3></a>
+                            <div class="VwiC3b">Example description</div>
+                        </div>
+                    </div>
+                """
+
+                self.assertEqual(GoogleSearchEngine().parse_results(raw), [{
+                    "title": "Example article",
+                    "link": expected,
+                    "description": "Example description",
+                    "source": "Google",
+                }])
+
+
 class _GoogleRobotTab:
     def __init__(self, captcha_node=None, url="https://www.google.com/search?q=x"):
         self.captcha_node = captcha_node
@@ -241,6 +275,67 @@ class BraveResultsWaitTestCase(unittest.IsolatedAsyncioTestCase):
         engine = BraveSearchEngine()
         engine.set_selector()
         self.assertIn("data-pos", engine.selector)
+
+
+class BingResultsWaitTestCase(unittest.IsolatedAsyncioTestCase):
+    def test_selector_targets_hydrated_result_rows_not_container(self):
+        engine = BingSearchEngine()
+        engine.set_selector()
+
+        self.assertEqual(engine.selector, "#b_results li.b_algo")
+
+    async def test_wait_returns_after_hydrated_result_rows_are_found(self):
+        engine = BingSearchEngine()
+        engine.set_selector()
+
+        class Tab:
+            async def evaluate(self, expression):
+                self.expression = expression
+                return json.dumps({
+                    "found": True,
+                    "resultCount": 3,
+                    "challenge": False,
+                    "ready": "complete",
+                    "bodyLength": 100,
+                    "forbidden": False,
+                    "noResults": False,
+                    "url": "https://www.bing.com/search?q=sandwich",
+                    "title": "sandwich - Bing",
+                })
+
+        engine.tab = Tab()
+
+        self.assertTrue(
+            await engine.wait_for_page_load(timeout=0.1, interval=0)
+        )
+        self.assertIn("#b_results li.b_algo", engine.tab.expression)
+
+    async def test_wait_uses_the_dedicated_bing_timeout(self):
+        engine = BingSearchEngine()
+        engine.set_selector()
+        states = iter((False, True))
+
+        class Tab:
+            async def evaluate(self, expression):
+                return json.dumps({
+                    "found": next(states),
+                    "resultCount": 1,
+                    "challenge": False,
+                    "ready": "complete",
+                    "bodyLength": 100,
+                    "forbidden": False,
+                    "noResults": False,
+                    "url": "https://www.bing.com/search?q=sandwich",
+                    "title": "sandwich - Bing",
+                })
+
+        engine.tab = Tab()
+        settings = SimpleNamespace(
+            bing_results_timeout=0.1,
+            bing_results_interval=0,
+        )
+        with patch.object(bing_module, "get_settings", lambda: settings):
+            self.assertTrue(await engine.wait_for_page_load())
 
 
 class GoogleRobotCheckTestCase(unittest.IsolatedAsyncioTestCase):
