@@ -2,8 +2,9 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Callable, Mapping
+from typing import Awaitable, Callable, Mapping
 
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError, SynthesixError
 from query_operators import SearchFilters, build_engine_query, result_matches_filters
@@ -210,6 +211,43 @@ class SearchOrchestrator:
         investigation_id: str | None = None,
         query_variants: Iterable[str] | None = None,
     ) -> SearchRunResult:
+        result = await self.collect(
+            original_query, parsed_query, browser, engines, num_results,
+            filters, base_query, query_variants,
+        )
+        filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
+        relevant_results = SearchResults(result.results, attrs={
+            "query_coverage": result.coverage,
+            "search_context": {
+                "original_query": original_query,
+                "filters": filters.to_payload(),
+                "num_results": int(num_results),
+                "investigation_id": investigation_id or "",
+            },
+        })
+        output_path = self.report_generator(relevant_results, parsed_query, result.total_time, result.nb_results)
+        if output_path:
+            args = [original_query, parsed_query, result.nb_results, output_path]
+            if filters.has_filters():
+                args.append(filters.to_payload())
+            kwargs = {"investigation_id": investigation_id} if investigation_id else {}
+            self.history_adder(*args, **kwargs)
+            self.history_report_generator()
+        return SearchRunResult(output_path, result.nb_results, result.total_time, result.engine_errors, result.results, result.coverage)
+
+    async def collect(
+        self,
+        original_query: str,
+        parsed_query: str,
+        browser,
+        engines: Mapping[str, bool],
+        num_results: int,
+        filters: SearchFilters | Mapping | None = None,
+        base_query: str | None = None,
+        query_variants: Iterable[str] | None = None,
+        on_progress: Callable[[SearchResults, tuple[dict, ...]], Awaitable[None]] | None = None,
+    ) -> SearchRunResult:
+        """Collect results without rendering reports or writing history."""
         filters = SearchFilters.from_payload(filters) if not isinstance(filters, SearchFilters) else filters
         logger.info("Search in progress for: %s", parsed_query)
         start_time = time.monotonic()
@@ -225,6 +263,7 @@ class SearchOrchestrator:
             num_results,
             filters,
             query_variants=execution_queries,
+            on_progress=on_progress,
         )
         total_time = time.monotonic() - start_time
         logger.info("Global execution time: %.2f seconds", total_time)
@@ -249,52 +288,9 @@ class SearchOrchestrator:
         relevant_results = SearchResults(
             row for row in combined_results if row["relevance_score"] > 0
         )
-        relevant_results.attrs["query_coverage"] = coverage
-        relevant_results.attrs["search_context"] = {
-            "original_query": original_query,
-            "filters": filters.to_payload(),
-            "num_results": int(num_results),
-            "investigation_id": investigation_id or "",
-        }
         nb_results = len(relevant_results)
-
-        output_path = self.report_generator(relevant_results, parsed_query, total_time, nb_results)
-        if output_path:
-            logger.info("Generated report: %s", output_path)
-            if filters.has_filters():
-                if investigation_id:
-                    self.history_adder(
-                        original_query,
-                        parsed_query,
-                        nb_results,
-                        output_path,
-                        filters.to_payload(),
-                        investigation_id=investigation_id,
-                    )
-                else:
-                    self.history_adder(
-                        original_query,
-                        parsed_query,
-                        nb_results,
-                        output_path,
-                        filters.to_payload(),
-                    )
-            elif investigation_id:
-                self.history_adder(
-                    original_query,
-                    parsed_query,
-                    nb_results,
-                    output_path,
-                    investigation_id=investigation_id,
-                )
-            else:
-                self.history_adder(original_query, parsed_query, nb_results, output_path)
-            self.history_report_generator()
-        else:
-            logger.error("Can't generate report.")
-
         return SearchRunResult(
-            output_path=output_path,
+            output_path=None,
             nb_results=nb_results,
             total_time=total_time,
             engine_errors=engine_errors,
@@ -310,6 +306,7 @@ class SearchOrchestrator:
         num_results: int,
         filters: SearchFilters,
         query_variants: Iterable[str] | None = None,
+        on_progress: Callable[[SearchResults, tuple[dict, ...]], Awaitable[None]] | None = None,
     ) -> tuple[dict[str, list[dict]], dict[str, Exception], int, tuple[dict, ...]]:
         concurrency = max(1, self.settings.engine_concurrency)
         semaphore = asyncio.Semaphore(concurrency)
@@ -390,7 +387,14 @@ class SearchOrchestrator:
                         "status": "ok",
                         "count": len(result_rows),
                     }
+                if on_progress is not None:
+                    rows = aggregate_search_results(engine_results, parsed_query, self.scorer, filters)
+                    try:
+                        await on_progress(SearchResults(row for row in rows if row["relevance_score"] > 0), deepcopy(tuple(coverage.values())))
+                    except Exception:
+                        logger.exception("Unable to publish search progress.")
 
+        tasks: dict[str, asyncio.Task] = {}
         try:
             tasks = {
                 engine_name: asyncio.create_task(run_engine(engine_name, engine))
@@ -431,6 +435,10 @@ class SearchOrchestrator:
                     ", ".join(interrupted_names),
                 )
         finally:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
             await pool.close_all()
 
         attempted_count = len(engines) * len(queries)
