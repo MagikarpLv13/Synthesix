@@ -1,7 +1,27 @@
 # Synthesix : recentrage sur le navigateur multi-requêtes
 
-Date : 2026-10-30. Statut : état des lieux vérifié et architecture proposée.
-Ce document ne décrit pas une refonte déjà implémentée.
+Date : 2026-10-30. Architecture autorisée par l'utilisateur et implémentée sur
+`codex/browser-refocus`. L'état initial ci-dessous décrit la sauvegarde
+`0e58af1`, antérieure à la refonte.
+
+## Mise en œuvre
+
+Le nouveau `main.py` lance `app/runtime.py`. `app/search.py`, `app/storage.py`
+et `app/profiles.py` séparent les requêtes, l'historique indépendant et les
+personas natives. `SearchOrchestrator.collect()` fournit les résultats
+progressifs sans rapport HTML ni import de renderer. La syntaxe et le parsing
+restent dans les modules de recherche, indépendants du rendu.
+
+L'interface Lit est recentrée sur recherche, résultats, profils et historique.
+Les fonctions d'enquête, preuves, entités, graphes, exports et monitoring,
+l'overlay et l'extension Synthesix sont retirés de cette branche. Les données
+existantes ne sont pas migrées ou supprimées. La sauvegarde Git permet de
+retrouver l'ancienne version pour un export manuel dans une copie séparée.
+
+Le paquet Windows utilise Chrome/Brave installé et contient Python ainsi que
+les ressources de l'interface. PyInstaller sert uniquement à sa construction.
+L'exécutable et sa fermeture ont été vérifiés ; la dernière validation et les
+limites sont consignées dans le lot AI-20261030-002 du journal.
 
 ## Demande produit établie
 
@@ -14,7 +34,7 @@ Missions, enquêtes, entités, preuves, graphes et monitoring sortent du produit
 Le travail d'investigation revient à ZeroNeurone et à son plugin ZNELFP.
 La disparition de ces fonctions ne doit pas supprimer les données existantes.
 
-## État des lieux du code présent
+## État initial du code, avant refonte
 
 Inspection de l'arbre de travail `feat/lit-frontend`, avec de nombreux changements
 non committés antérieurs. Aucun pull, changement de branche ni nettoyage de ces
@@ -58,7 +78,7 @@ raccordement dans le démarrage. Ces observations ne prouvent pas que les enquê
 sont la cause principale des temps de recherche : aucun profilage réel n'a été
 effectué pendant cet état des lieux.
 
-## Architecture recommandée
+## Architecture retenue
 
 Conserver Python asynchrone, Zendriver et Lit, autour d'un vrai navigateur
 Chrome/Brave. Refaire l'assemblage de l'application et ses écrans autour d'un
@@ -150,7 +170,7 @@ Les gains attendus concernent la simplicité, le démarrage et le délai avant l
 premiers résultats visibles. Aucun gain chiffré de vitesse ou de mémoire n'est
 annoncé sans mesure. Les moteurs externes et leurs challenges restent variables.
 
-## Ordre de bascule proposé
+## Ordre de bascule suivi
 
 1. **Préserver l'existant** : conserver les changements Git et données locales.
    Prévoir sauvegarde et accès à l'ancienne version ; vérifier l'export des
@@ -173,7 +193,7 @@ enquêtes supprimées en une nouvelle plateforme de plugins à maintenir.
 Un transfert vers ZNELFP ne se spécifie qu'après lecture de son véritable contrat.
 En attendant, les URL peuvent être copiées et ouvertes par les outils existants.
 
-## Critères de réussite de la future bascule
+## Critères de réussite de la bascule
 
 - Lancer Synthesix, faire plusieurs dorks, consulter et filtrer les résultats
   sans créer de mission ou d'enquête.
@@ -187,7 +207,7 @@ En attendant, les URL peuvent être copiées et ouvertes par les outils existant
 - Comparer démarrage, délai du premier résultat et mémoire sur la même machine,
   avec les mêmes requêtes, en séparant fixtures déterministes et réseau réel.
 
-## Vérifications de cet état des lieux
+## Vérifications de l'étude initiale
 
 Graphify a servi à localiser les points d'entrée, puis les sources actuelles ont
 été lues directement. Les chiffres proviennent des fichiers présents, pas du
@@ -195,8 +215,9 @@ graphe. La suite existante `.venv\Scripts\python.exe -m unittest discover`
 a exécuté **495 tests en 38,993 secondes, tous réussis**. Cela établit une
 référence de non-régression, sans démontrer le fonctionnement des moteurs réels.
 
-Aucun code applicatif ni bundle n'est modifié ici. Aucun test réel de profil,
-benchmark navigateur, smoke CDP ou échange ZNELFP n'est effectué pour cette étude.
+L'étude initiale ne modifiait aucun code applicatif ni bundle. Elle ne comprenait
+aucun test réel de profil, benchmark navigateur, smoke CDP ou échange ZNELFP.
+La refonte a ensuite ajouté les tests et smoke tests décrits dans T-058.
 Le code et le contrat de ZNELFP n'ont pas été identifiés pendant la recherche
 documentaire ; sa compatibilité n'est donc pas déclarée validée.
 

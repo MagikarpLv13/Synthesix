@@ -17,7 +17,6 @@ from scoring import (
     calculate_relevance,
 )
 from settings import AppSettings, get_settings
-from utils import add_to_history, generate_history_html, generate_html_report
 
 
 logger = logging.getLogger(__name__)
@@ -186,9 +185,9 @@ class SearchOrchestrator:
     def __init__(
         self,
         engine_factories: Mapping[str, Callable[[], object]] | None = None,
-        report_generator: Callable[[SearchResults, str, float, int], str | None] = generate_html_report,
-        history_adder: Callable[..., None] = add_to_history,
-        history_report_generator: Callable[[], str] = generate_history_html,
+        report_generator: Callable[[SearchResults, str, float, int], str | None] | None = None,
+        history_adder: Callable[..., None] | None = None,
+        history_report_generator: Callable[[], str] | None = None,
         scorer: Callable[[dict, str], float] = calculate_relevance,
         settings: AppSettings | None = None,
     ):
@@ -208,9 +207,11 @@ class SearchOrchestrator:
         num_results: int,
         filters: SearchFilters | Mapping | None = None,
         base_query: str | None = None,
-        investigation_id: str | None = None,
         query_variants: Iterable[str] | None = None,
     ) -> SearchRunResult:
+        # Standalone HTML export remains optional; collection imports no UI.
+        from utils import add_to_history, generate_history_html, generate_html_report
+
         result = await self.collect(
             original_query, parsed_query, browser, engines, num_results,
             filters, base_query, query_variants,
@@ -222,17 +223,15 @@ class SearchOrchestrator:
                 "original_query": original_query,
                 "filters": filters.to_payload(),
                 "num_results": int(num_results),
-                "investigation_id": investigation_id or "",
             },
         })
-        output_path = self.report_generator(relevant_results, parsed_query, result.total_time, result.nb_results)
+        output_path = (self.report_generator or generate_html_report)(relevant_results, parsed_query, result.total_time, result.nb_results)
         if output_path:
             args = [original_query, parsed_query, result.nb_results, output_path]
             if filters.has_filters():
                 args.append(filters.to_payload())
-            kwargs = {"investigation_id": investigation_id} if investigation_id else {}
-            self.history_adder(*args, **kwargs)
-            self.history_report_generator()
+            (self.history_adder or add_to_history)(*args)
+            (self.history_report_generator or generate_history_html)()
         return SearchRunResult(output_path, result.nb_results, result.total_time, result.engine_errors, result.results, result.coverage)
 
     async def collect(

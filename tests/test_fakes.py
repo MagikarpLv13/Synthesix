@@ -13,8 +13,6 @@ from unittest.mock import patch
 
 import observability
 import search_engine as search_engine_module
-from evidence.capture import capture_png
-from main import wait_for_home_action
 from search_engine import SearchEngine
 from settings import get_settings
 from tests.fakes import FakeBrowser, FakeTab, fake_clock
@@ -81,69 +79,6 @@ class EngineWaitExampleTestCase(unittest.IsolatedAsyncioTestCase):
         # real time (generous bound to stay flake-free on slow machines).
         self.assertLess(real_elapsed, 1.0)
         self.assertEqual(engine.tab.journal.count("get_content"), 1)
-
-
-class HomeActionExampleTestCase(unittest.IsolatedAsyncioTestCase):
-    async def test_home_action_is_consumed_from_fake_home_tab(self):
-        actions = [None, {"action": "harness-probe"}]
-
-        def home_scripts(script, *_args):
-            if "consumeSettingsChange" in script:
-                return None
-            if "!!window.SynthesixOverlay" in script:
-                return False
-            if "setHistory" in script or "setInvestigations" in script:
-                return None
-            if "synthesixHome" in script and "consumeAction" in script:
-                action = actions.pop(0) if actions else None
-                return {
-                    "ready": True,
-                    "action": action,
-                    "historyVersion": "",
-                    "investigationsVersion": "",
-                }
-            return None
-
-        home = FakeTab(url=INDEX_URL, target_id="home").on("evaluate", home_scripts)
-        browser = FakeBrowser([home])
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(
-                "os.environ",
-                {
-                    "SYNTHESIX_BASE_DIR": temp_dir,
-                    "SYNTHESIX_HOME_POLL_INTERVAL": "0",
-                },
-            ):
-                settings = get_settings()
-                action = await wait_for_home_action(
-                    browser, INDEX_URL, settings=settings
-                )
-
-        self.assertEqual(action["action"], "harness-probe")
-        self.assertIs(action["_source_tab"], home)
-        self.assertGreaterEqual(browser.journal.count("update_targets"), 1)
-        self.assertGreaterEqual(browser.journal.count("evaluate"), 2)
-        self.assertGreater(browser.journal.scripts_evaluated_bytes(), 0)
-
-
-class CaptureExampleTestCase(unittest.IsolatedAsyncioTestCase):
-    async def test_capture_png_writes_decoded_screenshot(self):
-        tab = FakeTab()
-        tab.program("send", base64.b64encode(b"png-bytes").decode("ascii"))
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "shot.png"
-            captured = await capture_png(
-                tab,
-                output_path,
-                {"x": 0, "y": 0, "width": 32, "height": 16},
-            )
-            self.assertEqual(output_path.read_bytes(), b"png-bytes")
-
-        self.assertEqual(captured.byte_size, len(b"png-bytes"))
-        self.assertEqual(captured.width, 32.0)
-        self.assertEqual(tab.journal.count("send"), 1)
 
 
 class FakeTabBehaviourTestCase(unittest.IsolatedAsyncioTestCase):

@@ -1,748 +1,139 @@
 # Synthesix
 
-Synthesix is a multi-engine search tool powered by Zendriver and Chrome DevTools Protocol. It runs precise searches across Google, Bing, Brave, and DuckDuckGo, merges duplicated URLs, scores the results, and writes an HTML report with the aggregated output.
+Synthesix est un navigateur local spécialisé dans les dorks et les recherches
+multi-requêtes. Il interroge Google, Bing, Brave et DuckDuckGo, fusionne les
+liens en double, classe les résultats et permet de les ouvrir dans des profils
+navigateur séparés et persistants.
 
-The application is async-first and browser-driven: Zendriver controls Chrome/Chromium, while the user interacts with a local browser home page.
+Les enquêtes, preuves, entités, graphes, exports ZeroNeurone et fonctions de
+monitoring ne font plus partie de Synthesix. Le travail d'investigation reste
+extérieur, dans ZeroNeurone avec ZNELFP. Aucune passerelle spécifique avec ce
+plugin n'est implémentée.
 
-## Brand
+## Lancer l'application sous Windows
 
-Synthesix uses the following application palette:
+Un Chrome ou Brave installé est nécessaire. Son moteur et ses mises à jour
+restent gérés par le navigateur.
 
-| Role | Color |
-| --- | --- |
-| Primary blue | `#2563EB` |
-| Primary navy | `#0F172A` |
-| Secondary cyan | `#06B6D4` |
-| Secondary slate | `#64748B` |
-| Monochrome black | `#000000` |
-| Monochrome white | `#FFFFFF` |
+Dans le paquet construit depuis cette branche, ouvrir `Synthesix.exe` dans le
+répertoire `Synthesix`. Conserver les fichiers `_internal` à côté de l'exécutable.
+L'archive `dist/Synthesix-Windows.zip` contient ce répertoire complet. Python et
+Node ne sont pas nécessaires sur la machine d'utilisation.
 
-Brand assets live in `assets/`:
+L'exécutable conserve ses données dans `%LOCALAPPDATA%/Synthesix`, indépendamment
+du dossier d'installation. L'option `--data-dir <répertoire>` permet de choisir
+un autre emplacement. Le paquet préparé localement n'est pas signé.
 
-| Asset | Purpose |
-| --- | --- |
-| `synthesix-logo.svg` | Full logo for light backgrounds. |
-| `synthesix-logo-dark.svg` | Full logo for dark backgrounds. |
-| `synthesix-mark.svg` | Color symbol used in application headers. |
-| `synthesix-app-icon.svg` | Square application icon. |
-| `favicon.svg` | Browser tab and bookmark favicon. |
-| `synthesix-mark-black.svg` | Pure-black monochrome mark. |
-| `synthesix-mark-white.svg` | Pure-white monochrome mark. |
+## Utiliser Synthesix
 
-The shared `theme.css` applies the palette to the home page, generated history page,
-and generated result reports in both light and dark modes.
+1. Saisir une à vingt requêtes, une par ligne.
+2. Choisir les moteurs et, si besoin, les filtres de site, titre, URL, contenu,
+   type de fichier, pays ou dates.
+3. Laisser les dorks automatiques pour rechercher les termes en phrase exacte,
+   ou désactiver cette option pour une recherche naturelle. Les requêtes avec
+   des opérateurs explicites sont conservées.
+4. Lancer la recherche : les résultats apparaissent progressivement et les
+   doublons sont fusionnés. La couverture indique les erreurs ou challenges
+   moteur. L'annulation conserve les résultats déjà disponibles dans l'historique.
+5. Choisir le profil d'ouverture, puis cliquer sur un résultat.
 
-## Prerequisites
+Dans **Profils navigateur**, créer et nommer une persona puis ouvrir sa fenêtre.
+Se connecter normalement aux sites une première fois : le navigateur conserve
+la session. Chaque persona utilise son propre répertoire de données. Plusieurs
+fenêtres d'une même persona partagent sa session. Synthesix ne collecte pas ses
+mots de passe et n'attache pas CDP à ces fenêtres.
 
-- Python 3.10+.
-- Google Chrome or Chromium installed locally.
-- Network access to the enabled search engines.
-- A writable project directory for runtime files.
+Le profil neutre de navigation et le profil d'automatisation des moteurs sont
+séparés des personas. Les profils séparent les sessions ; ils ne changent ni
+l'adresse IP ni l'empreinte de la machine. Aucun proxy par profil n'est configuré.
+Les fenêtres des personas restent indépendantes quand Synthesix se ferme.
 
-Zendriver launches and controls Chrome/Chromium through CDP. If Synthesix is later deployed in Docker or on a server, the image must include Chrome/Chromium and the OS libraries required by headless Chromium.
+L'historique permet de retrouver les résultats et de relancer les mêmes requêtes.
+Les cinquante recherches les plus récentes sont affichées ; les plus anciennes
+restent conservées dans la base.
 
-## Installation
+## Développement
 
-Create and activate a virtual environment first:
+Python 3.10+ et Chrome/Brave sont nécessaires. Depuis le projet :
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
 ```
 
-On Linux/macOS:
+La version Zendriver est volontairement fixée dans `requirements.txt`. Toute
+mise à jour doit inclure les tests moteurs, les tests CDP et les smoke tests réels.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-`requirements.txt` currently pins Zendriver with:
-
-```text
-zendriver==0.15.3
-```
-
-Keep Zendriver pinned unless you are intentionally testing a browser/CDP compatibility update.
-
-## Language and appearance
-
-Synthesix supports English, Mandarin Chinese, Spanish, French, Portuguese, and
-German. On first launch, the interface selects the first supported language
-from `navigator.languages`, with English as the fallback. Open **Settings** from
-the top bar to choose a language and the system, light, or dark theme.
-Preferences are stored in the Synthesix browser profile and synchronized live
-across open Synthesix tabs and reports.
-
-## Usage
-
-Start the application:
+Le bundle frontend est versionné. Pour modifier l'interface uniquement :
 
 ```powershell
-python main.py
+cd frontend
+npm install
+npm run typecheck
+npm run build
 ```
 
-Optional logging flags:
-
-```powershell
-python main.py --quiet
-python main.py --verbose
-python main.py --debug-html
-python main.py --monitor-once
-```
-
-`--debug-html` keeps unique raw search-engine pages in `history/debug_pages/`. Filenames include the timestamp, engine, and capture stage, for example `20260608_190000_000000_duckduckgo_results.html`. Combine it with `--verbose` to see every saved path in the console:
-
-```powershell
-python main.py --debug-html --verbose
-```
-
-Synthesix opens a Chrome/Chromium window on the local home page. Enter a query
-and click **Search**. Results are written to `history/` and opened in browser
-tabs. Enabled engines run concurrently through asyncio; the final report waits
-for the slowest enabled engine or its timeout.
-
-Session behavior:
-
-- Closing all Synthesix tabs stops the program.
-- Closing only the original home tab does not stop the program if other Synthesix tabs are still open.
-- Searches can optionally be attached to a local investigation from the home page.
-- Investigation folders can be created, edited, archived, and deleted while they are empty.
-- The generated history page can reopen previous searches.
-- The home page includes a default bookmark/favorite entry for returning to Synthesix.
-- **Clear Synthesix history** removes saved searches and generated result reports.
-- **Clear browser data** restarts the automated browser after removing browsing history, cookies, cache, sessions, and site storage from the Synthesix profile.
-- The VPN indicator checks the public IP used by Chrome when the home page opens. Click the indicator to refresh it.
-
-Browser-data cleanup affects only `zendriver-profile/` and `search-profile/`,
-not the user's normal Chrome or Brave profile. Synthesix preserves its bookmark
-and saved browser passwords in the user profile, but clearing cookies signs out
-active website sessions.
-
-### Investigation workflow
-
-The investigation selector on the home page is optional. Select **No investigation**
-to keep the original standalone search behavior.
-
-For a tracked investigation:
-
-1. Create or select an investigation on the home page.
-2. Run searches normally. Search parameters, engine errors, reports, and result
-   observations are persisted for provenance, but results are not added to the
-   investigation workspace automatically.
-3. Open an external HTTP(S) page. Synthesix injects a floating button with its
-   mark in the lower-right corner through CDP. It reads **Save page** when a
-   case is active, **Saved** when the current page is already retained, or
-   **Select investigation** otherwise.
-4. Click the button only for pages that should be retained in the investigation.
-5. Use the adjacent camera button to capture either the visible viewport or a
-   rectangular area selected directly on the page.
-6. Click **Open** on the home page to review saved pages with analyst statuses,
-   favorites, notes, and tags. Saved-page cards can be collapsed individually;
-   their state is retained locally. Very long URLs are compacted visually while
-   the complete target remains available in the link and hover text.
-7. Open or delete captures directly from the saved page.
-8. Filter saved pages by text, status, source, tag, observation date, or favorite.
-9. Attach an earlier unassigned search when its query and observations belong to
-   the investigation.
-10. Use **Extract entities** on a saved page to propose deterministic email,
-    phone, URL, domain, IP address, handle, UUID, and explicit coordinate
-    candidates from its URL, title, description, analyst notes, and normalized
-    text from explicit HTML archives. The extractor also proposes French postal
-    addresses, checksum-validated SIREN/SIRET identifiers, VAT numbers, and
-    explicit dates. Ambiguous numeric dates retain every valid interpretation.
-11. Use **Analyze URL** on a saved page to make an explicit technical request.
-    Synthesix records the HTTP status, redirect chain, selected non-sensitive
-    headers, Unicode/punycode domains, known tracking parameters, response
-    timing, and a SHA-256 content hash when the response is at most 5 MiB.
-    Private, local, reserved, and loopback destinations are rejected, including
-    redirect targets. Each run is retained in the local investigation history.
-12. Review every candidate as **Proposed**, **Validated**, or **Rejected**.
-    The suggested type remains visible, while the analyst can select another
-    standard type and add a free label such as `Registered office` or
-    `Primary contact`. Detection reasons and structured attributes remain
-    inspectable. Candidates can also be deleted explicitly.
-
-The analyst statuses are `To verify`, `Relevant`, `Discarded`, and `Confirmed`.
-They describe the analyst's review state, not the factual reliability of a source.
-Entity confidence describes only the deterministic pattern match. It does not
-confirm identity, ownership, or factual accuracy. Rejected candidates remain
-recorded and are not silently proposed again by a later extraction.
-
-The investigation page can export an immutable ZeroNeurone bundle containing:
-
-- `zeroneurone.zip`, the native dossier archive with positioned elements,
-  directed links, typed properties, visual styles, and optional assets;
-- `dossier.json`, the readable native dossier payload included in the ZIP;
-- `investigation.graphml`, using documented ZeroNeurone node/link attributes;
-- `zeroneurone.csv`, using the unified import columns;
-- `nodes.csv` and `edges.csv` for manual inspection;
-- `manifest.json`, with schema version, options, counts, and SHA-256 hashes.
-
-The default export includes saved pages, their search provenance, and validated
-entities. Synthesix tags are preserved on the corresponding elements. URLs and
-domains expose typed `URL`, `Domaine`, and `Date d'accès` properties. Proposed
-or rejected candidates and evidence assets require explicit checkboxes. Generated
-bundles can be deleted from the investigation page, which also removes their
-local files. See `docs/ZERONEURONE_IMPORT_SMOKE_TEST.md` for the application-level
-import check.
-
-The exporter targets the 26 built-in ZeroNeurone 2.41.9 TagSets. Recognized
-aliases are canonicalized during export, for example `Person`/`Personne` to
-`Personne` and `Company`/`Organisation` to `Entreprise`. The first recognized
-analyst TagSet controls the native visual, matching ZeroNeurone behavior.
-Synthesix provides natural tag suggestions alongside free tag fields for
-investigations, saved pages, and extracted entities. Known aliases are
-canonicalized when metadata is saved, while unrecognized custom tags are
-preserved unchanged. Entity tags remain separate from the deterministic
-extraction type and the free analyst label.
-
-In the native dossier, the investigation root uses its title directly, without
-an `Investigation:` prefix. It is positioned at the graph origin and exported
-as a large dark hexagon with a cyan border so it remains identifiable as the
-central element even when it carries a ZeroNeurone TagSet.
-
-The investigation workspace also separates collected pages from final graph
-entities. An analyst can create an entity such as `ACME SAS`, link one or more
-saved pages as sources, and attach extracted SIREN, SIRET, VAT, address, email,
-or date candidates as properties. Once at least one explicit entity exists, the
-export uses these entities as graph nodes: linked pages become source
-properties, URL/domain candidates are not duplicated as nodes, and optional
-captures are linked directly as evidence. Without explicit entities, the
-previous saved-page export remains available as a compatibility fallback.
-Standalone extracted dates use the `Événement` tag by default.
-
-For each explicitly saved page, Synthesix records:
-
-- the current URL, page title, and meta description;
-- the save time and available referring URL;
-- the originating query, report, and search engines when the URL matches a
-  result observed in the active investigation;
-- analyst notes, tags, status, and favorite state.
-
-Search result scores are expandable in result reports and investigation pages.
-The detail separates exact title, description, URL, filter, and multi-engine
-contributions. Multi-engine consensus means that several engines returned the
-same URL; it is not presented as factual verification.
-
-The **Search local archive** panel on the home page uses SQLite FTS5 and never
-contacts an external engine. It searches stored titles, descriptions, URLs,
-analyst notes, and tags, with optional investigation, engine, status, domain,
-and observation-date filters. Results include first/last observation dates and
-links back to saved investigation pages and their evidence. The index updates
-with database changes and can be rebuilt explicitly from the same panel.
-
-The floating button is not injected into Synthesix pages or non-HTTP(S) browser
-pages. It does not read cookies, authentication data, form values, or page body
-content. Without an active investigation, clicking it returns to the Synthesix
-home so the analyst can select one.
-
-Reopening a page already saved in the active investigation updates its
-**Last seen** timestamp automatically. Investigation pages display stored UTC
-timestamps in the browser's local time zone.
-
-Evidence captures are explicit and local. The camera action records only a PNG
-of the visible area or selected region, so screenshot-only workflows do not
-attempt to retrieve HTML. Its name defaults to
-`screenshot_YYYY-MM-DD_HH-MM-SS` in the browser's local time and can be replaced
-before capture.
-
-The separate archive button first records a self-contained, scrollable visual
-capture of the full page. It warms lazy content by controlled viewport scrolling,
-then embeds bounded PNG tiles in one local HTML viewer; its SHA-256 therefore
-covers every captured pixel and it does not depend on the source site when
-reopened. It also records MHTML when CDP supports it and normalized visible
-text for extraction and monitoring. The transient DOM HTML used to derive that
-text is not retained as an evidence artifact. Cookie and authentication headers
-are removed from MHTML before it is written. A partial archive remains visible
-when one of its artifacts is unavailable; the investigation page exposes only
-the visual capture, MHTML, and text. The provenance manifest is kept locally
-for verification rather than shown as an analyst action.
-
-Saved pages can be monitored manually without rerunning a search. The
-investigation page opens one configuration dialog from every saved page and
-from the monitoring section. It explains the automatically detected profile,
-allows automatic or custom mode, metric and CSS-selector selection, interval
-and archive-policy changes, pause/resume, and an immediate targeted check. The
-monitor cards expose last/next check, health and the latest significant or minor
-change. The dialog keeps the recent observation history and typed deltas, with
-missing or unavailable values rendered explicitly instead of as zero.
-
-Full probative archives remain separate from lightweight observations.
-Screenshots are not compared automatically. When page archives exist, their
-normalized text comparison and local report remain available beside the light
-monitoring status. A saved page with evidence cannot be removed until its
-captures are deleted. The **Verify** action recalculates every recorded artifact
-hash locally.
-
-Page monitors persist an automatic or custom mode, detected profile, selected
-metrics, optional CSS selectors, checking interval and enabled/paused state.
-The lightweight probe runner opens a dedicated Zendriver tab, waits for a real
-document instead of accepting the initial `about:blank`, and performs one
-bounded composite extraction without writing PNG or MHTML. Versioned
-observations store final URL, duration, content hash, metadata, typed metrics,
-diagnostics and extraction errors. Missing, unavailable and failed values stay
-distinct from numeric zero; significant typed changes recommend a full archive.
-Generic title, description, visible text and links are supported. Social
-profiles use versioned adapters. When configured, Synthesix tries the official
-[YouTube channel API](https://developers.google.com/youtube/v3/docs/channels/list),
-[X user lookup API](https://docs.x.com/x-api/users/lookup/introduction), or
-[TikTok Research user API](https://developers.tiktok.com/doc/research-api-specs-query-user-info)
-before opening a browser tab. Instagram and Facebook currently use only the
-bounded browser extractor. Missing credentials or one failed API metric do not
-block the remaining metrics: the unresolved subset falls back to a single DOM
-snapshot containing bounded metadata, visible text, links, accessibility
-labels and JSON-LD, while authentication, consent and challenge pages remain
-explicit intervention states.
-
-Facebook profile monitors have a dedicated, visible configuration instead of
-mixing their fields with other social platforms. Their defaults cover displayed
-name, profile and cover photos, exact friend count when Facebook renders it,
-followers, biography, visible profile details, external profile links and the
-latest non-pinned publication (stable identifier, displayed date, bounded text
-and canonical permalink). The monitor card displays the current profile photo
-as a small thumbnail linked to the original; the dialog adds the cover, visible
-details and latest-post preview. Analysts can disable any built-in field or add
-a named CSS target whose selector also supports image `src` and SVG
-`xlink:href` values.
-
-The Facebook parser uses profile URLs, accessibility labels and semantic
-`data-*` attributes rather than generated `x...` class names. It associates
-the header, friends card, photos and post feed with the requested profile so
-unrelated navigation, recommendations and mutual-friend values are ignored.
-When both a rounded header count and a detailed friends-card total are visible,
-the exact total wins. Volatile CDN parameters and relative date labels use
-stable comparison keys, so an unchanged photo or publication does not create
-false changes. A missing total publication count is not inferred from the
-number of virtualized cards currently loaded.
-
-Every social metric records its source (`api`, `dom`, or `absent`), parser name
-and parser version. Numeric values also record whether they are exact, rounded,
-hidden or of unknown precision. YouTube subscriber counts are therefore never
-presented as exact. The observation history displays this provenance under
-each value. API keys and bearer tokens are read only from environment variables,
-are excluded from settings representations, and are never written to SQLite,
-evidence artifacts or observation errors.
-
-The local background scheduler is disabled by default, so opening Synthesix
-does not automatically contact monitored sites before a VPN is ready. Set
-`SYNTHESIX_MONITOR_AUTOSTART=true` to run it while the application is open;
-the per-monitor **Run now** action and `python main.py --monitor-once` remain
-available regardless of that setting. Due monitors are claimed through
-expiring SQLite leases, processed with bounded concurrency, timeout, jitter,
-retries and exponential backoff, then rescheduled.
-Authentication, CAPTCHA/challenge and consent pages pause the affected monitor
-for analyst intervention; repeated transient failures also pause it. One site
-failure does not stop the other probes and monitoring never starts a
-multi-engine search. Full page archives are disabled by default and are created
-only when a monitor explicitly uses `archive_policy=on_change` and the light
-probe detects a significant change.
-
-For Windows Task Scheduler or another local scheduler, run one short cycle:
-
-```powershell
-.venv\Scripts\python.exe main.py --monitor-once
-```
-
-Set the task's working directory to the Synthesix project root and configure it
-not to overlap an already-running instance. The command prints a stable
-single-line summary. Exit code `0` means no probe/archive failure, `1` means at
-least one monitor or automatic archive failed, and `2` means the command could
-not initialize. When no monitor is due, no browser is launched.
-The social-platform metric adapters remain tracked in T-057.
-
-Archived investigations remain available from the selector and open in read-only
-mode. They cannot receive new searches or analyst edits.
-
-### VPN indicator
-
-The home page displays a connection indicator:
-
-- Green, `VPN likely`: the public IP is listed as a known VPN exit node.
-- Red, `VPN not detected`: the public IP is not listed as a known VPN exit node.
-- Gray/amber, `VPN unknown`: the check is running, unavailable, or timed out.
-
-The check runs from the Chrome page, so it observes the same public route as browser
-searches, including browser-level VPNs or proxies when they affect that page. It uses
-the anonymous `https://api.ipapi.is` endpoint and therefore sends the browser's public
-IP address to that external service. No search query, history entry, cookie, or account
-data is sent.
-
-VPN detection is probabilistic. A green indicator means the exit IP is known to the
-provider; a red indicator does not prove that no VPN is active. New, private,
-residential, corporate, or self-hosted VPN exits can remain undetected.
-
-## Search Behavior
-
-Simple queries are intentionally protected as exact phrases when **Automatic
-dorks** is enabled, which is the default. For example:
-
-```text
-recette de pesto
-```
-
-is searched as:
-
-```text
-"recette de pesto"
-```
-
-Advanced queries with explicit operators and quoted phrases are preserved by the parser.
-Uncheck **Automatic dorks** to send the main query text unchanged. OSINT filters
-remain active independently of this option.
-
-The optional **Query variants** panel can propose accent-free, reversed-order,
-separator, initial, and case variants for simple queries. Suggestions are never
-executed automatically: select each additional query explicitly, or add a manual
-variant, before starting the search. The main query always runs.
-
-Selected variants and enabled engines are executed as asynchronous combinations
-under the same global concurrency limit. Duplicate URLs are merged. Result
-reports show the exact queries that found each URL and, when several variants
-and engines were used, include a compact coverage table distinguishing result
-counts, timeouts, robot challenges, and other errors. Results are ordered by
-numeric relevance score from highest to lowest by default.
-
-Failed coverage cells include a **Retry** action. A retry runs only the selected
-engine/query combination and creates a separate report, preserving the original
-report as an immutable search snapshot.
-
-## OSINT Filters
-
-The home page includes an **OSINT filters** panel for common search operators without requiring users to remember engine syntax.
-
-| Field | Intent | Engine query behavior |
-| --- | --- | --- |
-| Site | Restrict results to one or more domains. | Uses `site:`. |
-| Exclude | Remove results containing one or more terms. | Uses `-term` or `-"quoted phrase"`. |
-| Title | Require text in the result title. | Uses `intitle:`. |
-| URL | Require text in the result URL. | Uses `inurl:` on Google/DuckDuckGo; falls back to a plain term on Bing/Brave. |
-| Page text | Bias the engine toward text in the page body. | Uses `intext:` on Google, `inbody:` on Bing/Brave, and a plain term on DuckDuckGo. |
-| File | Restrict by file extension. | Uses `filetype:`. |
-| Country | Prioritize results for a selected country or market. | Uses each engine's native regional parameter without changing the query text. |
-| After | Keep results from or after a selected date. | Uses each compatible engine's native date-range format. |
-| Before | Keep results up to a selected date. | Uses each compatible engine's native date-range format. |
-
-Multiple values can be separated with commas in a filter field. Values containing spaces are quoted automatically.
-Use **Clear filters** to empty all OSINT filter fields without changing the
-query, selected engines, result limit, investigation, or Automatic dorks option.
-
-`After` and `Before` use native date pickers and store dates as `YYYY-MM-DD`. Synthesix converts the selected range per engine:
-
-| Engine | Date range sent by Synthesix |
-| --- | --- |
-| Google | `tbs=cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY` |
-| Brave | `tf=YYYY-MM-DDtoYYYY-MM-DD` |
-| DuckDuckGo | `df=YYYY-MM-DD..YYYY-MM-DD` |
-| Bing | No custom date range is sent because Bing's public Web search documentation does not define a stable equivalent. |
-
-When only `After` is selected, Brave and DuckDuckGo use the current date as the upper bound. When only `Before` is selected, they use `1970-01-01` as the technical lower bound. Google supports either bound independently.
-
-Synthesix also applies local post-filtering when the condition can be verified from the collected result metadata:
-
-- `site` is checked against the result domain.
-- `exclude` is checked against the result title, description, and URL.
-- `title` is checked against the result title.
-- `url` and `file` are checked against the result URL.
-- `page text` is sent to the search engines but is not hard-filtered locally, because result snippets are not reliable full-page text.
-
-Filter-only searches are allowed. For example, leaving the main search box empty and setting `Site = example.com` plus `File = pdf` searches for documents on that domain.
-
-### Country targeting
-
-The `Country` field provides a searchable country list and also accepts direct two-letter
-country codes. Common English, French, and local aliases are normalized, so `Sweden`,
-`Suede` (with or without accents), `Sverige`, and `SE` all select Sweden.
-
-Synthesix sends the corresponding native regional parameter:
-
-| Engine | Sweden example |
-| --- | --- |
-| Google | `gl=se` |
-| Bing | `cc=SE` |
-| Brave | `country=se` |
-| DuckDuckGo | `kl=se-sv` |
-
-Country targeting prioritizes the selected market; it is not a strict country-domain
-filter. Combine it with `Site = .se` or a specific Swedish domain when the investigation
-requires a hard domain restriction. DuckDuckGo targeting is available for the regions
-defined by its public settings; unsupported two-letter codes still work on the other
-engines and leave DuckDuckGo on its worldwide region.
-
-## Search Engines
-
-| Engine | Status | Notes |
-| --- | --- | --- |
-| Google | Available | Result parsing depends on Google's current HTML structure. |
-| Bing | Available | Result parsing depends on Bing's current HTML structure. |
-| Brave | Available | Anti-robot challenges are captured and brought to the foreground. Synthesix waits for manual resolution when no known control can complete them. |
-| DuckDuckGo | Available | Uses the main Web search for a fuller result set, parses only organic Web results, and loads additional result pages when requested. The HTML endpoint remains a fallback. |
-
-Search engines can change their markup or anti-bot behavior at any time. When a parser starts returning poor results, update only the affected engine and add or adjust a focused test.
-
-Google result links are resolved before filtering, scoring, deduplication and
-storage. Legacy `/url` wrappers are decoded locally; opaque `/goto` links use
-Google's HTTP redirect headers to recover the destination URL and domain. This
-step contacts only Google's HTTPS redirect endpoint and does not load the
-destination pages. It runs outside the async event loop, with at most four
-concurrent requests, a three-second socket timeout and an eight-second batch
-budget. If a redirect cannot be resolved, its clickable Google URL is retained
-so that a single failure does not discard the remaining results.
-
-## Runtime Data
-
-Synthesix generates local runtime artifacts. They are ignored by Git and should not be committed.
-
-| Path | Role |
-| --- | --- |
-| `data/synthesix.db` | Versioned SQLite database for investigations, search runs, result and page-monitor observations, explainable score components, analyst metadata, and the rebuildable FTS5 archive index. |
-| `data/investigation_pages/` | Regenerated local investigation workspaces. SQLite remains the source of truth. |
-| `data/evidence/` | Explicit PNG screenshots, sanitized page archives, normalized text, comparison reports, and provenance manifests. |
-| `zendriver-profile/` | Persistent Chrome/Chromium profile used by Zendriver. |
-| `search-profile/` | Persistent Chrome/Chromium profile used by the separate automated search browser. |
-| `history/` | Generated result reports and history page. |
-| `history/history.html` | Search history UI. |
-| `history/search_results_*.html` | Generated search result reports. |
-| `history/robot_challenges/` | Captured Brave and DuckDuckGo anti-robot pages (`.html`, visible `.txt`, and `.png` when available). |
-| `history/debug_pages/` | Raw engine HTML pages kept only when debug HTML mode is enabled. |
-| `history.html` | Legacy ignored history path. |
-| `test_*.html` | Temporary diagnostic captures. |
-
-Do not hardcode credentials or investigation data in source files. If accounts are later configured for OSINT workflows, keep profile data and secrets outside Git.
-
-The existing `history/history.json` file is imported into SQLite once on first launch.
-Generated HTML reports remain available for compatibility. Clearing Synthesix history
-removes search runs and generated reports but preserves investigation folders and
-explicitly saved pages. Their denormalized discovery summary remains readable even
-after the original search history has been cleared.
-
-## Configuration
-
-Runtime settings can be overridden with environment variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `SYNTHESIX_BASE_DIR` | Base directory for runtime path resolution. |
-| `SYNTHESIX_DATABASE_PATH` | SQLite database path for investigations and normalized search history. |
-| `SYNTHESIX_INVESTIGATION_PAGES_DIR` | Directory for generated local investigation workspaces. |
-| `SYNTHESIX_EVIDENCE_DIR` | Directory for screenshots, page archives, comparison reports, and JSON manifests. |
-| `SYNTHESIX_HISTORY_DIR` | Directory for generated reports/history. |
-| `SYNTHESIX_HISTORY_REPORT_PATH` | Explicit path for the history HTML page. |
-| `SYNTHESIX_DEBUG_HTML` | Enable raw HTML capture with `1`, `true`, `yes`, or `on`. |
-| `SYNTHESIX_DEBUG_HTML_DIR` | Directory used for raw engine HTML captures. |
-| `SYNTHESIX_BROWSER_PROFILE_DIR` | Chrome/Chromium profile directory. |
-| `SYNTHESIX_SEARCH_PROFILE_DIR` | Chrome/Chromium profile directory for the separate automated search browser. |
-| `SYNTHESIX_SEARCH_BROWSER` | Search browser mode: `separate` uses `SYNTHESIX_SEARCH_PROFILE_DIR`; `shared` restores the previous single-browser behavior. |
-| `SYNTHESIX_SEARCH_WINDOW_MODE` | Search browser window mode: `offscreen` (default), `visible`, `minimized`, or `headless`. Headless is opt-in because search engines can challenge it more aggressively. |
-| `SYNTHESIX_BROWSER` | Zendriver browser type: `auto`, `chrome`, or `brave`. |
-| `SYNTHESIX_BROWSER_EXECUTABLE_PATH` | Explicit Chrome/Brave executable path when autodetection is not enough. |
-| `SYNTHESIX_BROWSER_CONNECTION_TIMEOUT` | Delay between Zendriver browser connection checks. |
-| `SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES` | Maximum Zendriver browser connection attempts. |
-| `SYNTHESIX_DEFAULT_ENGINES` | Comma-separated default engines, such as `google,duckduckgo`. |
-| `SYNTHESIX_DEFAULT_MAX_RESULTS` | Default maximum results kept in reports. |
-| `SYNTHESIX_HISTORY_LIMIT` | Maximum saved history entries. |
-| `SYNTHESIX_HOME_POLL_INTERVAL` | Delay between home/action polling checks. |
-| `SYNTHESIX_EMPTY_TABS_GRACE_SECONDS` | Grace period before stopping when no Synthesix tab remains. |
-| `SYNTHESIX_PAGE_LOAD_TIMEOUT` | Per-page load timeout. |
-| `SYNTHESIX_PAGE_LOAD_INTERVAL` | Polling interval while waiting for a page load. |
-| `SYNTHESIX_BRAVE_RESULTS_TIMEOUT` | Brave-specific result wait timeout. |
-| `SYNTHESIX_BRAVE_RESULTS_INTERVAL` | Brave-specific result polling interval. |
-| `SYNTHESIX_BRAVE_ROBOT_FIND_TIMEOUT` | Brave anti-robot detection timeout. |
-| `SYNTHESIX_DUCKDUCKGO_RESULTS_TIMEOUT` | DuckDuckGo-specific result wait timeout before the HTML endpoint fallback. |
-| `SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT` | Maximum time allowed for manual DuckDuckGo challenge resolution. |
-| `SYNTHESIX_DUCKDUCKGO_ROBOT_INTERVAL` | Polling interval while waiting for DuckDuckGo results after manual resolution. |
-| `SYNTHESIX_ENGINE_SEARCH_TIMEOUT` | Global timeout for one engine search. |
-| `SYNTHESIX_BING_RESULTS_TIMEOUT` | Maximum wait for Bing's hydrated organic result rows. |
-| `SYNTHESIX_BING_RESULTS_INTERVAL` | Bing result-row polling interval. |
-| `SYNTHESIX_ENGINE_CONCURRENCY` | Maximum number of engines searched at the same time. |
-| `SYNTHESIX_ENGINE_RETRY_ATTEMPTS` | Retry attempts for transient engine failures. |
-| `SYNTHESIX_ENGINE_RETRY_DELAY` | Initial retry delay. |
-| `SYNTHESIX_ENGINE_RETRY_BACKOFF` | Retry delay multiplier. |
-| `SYNTHESIX_MAX_QUERY_VARIANTS` | Maximum total query variants per search, including the main query. Defaults to `6`. |
-| `SYNTHESIX_MONITOR_AUTOSTART` | Start the background monitoring scheduler when Synthesix opens. Defaults to `false`; manual runs remain available. |
-| `SYNTHESIX_MONITOR_POLL_INTERVAL` | Seconds between scheduler cycles while Synthesix is open. Defaults to `60`. |
-| `SYNTHESIX_MONITOR_BATCH_SIZE` | Maximum monitors atomically claimed per cycle. Defaults to `4`. |
-| `SYNTHESIX_MONITOR_CONCURRENCY` | Maximum simultaneous lightweight probes. Defaults to `2`. |
-| `SYNTHESIX_MONITOR_LEASE_SECONDS` | Expiring SQLite lease duration protecting a claimed monitor. Defaults to `300`. |
-| `SYNTHESIX_MONITOR_ATTEMPT_TIMEOUT` | Wall-clock timeout for one probe attempt. Defaults to `75`. |
-| `SYNTHESIX_MONITOR_RETRY_ATTEMPTS` | Additional attempts after a transient probe failure. Defaults to `1`. |
-| `SYNTHESIX_MONITOR_RETRY_DELAY` | Initial delay in seconds before a retry. Defaults to `1`. |
-| `SYNTHESIX_MONITOR_RETRY_BACKOFF` | Retry and failure-backoff multiplier. Defaults to `2`. |
-| `SYNTHESIX_MONITOR_JITTER_SECONDS` | Maximum random delay added before probes/retries. Defaults to `2`. |
-| `SYNTHESIX_MONITOR_FAILURE_BACKOFF_SECONDS` | Initial rescheduling delay after a failed cycle. Defaults to `300`. |
-| `SYNTHESIX_MONITOR_MAX_FAILURES` | Consecutive failures before automatic suspension. Defaults to `3`. |
-| `SYNTHESIX_MONITOR_HEADLESS` | Use a headless browser for `--monitor-once`. Defaults to `true`. |
-| `SYNTHESIX_SOCIAL_API_TIMEOUT` | Timeout in seconds for one official social API request. Defaults to `10`. |
-| `SYNTHESIX_YOUTUBE_API_KEY` | Optional YouTube Data API key used only for channel monitoring. |
-| `SYNTHESIX_X_BEARER_TOKEN` | Optional X API bearer token used only for public user lookup. |
-| `SYNTHESIX_TIKTOK_RESEARCH_ACCESS_TOKEN` | Optional approved TikTok Research API client access token. |
-| `SYNTHESIX_EXPORTS_DIR` | Local directory for versioned investigation export bundles. Defaults to `data/exports`. |
-
-Example:
-
-```powershell
-$env:SYNTHESIX_DEFAULT_ENGINES = "google,bing,duckduckgo"
-$env:SYNTHESIX_ENGINE_SEARCH_TIMEOUT = "45"
-python main.py
-```
-
-DuckDuckGo results wait up to 10 seconds by default. Synthesix accepts either
-the expected DOM container or HTML that its parser can already read, then tries
-the standard HTML endpoint before reporting a load timeout. Its visual challenge
-still requires manual resolution: Synthesix brings the challenge tab to the
-foreground, captures it in `history/robot_challenges/`, waits up to 75 seconds by
-default, and resumes when results become available. Keep
-`SYNTHESIX_ENGINE_SEARCH_TIMEOUT` greater than
-`SYNTHESIX_DUCKDUCKGO_ROBOT_TIMEOUT`.
-
-When `SYNTHESIX_SEARCH_WINDOW_MODE=headless`, a visual challenge cannot be
-solved in the hidden search browser. Synthesix still captures the challenge and
-opens the saved artifact in the main UI browser so the analyst can inspect what
-blocked the search.
-
-### Linux Browser Detection
-
-Synthesix resolves the browser executable in this order:
-
-1. `SYNTHESIX_BROWSER_EXECUTABLE_PATH`, when explicitly configured.
-2. Chrome/Chromium or Brave commands available on `PATH`.
-3. Common Linux and Snap paths such as `/snap/bin/brave`.
-4. Brave Flatpak application `com.brave.Browser`.
-
-For Brave Flatpak, Synthesix checks the installation with `flatpak info` and generates an executable launcher in `.cache/synthesix/brave-flatpak`. Zendriver then uses that launcher as its browser executable, so CDP arguments are forwarded to:
-
-```bash
-flatpak run com.brave.Browser
-```
-
-No user-specific path is hardcoded. A custom launcher remains supported:
-
-```bash
-export SYNTHESIX_BROWSER=brave
-export SYNTHESIX_BROWSER_EXECUTABLE_PATH="$HOME/bin/brave-flatpak"
-python main.py
-```
-
-The launcher must be executable and forward every argument received from Zendriver:
-
-```sh
-#!/bin/sh
-exec flatpak run com.brave.Browser "$@"
-```
-
-## Development Checks
-
-Run the non-browser regression tests:
+Les pages sont chargées en `file://` avec un script classique IIFE. Aucun serveur
+local et aucun environnement Node ne sont nécessaires à l'exécution.
+
+## Architecture
+
+- `main.py` : options de lancement et cycle de vie de la commande.
+- `app/runtime.py` : assemblage de l'application et commandes de la page locale.
+- `app/search.py` : validation des requêtes et navigateur de recherche à la demande.
+- `search_orchestrator.py` : exécution parallèle bornée, résultats progressifs,
+  déduplication et scoring. `collect()` ne produit ni rapport ni historique.
+- `query_syntax.py`, `query_operators.py`, `query_variants.py` : syntaxe des dorks.
+- `google.py`, `bing.py`, `brave.py`, `duckduckgo.py`, `parsers.py` : adaptateurs moteurs.
+- `app/storage.py` : base SQLite indépendante pour recherches et noms de profils.
+- `app/profiles.py` : lancement natif des personas, sans pont privilégié dans leurs pages.
+- `browser/` et `browser_manager.py` : CDP, découverte des onglets et lancement.
+- `frontend/src/components/sx-browser-app.ts` : interface Lit principale.
+
+Les utilitaires d'export de rapports HTML restent disponibles séparément dans
+`utils.py` et `ui.py`. Ils ne sont pas importés par le nouveau parcours de recherche.
+
+## Données et ancienne version
+
+Depuis les sources, les données sont relatives au projet ; dans l'exécutable,
+elles sont relatives au répertoire de données indiqué plus haut :
+
+| Chemin | Usage |
+|---|---|
+| `data/browser.sqlite` | Noms des profils, requêtes, résultats et couverture |
+| `data/browser-profiles/<identifiant>/` | Données natives des personas |
+| `data/browser-ui-profile/` | Profil de l'accueil et de la navigation neutre |
+| `search-profile/` | Profil isolé d'automatisation des moteurs |
+| `logs/browser.log` | Diagnostic local |
+
+L'ancienne base `data/synthesix.db`, les preuves et les anciens rapports ne sont
+ni ouverts ni migrés ni supprimés par ce lancement. Le nouvel historique ne les
+importe pas automatiquement. Le commit `0e58af1` conserve les sources complètes
+avant recentrage pour retrouver l'ancienne application et exporter les enquêtes
+si nécessaire, dans une copie séparée avec sauvegarde préalable des données.
+
+## Vérifications et construction
 
 ```powershell
 .venv\Scripts\python.exe -m unittest discover
+.venv\Scripts\python.exe tests/manual/smoke_browser_app.py
+.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+.venv\Scripts\python.exe scripts/build_windows.py
+.venv\Scripts\python.exe tests/manual/smoke_frozen_browser.py
 ```
 
-Compile the main modules:
+Les smoke tests utilisent des profils temporaires et des données synthétiques.
+Le test d'interface exerce les vrais clics et le vrai transport CDP, avec des
+moteurs simulés. Il ne valide pas les connexions à des comptes réels ni la
+fiabilité des pages de résultats externes du jour.
 
-```powershell
-.venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
-```
+Les options `--quiet`, `--verbose` et `--debug-html` restent disponibles.
+`SYNTHESIX_BROWSER_EXECUTABLE_PATH` sélectionne un navigateur explicitement.
+`SYNTHESIX_SEARCH_WINDOW_MODE=visible|minimized|offscreen|headless` configure
+l'instance de recherche ; `offscreen` reste le mode par défaut. Le mode headless
+peut déclencher davantage de challenges, qui ne sont pas contournés.
 
-Check whitespace before committing:
-
-```powershell
-git diff --check
-```
-
-Profile Python startup/import overhead:
-
-```powershell
-Measure-Command { .venv\Scripts\python.exe -c "import main" }
-.venv\Scripts\python.exe -X importtime -c "import main"
-```
-
-Profile the non-browser test suite:
-
-```powershell
-Measure-Command { .venv\Scripts\python.exe -m unittest discover }
-.venv\Scripts\python.exe -m cProfile -s cumtime -m unittest discover
-```
-
-Optional live smoke test:
-
-```powershell
-python main.py
-```
-
-Use a small exact query, verify that a report opens, close all Synthesix tabs, then relaunch the app to confirm Chrome does not display an unclean shutdown warning.
-
-## Zendriver Update Procedure
-
-Use this checklist before bumping Zendriver:
-
-1. Update the pinned version in `requirements.txt`.
-2. Reinstall dependencies in the virtual environment:
-
-   ```powershell
-   .venv\Scripts\python.exe -m pip install --upgrade -r requirements.txt
-   ```
-
-3. Run the local checks:
-
-   ```powershell
-   .venv\Scripts\python.exe -m py_compile main.py utils.py scoring.py google.py bing.py brave.py duckduckgo.py browser_manager.py search_engine.py settings.py search_orchestrator.py exceptions.py parsers.py query_operators.py search_regions.py investigations\__init__.py investigations\models.py investigations\migrations.py investigations\repository.py investigations\service.py investigations\search_view.py investigations\view.py evidence\__init__.py evidence\capture.py evidence\hashing.py evidence\manifest.py
-   .venv\Scripts\python.exe -m unittest discover
-   git diff --check
-   ```
-
-4. Run a live smoke test with Chrome/Chromium:
-   - start `python main.py`;
-   - launch one exact search;
-   - open history and one result report;
-   - select an active investigation and capture a PNG screenshot;
-   - explicitly archive a saved page with HTML/MHTML when required;
-   - enable page monitoring, archive the page again, and open the comparison;
-   - verify the PNG, archive, and manifest links from the investigation page;
-   - run **Verify** and confirm every recorded artifact hash matches;
-   - close the first tab while another Synthesix tab remains;
-   - close all tabs and verify the process exits cleanly;
-   - relaunch and verify Chrome does not show the unclean shutdown message.
-
-5. If CDP behavior changed, inspect only the affected layer first:
-   - `browser_manager.py` for launch/profile/tab lifecycle;
-   - `search_engine.py` for navigation and page content retrieval;
-   - the affected engine module for parsing or challenge handling.
-
-## Project Layout
-
-| Path | Role |
-| --- | --- |
-| `main.py` | Browser lifecycle, local UI loop, and report tab opening. |
-| `search_orchestrator.py` | Multi-engine orchestration, retries, timeouts, scoring, and report generation. |
-| `search_engine.py` | Base engine behavior for navigation, loading, and content retrieval. |
-| `query_operators.py` | OSINT filter model, operator rendering, engine-specific query building, and local result filtering. |
-| `search_regions.py` | Country-name normalization and engine-specific regional parameters. |
-| `investigations/` | Versioned SQLite/FTS5 schema, repositories, domain models, services, local archive reports, and workspace generation. |
-| `analysis/` | Deterministic entity extraction and explicit, bounded technical URL analysis. |
-| `evidence/` | Async CDP screenshot/archive capture, text normalization and comparison, sensitive-data cleaning, hashing, and manifests. |
-| `assets/` | Synthesix logo, app icon, favicon, and monochrome brand marks. |
-| `google.py`, `bing.py`, `brave.py`, `duckduckgo.py` | Engine-specific URL construction and parsing. |
-| `browser_manager.py` | Zendriver/Chrome profile and tab management helpers. |
-| `settings.py` | Runtime configuration and environment variable parsing. |
-| `exceptions.py` | Application-level exception types. |
-| `utils.py` | HTML report/history generation and query helpers. |
-| `scoring.py` | Centralized scoring weights, explainable components, and consensus bonus logic. |
-| `tests/` | Unit tests for settings, scoring, engines, orchestration, errors, and reports. |
-
-## Maintenance Rules
-
-- Keep browser code async; use `await asyncio.sleep()`, not `time.sleep()`.
-- Always stop Zendriver/Chrome cleanly through the browser manager or `await browser.stop()`.
-- Keep engine failures isolated so one broken engine does not block the others.
-- Do not change exact-phrase search behavior without a dedicated test.
-- Do not commit generated HTML captures, browser profiles, logs, or secrets.
-- Prefer small parser fixes over broad rewrites when search engine markup changes.
-
----
-
-**Synthesix** - Aggregate, score, and synthesize search results for OSINT-oriented investigation workflows.
+Voir `docs/ARCHITECTURE_NAVIGATEUR.md` et `AI_WORKLOG.md` pour les décisions et
+les vérifications de la refonte. Les anciennes tâches d'investigation décrivent
+l'historique et ne constituent plus le périmètre produit.

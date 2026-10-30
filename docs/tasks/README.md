@@ -22,6 +22,16 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 
 ## Index
 
+### Cible actuelle — Navigateur spécialisé
+
+| ID | Titre | Priorité | Outil | Statut |
+|---|---|---|---|---|
+| [T-058](T-058-navigateur-recentre.md) | Dorks multi-requêtes, résultats progressifs et profils persistants | P0 | Codex | review |
+
+Les phases ci-dessous décrivent l'ancien produit. Les tâches extension,
+enquêtes, preuves et monitoring ne sont plus à poursuivre ; les décisions
+actuelles sont dans `PROJECT_STATE.md` et `AI_WORKLOG.md`.
+
 ### Phase 0 — Quick wins stabilité
 
 | ID | Titre | Priorité | Outil | Statut |

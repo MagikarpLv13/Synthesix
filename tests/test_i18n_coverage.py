@@ -1,200 +1,43 @@
-"""Guard tests keeping the cockpit redesign fully internationalized.
-
-Generated pages and the home are translated at runtime by ``i18n.js``, which
-matches the English source text of each node/attribute against translation
-dictionaries. New UI copy that is not added to those dictionaries silently stays
-English in every other language. These tests fail fast in that case.
-"""
-
+"""The browser UI and backend statuses must remain translated in all languages."""
+import ast
+import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
-from lxml import html
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-
-# i18n.js skips these element types when walking the DOM.
-SKIPPED_TAGS = {"script", "style", "code", "pre", "datalist", "option"}
-TRANSLATED_ATTRIBUTES = ("placeholder", "title", "aria-label")
-# Brand, engine names, example placeholders: intentionally language-neutral.
-NON_TRANSLATABLE_LITERALS = {
-    "Synthesix", "Google", "Bing", "Brave", "DuckDuckGo", "URL",
-    "example.com", "cheese", "profile", "admin", "email", "pdf",
-}
-
-# UI copy introduced by the cockpit redesign that i18n.js must translate.
-# Extend this as new surfaces are migrated.
-REDESIGN_STRINGS = [
-    "relevant results",
-    "strong leads",
-    "sources",
-    "best score",
-    "Sorted by relevance score.",
-    "Score 8.0 and above.",
-    "Search engines represented.",
-    "Filter results",
-    "Highest deterministic relevance.",
-    "Found via",
-    "navigate results",
-    "open",
-    "No results matched this search. Adjust the query, filters, "
-    "or engines and try again.",
-    "No saved searches yet",
-    "Run a search from the home page to build your history.",
-    "Search scope",
-    "Scope",
-    "Investigation next actions",
-    "pages to review",
-    "monitored changes",
-    "proposed entities",
-    "Triage saved pages before exporting.",
-    "Open changed pages and compare archives.",
-    "Validate or attach extracted identifiers.",
-    "Evidence files attached to saved pages.",
-    "Configure page monitoring",
-    "Automatic mode selects a profile from the page URL. You can still "
-    "refine the observed metrics.",
-    "Select only useful signals. A missing or unavailable value is kept "
-    "distinct from zero.",
-    "Observation history",
-    "API source",
-    "DOM source",
-    "No source",
-    "Exact value",
-    "Rounded value",
-    "Hidden value",
-    "Unknown precision",
-    "Display Name",
-    "Friends Count",
-    "Profile Photo",
-    "Cover Photo",
-    "Profile Details",
-    "Facebook fields to monitor",
-    "Facebook profile identity",
-    "Facebook visible information",
-    "Latest Facebook post",
-    "Custom targets",
-    "Custom field name",
-    "CSS selector",
-    "Add custom target",
-    "Facebook profile snapshot",
-    "Run the monitor to collect the Facebook profile.",
-    "Open original image",
-    "Open Facebook post",
-    "Latest Post Id",
-    "Latest Post Date",
-    "Latest Post Content",
-    "Latest Post Permalink",
-    "Run now",
-    "Save monitoring",
-]
-
-
-def _dictionary_keys(source, start_marker, end_marker):
-    start = source.index(start_marker)
-    end = source.index(end_marker, start)
-    region = source[start:end]
-    return {
-        key.replace('\\"', '"')
-        for key in re.findall(r'"((?:[^"\\]|\\.)+)"\s*:', region)
-    }
-
-
-def _numeric_patterns(source):
-    patterns = []
-    for raw in re.findall(r'\[/\^(.+?)\$/,', source):
-        try:
-            patterns.append(re.compile("^" + raw.replace('\\"', '"') + "$"))
-        except re.error:
-            continue
-    return patterns
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class I18nCoverageTestCase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.i18n = (PROJECT_DIR / "i18n.js").read_text(encoding="utf-8")
-        cls.multilingual = _dictionary_keys(
-            cls.i18n, "const multilingual = {", "const languageIndexes"
-        )
-        cls.additional = _dictionary_keys(
-            cls.i18n,
-            "const additionalTranslations = {",
-            "const additionalLanguageIndexes",
-        )
-        cls.patterns = _numeric_patterns(cls.i18n)
-        cls.home = html.fromstring(
-            (PROJECT_DIR / "index.html").read_text(encoding="utf-8")
-        )
+    def test_browser_copy_and_validation_errors_have_all_five_translations(self):
+        source = (ROOT / "i18n.js").read_text(encoding="utf-8")
+        def keys(start, end):
+            part = source[source.index(start):source.index(end, source.index(start))]
+            return {json.loads('"' + key + '"') for key in re.findall(r'"((?:[^"\\]|\\.)+)"\s*:', part)}
+        multi = keys("const multilingual = {", "const languageIndexes")
+        additional = keys("const additionalTranslations = {", "const additionalLanguageIndexes")
+        component = (ROOT / "frontend/src/components/sx-browser-app.ts").read_text(encoding="utf-8")
+        literals = set(re.findall(r'\bthis\.t\("([^"\n]+)"\)', component))
+        literals.update(["Site", "Exclude", "File type", "Title contains", "URL contains", "Page contains", "Country code", "After", "Before", "Queries", "Search", "Browser profiles", "History", "One query per line", "No results match this filter.", "Searching selected engines...", "Your next search starts here.", "Starting Synthesix...", "Application disconnected. Launch Synthesix to use this page."])
+        for filename in ["storage.py", "profiles.py", "search.py", "runtime.py"]:
+            tree = ast.parse((ROOT / "app" / filename).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name) and node.exc.func.id == "ValueError":
+                    literals.update(n.value for n in node.exc.args if isinstance(n, ast.Constant) and isinstance(n.value, str))
+                if isinstance(node, ast.keyword) and node.arg == "status":
+                    literals.update(n.value for n in ast.walk(node.value) if isinstance(n, ast.Constant) and isinstance(n.value, str))
+        literals.discard("Unsupported browser database version.")  # Startup error, never UI copy.
+        self.assertEqual(sorted(literals - multi), [])
+        self.assertEqual(sorted(literals - additional), [])
 
-    def _home_strings(self):
-        strings = set()
-        for element in self.home.iter():
-            tag = element.tag if isinstance(element.tag, str) else ""
-            if element.text and tag not in SKIPPED_TAGS:
-                value = re.sub(r"\s+", " ", element.text).strip()
-                if (
-                    len(value) > 1
-                    and re.search(r"[A-Za-z]", value)
-                    and value not in NON_TRANSLATABLE_LITERALS
-                ):
-                    strings.add(value)
-            for attribute in TRANSLATED_ATTRIBUTES:
-                raw = element.get(attribute)
-                if not raw:
-                    continue
-                value = re.sub(r"\s+", " ", raw).strip()
-                if (
-                    re.search(r"[A-Za-z]", value)
-                    and value not in NON_TRANSLATABLE_LITERALS
-                ):
-                    strings.add(value)
-        return strings
-
-    def test_home_ui_strings_are_translated(self):
-        """Every visible home string (and translatable attribute) must resolve
-        to a translation or numeric pattern in every language."""
-        missing = sorted(
-            value
-            for value in self._home_strings()
-            if value not in self.multilingual
-            and not any(pattern.match(value) for pattern in self.patterns)
-        )
-        self.assertEqual(
-            missing,
-            [],
-            "Home strings without translations in i18n.js: "
-            + ", ".join(repr(value) for value in missing),
-        )
-
-    def test_translation_dictionaries_are_key_synced(self):
-        """multilingual (fr/es/zh) and additionalTranslations (pt/de) must hold
-        the same keys so no string is translated for only some languages."""
-        self.assertEqual(
-            self.multilingual - self.additional,
-            set(),
-            "Keys translated for fr/es/zh but missing pt/de translations.",
-        )
-        self.assertEqual(
-            self.additional - self.multilingual,
-            set(),
-            "Keys translated for pt/de but missing fr/es/zh translations.",
-        )
-
-    def test_redesign_strings_translated_in_all_languages(self):
-        missing = sorted(
-            value
-            for value in REDESIGN_STRINGS
-            if value not in self.multilingual or value not in self.additional
-        )
-        self.assertEqual(
-            missing,
-            [],
-            "Redesign strings without full translations in i18n.js: "
-            + ", ".join(repr(value) for value in missing),
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_exported_translator_uses_browser_dictionary_in_every_language(self):
+        script = r"""const fs=require('fs'),vm=require('vm');
+const context={window:{},document:{readyState:'loading',addEventListener(){}}};
+vm.createContext(context);vm.runInContext(fs.readFileSync('i18n.js','utf8'),context);
+const t=context.window.synthesixI18n.t;
+console.log(JSON.stringify(['fr','es','zh','pt','de'].map(lang=>t('Browser profiles',lang))));"""
+        result = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
+        translations = json.loads(result.stdout)
+        self.assertEqual(len(translations), 5)
+        self.assertTrue(all(t and t != "Browser profiles" for t in translations))

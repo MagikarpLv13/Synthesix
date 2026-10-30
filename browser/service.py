@@ -32,17 +32,16 @@ import base64
 import json
 import logging
 import time
-import urllib.request
 import weakref
 from typing import Any, Callable, Mapping
 
 from zendriver import cdp
-from zendriver.core.connection import Connection
 
 import observability
 
 logger = logging.getLogger(__name__)
 MAX_DISPATCH_PAYLOAD_BYTES = 256 * 1024
+EVALUATE_TIMEOUT_SECONDS = 5.0
 MAX_MONITOR_PROBE_TEXT_LENGTH = 200_000
 MAX_MONITOR_PROBE_ITEM_LENGTH = 2_000
 MAX_MONITOR_PROBE_LIST_ITEMS = 200
@@ -71,7 +70,7 @@ async def eval_js(tab, script: str, *, category: str) -> Any:
     """
     observability.count(category)
     try:
-        return await tab.evaluate(script)
+        return await asyncio.wait_for(tab.evaluate(script), timeout=EVALUATE_TIMEOUT_SECONDS)
     except Exception:
         logger.debug("Browser eval failed (%s)", category, exc_info=True)
         return None
@@ -199,261 +198,6 @@ async def outer_html(tab) -> str:
     )
 
 
-async def monitor_probe_snapshot(
-    tab,
-    metrics: list[str] | tuple[str, ...],
-    selectors: Mapping[str, str],
-) -> Mapping[str, Any]:
-    """Extract one bounded, lightweight page snapshot for monitoring.
-
-    The composite evaluate keeps the probe to one CDP round-trip and never
-    captures PNG, MHTML or full DOM HTML. Custom selectors are isolated per
-    metric so one invalid selector produces an explicit metric error without
-    discarding the rest of the observation.
-    """
-    request = json.dumps(
-        {
-            "metrics": [str(metric) for metric in metrics],
-            "selectors": {
-                str(metric): str(selector)
-                for metric, selector in selectors.items()
-            },
-            "maxTextLength": MAX_MONITOR_PROBE_TEXT_LENGTH,
-            "maxItemLength": MAX_MONITOR_PROBE_ITEM_LENGTH,
-            "maxListItems": MAX_MONITOR_PROBE_LIST_ITEMS,
-        },
-        ensure_ascii=False,
-    )
-    script = r"""
-    (() => {
-      const request = __SYNTHESIX_MONITOR_REQUEST__;
-      const metrics = {};
-      const errors = [];
-      const collapse = (value, limit = request.maxItemLength) =>
-        String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
-      const numberValue = (value) => {
-        const text = collapse(value);
-        if (!text) return null;
-        const compact = text.replace(/[\s\u00a0\u202f]/g, "");
-        if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(compact)) return null;
-        const parsed = Number(compact.replace(",", "."));
-        return Number.isFinite(parsed) ? parsed : null;
-      };
-      const stateValue = (node) => {
-        if (node instanceof HTMLInputElement
-            && (node.type === "checkbox" || node.type === "radio")) {
-          return Boolean(node.checked);
-        }
-        for (const attribute of [
-          "aria-checked",
-          "aria-selected",
-          "aria-expanded",
-          "aria-pressed",
-          "data-state",
-        ]) {
-          if (!node.hasAttribute?.(attribute)) continue;
-          const raw = collapse(node.getAttribute(attribute));
-          if (raw === "true") return true;
-          if (raw === "false") return false;
-          if (raw) return raw;
-        }
-        return null;
-      };
-      const scalarValue = (node) => {
-        const state = stateValue(node);
-        if (state !== null) return {kind: "state", value: state};
-        const raw = collapse(
-          node instanceof HTMLInputElement
-            || node instanceof HTMLTextAreaElement
-            || node instanceof HTMLSelectElement
-            ? node.value
-            : node.getAttribute?.("data-value") || node.textContent
-        );
-        const numeric = numberValue(raw);
-        if (numeric !== null) return {kind: "number", value: numeric};
-        return {kind: "text", value: raw};
-      };
-      const selectorMetric = (metric, selector) => {
-        try {
-          const allNodes = Array.from(document.querySelectorAll(selector));
-          const nodes = allNodes.slice(0, request.maxListItems);
-          if (!nodes.length) {
-            return {status: "missing", kind: "text", value: null};
-          }
-          const values = nodes.map(scalarValue);
-          if (values.length === 1) {
-            const value = values[0];
-            return {
-              status: value.value === "" ? "missing" : "ok",
-              kind: value.kind,
-              value: value.value === "" ? null : value.value,
-            };
-          }
-          return {
-            status: "ok",
-            kind: "list",
-            value: values.map((item) => item.value),
-            truncated: allNodes.length > nodes.length,
-          };
-        } catch (error) {
-          errors.push({
-            metric,
-            code: "invalid_selector",
-            message: collapse(error?.message || error, 500),
-          });
-          return {status: "error", kind: "text", value: null};
-        }
-      };
-      const builtInMetric = (metric) => {
-        if (metric === "title") {
-          const value = collapse(document.title);
-          return {
-            status: value ? "ok" : "missing",
-            kind: "text",
-            value: value || null,
-          };
-        }
-        if (metric === "description") {
-          const value = collapse(
-            document.querySelector('meta[name="description" i]')?.content
-          );
-          return {
-            status: value ? "ok" : "missing",
-            kind: "text",
-            value: value || null,
-          };
-        }
-        if (metric === "visible_text") {
-          const raw = String(document.body?.innerText || "");
-          const value = collapse(
-            raw,
-            request.maxTextLength
-          );
-          return {
-            status: value ? "ok" : "missing",
-            kind: "text",
-            value: value || null,
-            truncated: raw.length > request.maxTextLength,
-          };
-        }
-        if (metric === "links") {
-          const allLinks = Array.from(document.querySelectorAll("a[href]"));
-          const values = [];
-          const seen = new Set();
-          for (const node of allLinks.slice(0, request.maxListItems)) {
-            const href = collapse(node.href);
-            if (!href || seen.has(href)) continue;
-            seen.add(href);
-            values.push(href);
-          }
-          return {
-            status: values.length ? "ok" : "missing",
-            kind: "list",
-            value: values.length ? values : null,
-            truncated: allLinks.length > request.maxListItems,
-          };
-        }
-        return {status: "unavailable", kind: "text", value: null};
-      };
-      for (const metric of request.metrics) {
-        const selector = request.selectors[metric];
-        metrics[metric] = selector
-          ? selectorMetric(metric, selector)
-          : builtInMetric(metric);
-      }
-      const statuses = Object.values(metrics).map((item) => item.status);
-      const bodyPreview = collapse(document.body?.innerText, 10000)
-        .toLocaleLowerCase();
-      const href = String(location.href || "");
-      let blockingReason = "";
-      if (href.startsWith("chrome-error://")) {
-        blockingReason = "navigation_error";
-      } else if (
-        document.querySelector('input[type="password"]')
-        && /(?:login|log-in|signin|sign-in|auth)/i.test(href)
-      ) {
-        blockingReason = "authentication_required";
-      } else if (
-        /captcha|verify you are human|unusual traffic|security check|access denied/
-          .test(bodyPreview)
-      ) {
-        blockingReason = "challenge_required";
-      } else {
-        const consentDialog = Array.from(
-          document.querySelectorAll(
-            'dialog, [role="dialog"], [aria-modal="true"]'
-          )
-        ).find((node) => {
-          const style = getComputedStyle(node);
-          const rect = node.getBoundingClientRect();
-          if (
-            style.display === "none"
-            || style.visibility === "hidden"
-            || rect.width <= 0
-            || rect.height <= 0
-          ) {
-            return false;
-          }
-          const text = collapse(node.innerText, 5000).toLocaleLowerCase();
-          return (
-            /cookie|consent|privacy/.test(text)
-            && /accept|agree|allow|continue/.test(text)
-          );
-        });
-        if (consentDialog) blockingReason = "consent_required";
-      }
-      return {
-        final_url: href,
-        metadata: {
-          ready_state: String(document.readyState || ""),
-          language: collapse(document.documentElement?.lang, 100),
-          canonical_url: collapse(
-            document.querySelector('link[rel~="canonical" i]')?.href,
-            4000
-          ),
-          content_type: collapse(document.contentType, 200),
-          blocking_reason: blockingReason,
-        },
-        metrics,
-        errors,
-        diagnostics: {
-          requested_metrics: request.metrics.length,
-          ok_metrics: statuses.filter((status) => status === "ok").length,
-          missing_metrics:
-            statuses.filter((status) => status === "missing").length,
-          unavailable_metrics:
-            statuses.filter((status) => status === "unavailable").length,
-          error_metrics:
-            statuses.filter((status) => status === "error").length,
-        },
-      };
-    })()
-    """.replace("__SYNTHESIX_MONITOR_REQUEST__", request)
-    observability.count("monitor_probe")
-    result = await tab.evaluate(script)
-    if not isinstance(result, Mapping):
-        raise RuntimeError("Invalid monitoring probe response.")
-    return result
-
-
-async def monitor_probe_page_state(tab) -> Mapping[str, Any]:
-    """Return the minimal navigation state needed before a monitor probe."""
-    observability.count("monitor_probe_wait")
-    result = await tab.evaluate(
-        """
-        (() => ({
-          marker: "synthesixMonitorNavigationState",
-          final_url: String(location.href || ""),
-          ready_state: String(document.readyState || ""),
-          has_body: Boolean(document.body),
-        }))()
-        """
-    )
-    if not isinstance(result, Mapping):
-        raise RuntimeError("Invalid monitoring navigation response.")
-    return result
-
-
 async def click_at(tab, x: float, y: float) -> bool:
     """Dispatch a trusted left-click at viewport coordinates ``(x, y)``.
 
@@ -507,11 +251,8 @@ class BrowserService:
         # the push queue it feeds. One queue per browser (shared across
         # repeated `wait_for_home_action` calls via `get_browser_service`).
         self.armed_binding_targets: set[str] = set()
-        self.armed_extension_binding_targets: set[str] = set()
-        self.extension_worker_connections: dict[str, Any] = {}
         # Worker target ids already reported as running a build revision that
         # differs from the one on disk (warn once per target, not per tick).
-        self.stale_extension_worker_targets: set[str] = set()
         self.dispatch_queue: asyncio.Queue = asyncio.Queue()
         # Per-target last time the local-page consume/sync evaluate actually
         # ran, so callers can throttle it once push delivery is confirmed.
@@ -692,10 +433,7 @@ class BrowserService:
 
         self.armed_script_targets.intersection_update(live_page_ids)
         self.armed_binding_targets.intersection_update(
-            live_page_ids | self.armed_extension_binding_targets
-        )
-        self.armed_extension_binding_targets.intersection_update(
-            self.armed_binding_targets
+            live_page_ids
         )
         self.last_local_sync_at = {
             target_id: at
@@ -773,178 +511,6 @@ class BrowserService:
             logger.debug("Unable to arm dispatch binding", exc_info=True)
             return False
 
-    async def arm_extension_dispatch_binding(
-        self,
-        extension_id: str | None,
-        name: str = "synthesixDispatch",
-        expected_revision: str | None = None,
-    ) -> bool:
-        """Expose the dispatch binding on Synthesix' MV3 service worker.
-
-        The worker is not a page tab, so zendriver does not list it in
-        ``browser.tabs``. We attach directly to its debugger websocket and
-        then reuse :meth:`arm_dispatch_binding`.
-
-        When ``expected_revision`` is given, the running worker is compared to
-        the on-disk build (``dist/revision.json``) and a mismatch is logged
-        once per worker target. Arming still proceeds: an out-of-date worker
-        beats a dead one, and the browser picks up the rebuilt bundles at the
-        next launch (the build stamps the worker filename, which defeats the
-        Chromium service-worker script cache).
-        """
-        if not extension_id:
-            return False
-        target = await self._find_extension_service_worker_target(extension_id)
-        if target is None:
-            return False
-        target_id = str(getattr(target, "target_id", "") or "")
-        if not target_id:
-            return False
-        if target_id in self.armed_extension_binding_targets:
-            return True
-        try:
-            connection = self._extension_connection(target, target_id)
-        except Exception:
-            logger.debug("Unable to attach to extension service worker", exc_info=True)
-            return False
-        # zendriver's Connection exposes target metadata, but make the id
-        # explicit for fakes and future versions.
-        try:
-            setattr(connection, "target_id", target_id)
-        except Exception:
-            pass
-        if expected_revision:
-            running = await self._extension_worker_revision(connection)
-            if (
-                running != expected_revision
-                and target_id not in self.stale_extension_worker_targets
-            ):
-                self.stale_extension_worker_targets.add(target_id)
-                logger.warning(
-                    "Extension service worker runs build revision %r but the "
-                    "build on disk is %r; restart the browser (or reload the "
-                    "extension) to pick up the new bundles. Arming anyway.",
-                    running,
-                    expected_revision,
-                )
-        armed = await self.arm_dispatch_binding(connection, name=name)
-        if armed:
-            self.armed_extension_binding_targets.add(target_id)
-            self.extension_worker_connections[target_id] = connection
-        return armed
-
-    async def _extension_worker_revision(self, connection) -> str:
-        try:
-            remote, exception = await connection.send(
-                cdp.runtime.evaluate(
-                    expression='String(globalThis.synthesixBackgroundRevision || "")',
-                    return_by_value=True,
-                )
-            )
-        except Exception:
-            logger.debug("Unable to read extension worker revision", exc_info=True)
-            return ""
-        if exception is not None:
-            logger.debug("Extension worker revision read rejected: %r", exception)
-            return ""
-        return str(getattr(remote, "value", "") or "")
-
-    async def send_extension_backend_message(
-        self,
-        extension_id: str | None,
-        message: Mapping[str, Any],
-    ) -> bool:
-        """Deliver a backend-originated message to Synthesix' service worker.
-
-        T-035 uses the same worker CDP attachment as the extension action
-        binding, but in the opposite direction: Python evaluates a small
-        promise in the MV3 worker, which then updates extension storage or
-        relays a targeted tab message.
-        """
-        if not extension_id:
-            return False
-        target = await self._find_extension_service_worker_target(extension_id)
-        if target is None:
-            return False
-        target_id = str(getattr(target, "target_id", "") or "")
-        if not target_id:
-            return False
-        connection = self.extension_worker_connections.get(target_id)
-        if connection is None:
-            try:
-                connection = self._extension_connection(target, target_id)
-            except Exception:
-                logger.debug(
-                    "Unable to attach to extension service worker",
-                    exc_info=True,
-                )
-                return False
-            try:
-                setattr(connection, "target_id", target_id)
-            except Exception:
-                pass
-            self.extension_worker_connections[target_id] = connection
-        payload_json = json.dumps(message, ensure_ascii=True)
-        observability.count("extension_backend_message")
-        observability.observe_bytes("extension_backend_message", len(payload_json))
-        try:
-            remote, exception = await connection.send(
-                cdp.runtime.evaluate(
-                    expression=(
-                        "globalThis.synthesixReceiveBackendMessage"
-                        "? globalThis.synthesixReceiveBackendMessage"
-                        f"({payload_json}) : false"
-                    ),
-                    await_promise=True,
-                    return_by_value=True,
-                )
-            )
-        except Exception:
-            logger.debug("Unable to send extension backend message", exc_info=True)
-            return False
-        if exception is not None:
-            logger.debug("Extension backend message rejected: %r", exception)
-            return False
-        return bool(getattr(remote, "value", False))
-
-    async def _find_extension_service_worker_target(self, extension_id: str):
-        expected_prefix = f"chrome-extension://{extension_id}/"
-        try:
-            targets = await self.browser._get_targets()
-        except Exception:
-            logger.debug("Unable to inspect extension service worker", exc_info=True)
-            return None
-        return next(
-            (
-                target
-                for target in targets
-                if getattr(target, "type_", None) == "service_worker"
-                and str(getattr(target, "url", "")).startswith(expected_prefix)
-            ),
-            None,
-        )
-
-    def _extension_connection(self, target, target_id: str):
-        websocket_url = self._target_websocket_url(target_id)
-        # Do not pass the browser as owner here. Zendriver uses `_owner` to run
-        # page-specific preparation commands before every send; those commands
-        # are invalid/noisy on MV3 service workers and can destabilize the
-        # browser-level session during overlay clicks.
-        return Connection(websocket_url, target=target)
-
-    def _target_websocket_url(self, target_id: str) -> str:
-        config = getattr(self.browser, "config", None)
-        host = getattr(config, "host", None)
-        port = getattr(config, "port", None)
-        if not host or not port:
-            raise RuntimeError("Browser debugger endpoint is unavailable.")
-        url = f"http://{host}:{port}/json/list"
-        with urllib.request.urlopen(url, timeout=5.0) as response:
-            targets = json.loads(response.read().decode("utf-8"))
-        for target in targets:
-            if target.get("id") == target_id and target.get("webSocketDebuggerUrl"):
-                return str(target["webSocketDebuggerUrl"])
-        raise RuntimeError(f"WebSocket debugger URL not found for {target_id}")
 
     def _make_binding_handler(self, tab, name: str) -> Callable:
         # Must stay a coroutine function: zendriver dispatches plain

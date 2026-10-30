@@ -14,5 +14,5 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["src", "../extension/src"]
+  "include": ["src"]
 }

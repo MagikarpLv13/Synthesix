@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 
@@ -73,10 +73,6 @@ def _env_engines(name: str = "SYNTHESIX_DEFAULT_ENGINES") -> Dict[str, bool]:
 @dataclass(frozen=True)
 class AppSettings:
     base_dir: Path
-    database_path: Path
-    investigation_pages_dir: Path
-    evidence_dir: Path
-    exports_dir: Path
     history_dir: Path
     history_json_path: Path
     history_report_path: Path
@@ -85,15 +81,11 @@ class AppSettings:
     debug_html_dir: Path
     browser_profile_dir: Path
     search_profile_dir: Path
-    search_browser_mode: str
     search_window_mode: str
     browser_type: str
     browser_executable_path: Path | None
     browser_connection_timeout: float
     browser_connection_max_tries: int
-    extension_dir: Path
-    extension_mode: str
-    overlay_mode: str
     default_engines: Dict[str, bool]
     default_history_limit: int
     default_max_results: int
@@ -133,29 +125,9 @@ class AppSettings:
     # cut off mid-challenge.
     search_total_budget: float
     max_query_variants: int
-    monitor_autostart: bool
-    monitor_poll_interval: float
-    monitor_batch_size: int
-    monitor_concurrency: int
-    monitor_lease_seconds: float
-    monitor_attempt_timeout: float
-    monitor_retry_attempts: int
-    monitor_retry_delay: float
-    monitor_retry_backoff: float
-    monitor_jitter_seconds: float
-    monitor_failure_backoff_seconds: float
-    monitor_max_failures: int
-    monitor_headless: bool
-    social_api_timeout: float
-    youtube_api_key: str = field(repr=False)
-    x_bearer_token: str = field(repr=False)
-    tiktok_research_access_token: str = field(repr=False)
 
     def search_results_path(self, date_str: str) -> Path:
         return self.history_dir / f"search_results_{date_str}.html"
-
-    def investigation_page_path(self, investigation_id: str) -> Path:
-        return self.investigation_pages_dir / f"{investigation_id}.html"
 
 
 # Cache keyed on the SYNTHESIX_* environment plus the working directory
@@ -209,26 +181,6 @@ def _build_settings() -> AppSettings:
 
     return AppSettings(
         base_dir=base_dir,
-        database_path=_env_path(
-            "SYNTHESIX_DATABASE_PATH",
-            "data/synthesix.db",
-            base_dir,
-        ),
-        investigation_pages_dir=_env_path(
-            "SYNTHESIX_INVESTIGATION_PAGES_DIR",
-            "data/investigation_pages",
-            base_dir,
-        ),
-        evidence_dir=_env_path(
-            "SYNTHESIX_EVIDENCE_DIR",
-            "data/evidence",
-            base_dir,
-        ),
-        exports_dir=_env_path(
-            "SYNTHESIX_EXPORTS_DIR",
-            "data/exports",
-            base_dir,
-        ),
         history_dir=history_dir,
         history_json_path=history_dir / "history.json",
         history_report_path=history_report_path,
@@ -241,11 +193,6 @@ def _build_settings() -> AppSettings:
         ),
         browser_profile_dir=browser_profile_dir,
         search_profile_dir=search_profile_dir,
-        search_browser_mode=_env_choice(
-            "SYNTHESIX_SEARCH_BROWSER",
-            "separate",
-            {"shared", "separate"},
-        ),
         search_window_mode=_env_choice(
             "SYNTHESIX_SEARCH_WINDOW_MODE",
             "offscreen",
@@ -255,9 +202,6 @@ def _build_settings() -> AppSettings:
         browser_executable_path=_env_optional_path("SYNTHESIX_BROWSER_EXECUTABLE_PATH", base_dir),
         browser_connection_timeout=_env_float("SYNTHESIX_BROWSER_CONNECTION_TIMEOUT", 0.25),
         browser_connection_max_tries=_env_int("SYNTHESIX_BROWSER_CONNECTION_MAX_TRIES", 10),
-        extension_dir=_env_path("SYNTHESIX_EXTENSION_DIR", "extension", base_dir),
-        extension_mode=_env_str("SYNTHESIX_EXTENSION_MODE", "auto").lower(),
-        overlay_mode=_env_str("SYNTHESIX_OVERLAY_MODE", "auto").lower(),
         default_engines=_env_engines(),
         default_history_limit=_env_int("SYNTHESIX_HISTORY_LIMIT", 25),
         default_max_results=_env_int("SYNTHESIX_DEFAULT_MAX_RESULTS", 20),
@@ -290,72 +234,4 @@ def _build_settings() -> AppSettings:
         engine_retry_backoff=_env_float("SYNTHESIX_ENGINE_RETRY_BACKOFF", 2.0),
         search_total_budget=_env_float("SYNTHESIX_SEARCH_TOTAL_BUDGET", 120.0),
         max_query_variants=max(1, _env_int("SYNTHESIX_MAX_QUERY_VARIANTS", 6)),
-        monitor_autostart=_env_bool("SYNTHESIX_MONITOR_AUTOSTART", False),
-        monitor_poll_interval=max(
-            1.0,
-            _env_float("SYNTHESIX_MONITOR_POLL_INTERVAL", 60.0),
-        ),
-        monitor_batch_size=min(
-            100,
-            max(1, _env_int("SYNTHESIX_MONITOR_BATCH_SIZE", 4)),
-        ),
-        monitor_concurrency=max(
-            1,
-            _env_int("SYNTHESIX_MONITOR_CONCURRENCY", 2),
-        ),
-        monitor_lease_seconds=min(
-            3600.0,
-            max(
-                5.0,
-                _env_float("SYNTHESIX_MONITOR_LEASE_SECONDS", 300.0),
-            ),
-        ),
-        monitor_attempt_timeout=max(
-            1.0,
-            _env_float("SYNTHESIX_MONITOR_ATTEMPT_TIMEOUT", 75.0),
-        ),
-        monitor_retry_attempts=min(
-            10,
-            max(0, _env_int("SYNTHESIX_MONITOR_RETRY_ATTEMPTS", 1)),
-        ),
-        monitor_retry_delay=max(
-            0.0,
-            _env_float("SYNTHESIX_MONITOR_RETRY_DELAY", 1.0),
-        ),
-        monitor_retry_backoff=max(
-            1.0,
-            _env_float("SYNTHESIX_MONITOR_RETRY_BACKOFF", 2.0),
-        ),
-        monitor_jitter_seconds=max(
-            0.0,
-            _env_float("SYNTHESIX_MONITOR_JITTER_SECONDS", 2.0),
-        ),
-        monitor_failure_backoff_seconds=max(
-            0.0,
-            _env_float(
-                "SYNTHESIX_MONITOR_FAILURE_BACKOFF_SECONDS",
-                300.0,
-            ),
-        ),
-        monitor_max_failures=min(
-            100,
-            max(1, _env_int("SYNTHESIX_MONITOR_MAX_FAILURES", 3)),
-        ),
-        monitor_headless=_env_bool("SYNTHESIX_MONITOR_HEADLESS", True),
-        social_api_timeout=max(
-            1.0,
-            _env_float("SYNTHESIX_SOCIAL_API_TIMEOUT", 10.0),
-        ),
-        youtube_api_key=os.getenv(
-            "SYNTHESIX_YOUTUBE_API_KEY",
-            "",
-        ).strip(),
-        x_bearer_token=os.getenv(
-            "SYNTHESIX_X_BEARER_TOKEN",
-            "",
-        ).strip(),
-        tiktok_research_access_token=os.getenv(
-            "SYNTHESIX_TIKTOK_RESEARCH_ACCESS_TOKEN",
-            "",
-        ).strip(),
     )

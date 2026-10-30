@@ -26,6 +26,22 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 ## Travaux planifiés (à reprendre)
 
+### Périmètre du lot actif AI-20261030-002
+
+- Sauvegarde des sources initiales : commit `0e58af1`, exclusivement sur
+  `codex/browser-refocus`. Les données runtime et le graphe local sont exclus.
+- Après validation du nouveau lancement : retrait versionné des répertoires
+  `investigations/`, `analysis/`, `evidence/`, `exports/`, `extension/` et
+  `frontend/src/overlay/`, du bundle overlay et des composants exclusivement
+  enquête. Les données sous `data/` et `history/` restent intactes.
+- Les tests des fonctions retirées sont retirés avec elles. Les gardes du
+  lancement, du CDP, des entrées, de l'i18n et des profils sont remplacées ou
+  conservées selon le nouveau contrat ; aucun test moteur n'est désactivé.
+- Périmètre complémentaire : `browser/__init__.py`, `exceptions.py`,
+  `tests/test_browser_app.py`, tests home/main/i18n/settings/fakes/CDP concernés,
+  `tests/manual/smoke_browser_app.py`, build Windows et manifeste de dépendances
+  de construction. PyInstaller est envisagé uniquement pour l'empaquetage.
+
 **Priorité produit depuis le 2026-10-30 :** recentrer Synthesix sur une application
 navigateur prête à lancer, les dorks multi-requêtes, l'agrégation et les profils
 persistants. L'investigation revient à ZeroNeurone/ZNELFP. Les travaux historiques
@@ -51,6 +67,11 @@ archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
 | Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
 |---|---|---|---|---|---|
 | `main.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| `frontend/src/overlay/index.ts` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait de l'overlay après smoke du nouveau lancement | Fin du lot |
+| `frontend/tsconfig.json` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retirer l'ancien répertoire extension du build TypeScript | Fin du lot |
+| `assets/synthesix-overlay.js` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait du bundle inutilisé | Fin du lot |
+| `investigations/view.py` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait des fonctions d'enquête sauvegardées en Git | Fin du lot |
+| `investigations/search_view.py` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait de l'archive locale d'enquête | Fin du lot |
 | `index.html` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
 | `theme.css` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
 | `i18n.js` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |

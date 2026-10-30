@@ -49,16 +49,6 @@ class SettingsTestCase(unittest.TestCase):
 
             base_dir = Path(temp_dir).resolve()
             self.assertEqual(settings.base_dir, base_dir)
-            self.assertEqual(settings.database_path, base_dir / "data" / "synthesix.db")
-            self.assertEqual(
-                settings.investigation_pages_dir,
-                base_dir / "data" / "investigation_pages",
-            )
-            self.assertEqual(
-                settings.evidence_dir,
-                base_dir / "data" / "evidence",
-            )
-            self.assertEqual(settings.exports_dir, base_dir / "data" / "exports")
             self.assertEqual(settings.history_dir, base_dir / "history")
             self.assertEqual(settings.history_json_path, base_dir / "history" / "history.json")
             self.assertEqual(settings.history_report_path, base_dir / "history" / "history.html")
@@ -67,15 +57,11 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.debug_html_dir, base_dir / "history" / "debug_pages")
             self.assertEqual(settings.browser_profile_dir, base_dir / "zendriver-profile")
             self.assertEqual(settings.search_profile_dir, base_dir / "search-profile")
-            self.assertEqual(settings.search_browser_mode, "separate")
             self.assertEqual(settings.search_window_mode, "offscreen")
             self.assertEqual(settings.browser_type, "auto")
             self.assertIsNone(settings.browser_executable_path)
             self.assertEqual(settings.browser_connection_timeout, 0.25)
             self.assertEqual(settings.browser_connection_max_tries, 10)
-            self.assertEqual(settings.extension_dir, base_dir / "extension")
-            self.assertEqual(settings.extension_mode, "auto")
-            self.assertEqual(settings.overlay_mode, "auto")
             self.assertEqual(settings.default_engines, {
                 "google": True,
                 "bing": True,
@@ -101,26 +87,6 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.engine_retry_attempts, 1)
             self.assertEqual(settings.engine_retry_delay, 0.5)
             self.assertEqual(settings.engine_retry_backoff, 2.0)
-            self.assertFalse(settings.monitor_autostart)
-            self.assertEqual(settings.monitor_poll_interval, 60.0)
-            self.assertEqual(settings.monitor_batch_size, 4)
-            self.assertEqual(settings.monitor_concurrency, 2)
-            self.assertEqual(settings.monitor_lease_seconds, 300.0)
-            self.assertEqual(settings.monitor_attempt_timeout, 75.0)
-            self.assertEqual(settings.monitor_retry_attempts, 1)
-            self.assertEqual(settings.monitor_retry_delay, 1.0)
-            self.assertEqual(settings.monitor_retry_backoff, 2.0)
-            self.assertEqual(settings.monitor_jitter_seconds, 2.0)
-            self.assertEqual(
-                settings.monitor_failure_backoff_seconds,
-                300.0,
-            )
-            self.assertEqual(settings.monitor_max_failures, 3)
-            self.assertTrue(settings.monitor_headless)
-            self.assertEqual(settings.social_api_timeout, 10.0)
-            self.assertEqual(settings.youtube_api_key, "")
-            self.assertEqual(settings.x_bearer_token, "")
-            self.assertEqual(settings.tiktok_research_access_token, "")
 
     def test_environment_overrides_runtime_settings(self):
         with TemporaryDirectory() as temp_dir:
@@ -187,19 +153,6 @@ class SettingsTestCase(unittest.TestCase):
                 settings = get_settings()
 
             base_dir = Path(temp_dir).resolve()
-            self.assertEqual(settings.database_path, base_dir / "runtime" / "synthesix.db")
-            self.assertEqual(
-                settings.investigation_pages_dir,
-                base_dir / "runtime" / "cases",
-            )
-            self.assertEqual(
-                settings.evidence_dir,
-                base_dir / "runtime" / "evidence",
-            )
-            self.assertEqual(
-                settings.exports_dir,
-                base_dir / "runtime" / "exports",
-            )
             self.assertEqual(settings.history_dir, base_dir / "runtime" / "history")
             self.assertEqual(settings.history_report_path, base_dir / "runtime" / "history-report.html")
             self.assertTrue(settings.debug_html)
@@ -209,15 +162,11 @@ class SettingsTestCase(unittest.TestCase):
                 settings.search_profile_dir,
                 base_dir / "runtime" / "search-profile",
             )
-            self.assertEqual(settings.search_browser_mode, "shared")
             self.assertEqual(settings.search_window_mode, "headless")
             self.assertEqual(settings.browser_type, "brave")
             self.assertEqual(settings.browser_executable_path, base_dir / "runtime" / "brave.exe")
             self.assertEqual(settings.browser_connection_timeout, 0.75)
             self.assertEqual(settings.browser_connection_max_tries, 20)
-            self.assertEqual(settings.extension_dir, base_dir / "runtime" / "extension")
-            self.assertEqual(settings.extension_mode, "off")
-            self.assertEqual(settings.overlay_mode, "extension")
             self.assertEqual(settings.default_engines, {
                 "google": True,
                 "bing": False,
@@ -243,47 +192,11 @@ class SettingsTestCase(unittest.TestCase):
             self.assertEqual(settings.engine_retry_attempts, 3)
             self.assertEqual(settings.engine_retry_delay, 0.2)
             self.assertEqual(settings.engine_retry_backoff, 1.5)
-            self.assertTrue(settings.monitor_autostart)
-            self.assertEqual(settings.monitor_poll_interval, 15.0)
-            self.assertEqual(settings.monitor_batch_size, 8)
-            self.assertEqual(settings.monitor_concurrency, 3)
-            self.assertEqual(settings.monitor_lease_seconds, 120.0)
-            self.assertEqual(settings.monitor_attempt_timeout, 45.0)
-            self.assertEqual(settings.monitor_retry_attempts, 2)
-            self.assertEqual(settings.monitor_retry_delay, 0.4)
-            self.assertEqual(settings.monitor_retry_backoff, 3.0)
-            self.assertEqual(settings.monitor_jitter_seconds, 0.5)
-            self.assertEqual(
-                settings.monitor_failure_backoff_seconds,
-                90.0,
-            )
-            self.assertEqual(settings.monitor_max_failures, 6)
-            self.assertFalse(settings.monitor_headless)
-            self.assertEqual(settings.social_api_timeout, 7.5)
-            self.assertEqual(settings.youtube_api_key, "youtube-secret")
-            self.assertEqual(settings.x_bearer_token, "x-secret")
-            self.assertEqual(
-                settings.tiktok_research_access_token,
-                "tiktok-secret",
-            )
             rendered = repr(settings)
             self.assertNotIn("youtube-secret", rendered)
             self.assertNotIn("x-secret", rendered)
             self.assertNotIn("tiktok-secret", rendered)
 
-    def test_invalid_search_browser_mode_falls_back_to_separate(self):
-        with TemporaryDirectory() as temp_dir:
-            with patch.dict(
-                "os.environ",
-                {
-                    "SYNTHESIX_BASE_DIR": temp_dir,
-                    "SYNTHESIX_SEARCH_BROWSER": "invalid",
-                },
-                clear=True,
-            ):
-                settings = get_settings()
-
-        self.assertEqual(settings.search_browser_mode, "separate")
 
     def test_invalid_search_window_mode_falls_back_to_offscreen(self):
         with TemporaryDirectory() as temp_dir:

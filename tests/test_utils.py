@@ -229,7 +229,6 @@ class UtilsTestCase(unittest.TestCase):
                     "original_query": "anna lindberg",
                     "filters": {"site": "example.com"},
                     "num_results": 7,
-                    "investigation_id": "case-1",
                 }
 
                 output_path = generate_html_report(
@@ -250,7 +249,7 @@ class UtilsTestCase(unittest.TestCase):
                     "\\&quot;&quot;",
                     content,
                 )
-                self.assertIn("&quot;investigationId&quot;:&quot;case-1&quot;", content)
+                self.assertNotIn("investigationId", content)
                 self.assertIn("data-page-status", content)
                 self.assertIn("This report action is invalid.", content)
             finally:
@@ -331,24 +330,6 @@ class UtilsTestCase(unittest.TestCase):
             finally:
                 os.chdir(current_dir)
 
-    def test_load_search_history_preserves_investigation_id(self):
-        current_dir = os.getcwd()
-        with TemporaryDirectory() as temp_dir:
-            os.chdir(temp_dir)
-            try:
-                add_to_history(
-                    "company",
-                    '"company"',
-                    2,
-                    "result.html",
-                    investigation_id="case-123",
-                )
-
-                history = load_search_history(limit=10)
-
-                self.assertEqual(history[0]["investigation_id"], "case-123")
-            finally:
-                os.chdir(current_dir)
 
     def test_load_search_history_keeps_same_query_with_different_filters(self):
         current_dir = os.getcwd()

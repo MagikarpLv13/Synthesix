@@ -1,0 +1,3 @@
+# Packaging only; end users do not install Python or Node.
+-r requirements.txt
+pyinstaller==6.22.3

@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from app.storage import BrowserStore
 from app.profiles import ProfileLauncher, validate_web_url
@@ -146,3 +148,100 @@ class ProgressiveSearchTestCase(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertTrue(closed.is_set())
+
+
+class BrowserRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_repeated_cancel_does_not_interrupt_search_cleanup(self):
+        from app.runtime import BrowserApplication
+        with TemporaryDirectory() as directory:
+            app = BrowserApplication(SimpleNamespace(base_dir=Path(directory)))
+            cleaning = asyncio.Event()
+            finish = asyncio.Event()
+            completed = asyncio.Event()
+            async def work():
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cleaning.set()
+                    await finish.wait()
+                    completed.set()
+            app.search_task = asyncio.create_task(work())
+            await asyncio.sleep(0)
+            with patch.object(app, "trusted_source", new=AsyncMock(return_value=True)):
+                await app.dispatch({"action": "cancel_search"}, object())
+                await cleaning.wait()
+                await app.dispatch({"action": "cancel_search"}, object())
+                finish.set()
+                await asyncio.gather(app.search_task, return_exceptions=True)
+            self.assertTrue(completed.is_set())
+
+    async def test_unresponsive_ui_evaluation_is_bounded(self):
+        from browser import eval_js
+        stopped = asyncio.Event()
+        async def hanging(_script):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        with patch("browser.service.EVALUATE_TIMEOUT_SECONDS", .01):
+            self.assertIsNone(await eval_js(SimpleNamespace(evaluate=hanging), "true", category="test"))
+        self.assertTrue(stopped.is_set())
+
+    async def test_target_registry_refresh_keeps_the_initialized_home_connection(self):
+        from app.runtime import BrowserApplication
+        with TemporaryDirectory() as directory:
+            app = BrowserApplication(SimpleNamespace(base_dir=Path(directory)))
+            initialized = SimpleNamespace(target_id="home", url=app.home_url)
+            app.service = SimpleNamespace(arm_dispatch_binding=AsyncMock())
+            await app.select_home([initialized])
+            refreshed = SimpleNamespace(target_id="home", url=app.home_url)
+            await app.select_home([refreshed])
+            self.assertIs(app.home_tab, initialized)
+            app.service.arm_dispatch_binding.assert_awaited_once_with(initialized)
+            await app.select_home([SimpleNamespace(target_id="home", url="https://example.com/")])
+            self.assertIsNone(app.home_tab)
+            await app.select_home([refreshed])
+            self.assertIs(app.home_tab, initialized)
+
+    async def test_foreign_tabs_and_navigated_home_cannot_issue_privileged_actions(self):
+        from app.runtime import BrowserApplication
+        with TemporaryDirectory() as directory:
+            app = BrowserApplication(SimpleNamespace(base_dir=Path(directory)))
+            app.home_tab = SimpleNamespace(target_id="home")
+            with patch("app.runtime.eval_js", new_callable=AsyncMock, return_value="https://example.com/"):
+                await app.dispatch({"action": "create_profile", "name": "Forbidden"}, app.home_tab)
+                await app.dispatch({"action": "create_profile", "name": "Forbidden"}, SimpleNamespace(target_id="external"))
+            self.assertEqual(app.store.profiles(), [])
+
+    async def test_home_commands_create_profile_but_cannot_open_non_web_url(self):
+        from app.runtime import BrowserApplication
+        with TemporaryDirectory() as directory:
+            app = BrowserApplication(SimpleNamespace(base_dir=Path(directory)))
+            app.home_tab = SimpleNamespace(target_id="home")
+            app.service = SimpleNamespace(open_tab=AsyncMock())
+            with patch("app.runtime.eval_js", new_callable=AsyncMock, return_value=app.home_url):
+                await app.dispatch({"action": "create_profile", "name": "Persona"}, app.home_tab)
+                await app.dispatch({"action": "open_result", "url": "file:///private", "profileId": ""}, app.home_tab)
+            self.assertEqual(app.store.profiles()[0]["name"], "Persona")
+            app.service.open_tab.assert_not_called()
+            self.assertTrue(app.model["isError"])
+
+    async def test_idle_heartbeat_does_not_transfer_results_again(self):
+        from app.runtime import BrowserApplication
+        with TemporaryDirectory() as directory:
+            app = BrowserApplication(SimpleNamespace(base_dir=Path(directory)))
+            app.home_tab = SimpleNamespace(target_id="home")
+            app.model["results"] = [{"title": "SYNTHETIC_LARGE_PAYLOAD"}]
+            with patch("app.runtime.eval_js", new_callable=AsyncMock, return_value=True) as evaluate:
+                await app.publish()
+            self.assertNotIn("SYNTHETIC_LARGE_PAYLOAD", evaluate.call_args.args[1])
+
+    def test_entrypoint_imports_no_investigation_modules(self):
+        script = "import main,sys,json; print(json.dumps([m for m in sys.modules if m.split('.')[0] in {'investigations','evidence','exports','analysis'}]))"
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), [])
+
+    def test_search_runtime_imports_no_report_renderer(self):
+        script = "import app.runtime,sys,json; print(json.dumps([m for m in ('ui','utils','investigations','evidence','exports','analysis') if m in sys.modules]))"
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), [])

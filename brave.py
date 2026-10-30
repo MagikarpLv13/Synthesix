@@ -15,7 +15,7 @@ from query_operators import build_engine_date_params
 from search_engine import SearchEngine
 from search_regions import build_engine_region_params
 from settings import get_settings
-from utils import js_like_to_json
+from parsers import js_like_to_json
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -10,7 +9,7 @@ from browser import get_browser_service
 from browser_manager import HeadlessBrowserManager
 from query_operators import SearchFilters
 from settings import AppSettings, ENGINE_NAMES
-from utils import is_advanced_query, smart_parse
+from query_syntax import is_advanced_query, smart_parse
 
 
 @dataclass(frozen=True)
