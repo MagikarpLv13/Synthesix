@@ -47,7 +47,8 @@ puppets. L'investigation appartient à ZeroNeurone avec ZNELFP, séparément.
 
 ## Vérifications
 
-Les résultats exacts de la suite, du build et des smoke tests figurent dans
+222 tests unitaires passent ; typecheck/build et smoke Chrome/profils/exécutable
+sont validés. Une recherche Bing réelle a aussi abouti. Les détails figurent dans
 `AI_WORKLOG.md`, lot AI-20261030-002. Les tests moteurs et leurs fixtures sont
 conservés. Les tests d'enquêtes retirés correspondent aux fonctions supprimées ;
 les gardes du nouveau lancement, du transport, de l'i18n et des profils sont

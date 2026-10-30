@@ -22,31 +22,15 @@ Statuts autorisés : `claimed`, `in_progress`, `blocked`, `review`, `handoff`.
 
 | ID | Agent | Statut | Début UTC | Dernière MAJ UTC | Objectif | Périmètre / fichiers prévus | Tests prévus | Branche / commit |
 |---|---|---|---|---|---|---|---|---|
-| AI-20261030-002 | Codex | in_progress | 2026-10-30 18:57 | 2026-10-30 18:57 | Implémenter le navigateur recentré : dorks, résultats progressifs, historique et profils persistants ; retirer le parcours investigation | Point de sauvegarde des sources existantes ; `app/`, `main.py`, home/CSS/i18n, moteur/orchestrateur, navigateur/settings, frontend/build/bundle, tests concernés, documentation ; retrait des modules et tests exclusivement investigation après sauvegarde | Tests ciblés TDD, suite unittest, typecheck/build, smoke CDP réel avec profils temporaires, clair/sombre/étroit/long/vide, contrôles Git | `codex/browser-refocus` ; source initiale sale préservée dans un commit distinct ; pas de pull |
+| _Aucun travail actif_ |  |  |  |  |  |  |  |  |
 
 ## Travaux planifiés (à reprendre)
 
-### Périmètre du lot actif AI-20261030-002
-
-- Sauvegarde des sources initiales : commit `0e58af1`, exclusivement sur
-  `codex/browser-refocus`. Les données runtime et le graphe local sont exclus.
-- Après validation du nouveau lancement : retrait versionné des répertoires
-  `investigations/`, `analysis/`, `evidence/`, `exports/`, `extension/` et
-  `frontend/src/overlay/`, du bundle overlay et des composants exclusivement
-  enquête. Les données sous `data/` et `history/` restent intactes.
-- Les tests des fonctions retirées sont retirés avec elles. Les gardes du
-  lancement, du CDP, des entrées, de l'i18n et des profils sont remplacées ou
-  conservées selon le nouveau contrat ; aucun test moteur n'est désactivé.
-- Périmètre complémentaire : `browser/__init__.py`, `exceptions.py`,
-  `tests/test_browser_app.py`, tests home/main/i18n/settings/fakes/CDP concernés,
-  `tests/manual/smoke_browser_app.py`, build Windows et manifeste de dépendances
-  de construction. PyInstaller est envisagé uniquement pour l'empaquetage.
-
-**Priorité produit depuis le 2026-10-30 :** recentrer Synthesix sur une application
-navigateur prête à lancer, les dorks multi-requêtes, l'agrégation et les profils
-persistants. L'investigation revient à ZeroNeurone/ZNELFP. Les travaux historiques
-ci-dessous ne sont plus à poursuivre automatiquement. État des lieux et solution
-proposée dans `docs/ARCHITECTURE_NAVIGATEUR.md` ; bascule applicative non réalisée.
+**Cible produit depuis le 2026-10-30 :** navigateur spécialisé livré sur
+`codex/browser-refocus` : dorks multi-requêtes, agrégation progressive,
+historique et profils persistants. L'investigation revient à ZeroNeurone/ZNELFP.
+Voir T-058, `README.md` et le compte rendu AI-20261030-002. Les travaux historiques
+ci-dessous ne sont plus à poursuivre automatiquement.
 
 Les lots #1 (archive auto + archive protégée), #2 (provenance vers le snapshot
 archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
@@ -66,29 +50,10 @@ archivé + surlignage text-fragment), #4 (export ZeroNeurone des propriétés
 
 | Fichier ou motif | Tâche | Agent | Pris UTC | Motif | Libération prévue |
 |---|---|---|---|---|---|
-| `main.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `frontend/src/overlay/index.ts` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait de l'overlay après smoke du nouveau lancement | Fin du lot |
-| `frontend/tsconfig.json` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retirer l'ancien répertoire extension du build TypeScript | Fin du lot |
-| `assets/synthesix-overlay.js` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait du bundle inutilisé | Fin du lot |
-| `investigations/view.py` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait des fonctions d'enquête sauvegardées en Git | Fin du lot |
-| `investigations/search_view.py` | AI-20261030-002 | Codex | 2026-10-30 19:20 | Retrait de l'archive locale d'enquête | Fin du lot |
-| `index.html` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `theme.css` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `i18n.js` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `settings.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `search_orchestrator.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `utils.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `ui.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `browser_manager.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `browser/service.py` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `frontend/build.mjs` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `frontend/src/index.ts` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `assets/synthesix-ui.js` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `AI_WORKLOG.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `PROJECT_STATE.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
-| `README.md` | AI-20261030-002 | Codex | 2026-10-30 18:57 | Recentrage navigateur ; sauvegarde préalable des changements existants | Fin du lot |
+| _Aucun verrou actif_ |  |  |  |  |  |
 
 Un verrou doit être précis. Éviter les verrous globaux tels que `*.py` ou `frontend/**`. Pour un lot multi-fichiers, lister les fichiers chauds ; les fichiers dédiés à un nouveau composant peuvent rester couverts par la tâche sans verrou séparé.
+
 
 ## Blocages et relais
 
@@ -104,6 +69,7 @@ Les décisions doivent décrire un choix durable qui affecte plusieurs tâches. 
 |---|---|---|---|---|---|---|
 | DEC-001 | 2026-06-21 | Initialisation | `AI_WORKLOG.md` est la source de vérité pour les claims et verrous IA actifs. | Éviter la dispersion entre plusieurs journaux. | `AGENTS.md`, `CLAUDE.md`, `frontend/TASKS.md` | — |
 | DEC-002 | 2026-10-30 | Demande utilisateur | Cible produit : application navigateur prête à lancer, dorks multi-requêtes, agrégation et profils persistants de sock puppets ; missions/enquêtes et fonctions associées sortent du produit au profit de ZeroNeurone/ZNELFP. Préserver les données existantes. L'architecture technique reste proposée, pas implémentée. | Réduire le périmètre à maintenir et revenir à l'usage initial. | `PROJECT_STATE.md`, `docs/ARCHITECTURE_NAVIGATEUR.md` ; le plan historique sera réévalué lors de la bascule | Complète DEC-001 ; réoriente la cible produit sans modifier rétroactivement le plan technique |
+| DEC-003 | 2026-10-30 | Autorisation utilisateur et implémentation Codex | Architecture du navigateur recentré acceptée : Python/Zendriver + Chrome/Brave natif, UI Lit locale, collecte progressive sans renderer, profils persistants sans attachement CDP, stockage indépendant. Retrait des enquêtes/monitoring/overlay et de l’extension Synthesix ; données historiques préservées et sources initiales sauvegardées en `0e58af1`. Paquet Windows construit avec PyInstaller de build uniquement. | Réduire le périmètre et les couplages tout en réutilisant les moteurs corrigés. | `main.py`, `app/`, recherche, navigateur, frontend, données locales ; T-058 | Met en œuvre DEC-002 ; remplace l’orientation extension/enquêtes du plan historique |
 
 ## Travaux terminés
 
@@ -5687,3 +5653,88 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   analysis, puis ajouter les profils persistants et vérifier le vrai contrat
   ZNELFP avant toute passerelle. Les détails techniques du lancement restent
   une proposition à discuter avec l'utilisateur. Aucun verrou restant.
+
+### AI-20261030-002 — Navigateur recentré, profils et paquet Windows
+
+- **Agent :** Codex.
+- **Période UTC :** 2026-10-30, depuis 18:57 ; clôture après validations.
+- **Branche :** `codex/browser-refocus`, locale, sans push ni synchronisation
+  distante. Les modifications initiales étaient nombreuses et non committées.
+- **Commits de travail :** `0e58af1` sauvegarde les sources initiales hors
+  graphe/données runtime ; `4ea6d4d` isole collecte et profils ; `c6a686d` livre
+  la nouvelle application et retire les anciennes fonctions ; `432a011` attend
+  la sortie de Chrome avant le nettoyage Zendriver pour préserver le stockage.
+- **Résultat :** lancement `python main.py` recentré sur recherche, résultats,
+  profils et historique. Une à vingt requêtes par lot, filtres et dorks exacts,
+  résultats progressifs dédupliqués, couverture des moteurs, annulation et
+  historique indépendant. Les personas sont ouvertes nativement, sans CDP,
+  et restent indépendantes de la fermeture de Synthesix.
+- **Architecture :** `main.py` passe de 5 312 à 62 lignes ; `app/` sépare
+  runtime, demandes de recherche, stockage et lancement des profils. La
+  collecte n'importe pas le rendu de rapports ; syntaxe et parsing ont leurs
+  modules de recherche. UI Lit unique et bundle IIFE régénéré, environ 43,4 Ko.
+  `theme.css` passe de 5 495 à 178 lignes, avec tokens et polices locaux.
+- **Retraits versionnés :** `investigations/`, `analysis/`, `evidence/`,
+  `exports/`, `extension/`, frontend overlay, bundle et composants propres aux
+  enquêtes, scripts et tests des fonctions retirées. Le périmètre a été annoncé
+  avant retrait et chaque fichier était présent dans la sauvegarde `0e58af1`.
+  Les tests moteurs, scoring, parsing, filtres, délais, reprises et liens sont
+  conservés. Les gardes du lancement/transport/i18n sont adaptées au contrat
+  nouveau et complétées par celles des profils.
+- **Données :** nouvelle base `data/browser.sqlite`, personas sous
+  `data/browser-profiles/`, profil neutre sous `data/browser-ui-profile/`.
+  Aucune lecture, migration ni suppression des bases/profils/enquêtes réels.
+  Aucun contenu runtime, compte, capture ou ZIP produit n'a été staged.
+- **Distribution :** `scripts/build_windows.py`, dépendance de build séparée
+  `requirements-build.txt` (`pyinstaller==6.22.3`). Exécutable en dossier et
+  `dist/Synthesix-Windows.zip` de 16,6 Mio, sans données runtime ; Chrome/Brave
+  installé reste requis. Python et Node ne sont pas requis sur le poste utilisateur.
+- **Tests réellement exécutés :**
+  - boucle TDD sur stockage, profils, validation des requêtes, progression,
+    annulation et fermeture ; échecs reproduits avant les corrections ;
+  - `.venv\Scripts\python.exe -m unittest discover` — **222 tests OK**, 4,623 s ;
+  - `npm run typecheck` et `npm run build` — OK, bundle inclus avec les sources ;
+  - `node --check i18n.js`, couverture des cinq traductions hors anglais — OK ;
+  - grammaire Python 3.10 vérifiée par AST sur 45 fichiers, plus compilations
+    ciblées ; ce contrôle n'est pas une exécution sous Python 3.10 ;
+  - smoke Chrome réel avec profils temporaires : clics/saisie, page file://,
+    Lit, pont CDP, deux requêtes sur quatre moteurs simulés, déduplication,
+    historique, recharge, clair/sombre, vide, texte long, 1440/768/390 — OK ;
+  - vraie persistance du stockage local synthétique et séparation de deux
+    profils ; après correction de l'arrêt, trois réouvertures successives du
+    premier profil conservent la valeur — OK ;
+  - recherche Bing réelle en Chrome headless sur une requête publique de test :
+    moteur terminé, un résultat agrégé pertinent — OK ;
+  - construction Windows puis smoke du dernier exécutable : ressources locales,
+    connexion de l'UI, base indépendante et fermeture propre — OK ;
+  - audit de l'archive : exécutable présent, aucune base ni donnée runtime ;
+  - mutation temporaire du garde d'origine CDP rejetée par son test, fichier
+    restauré ensuite ; tests suivants verts ;
+  - `git diff`, diff staged, statut et contrôles d'espaces relus ; contrôles
+    global et staged propres, anomalies de l'ancien bundle supprimées avec lui.
+- **Vérification visuelle :** captures synthétiques inspectées, focus visible,
+  texte long sans débordement. L'inspecteur générique ne traverse pas le Shadow
+  DOM : un export statique du même arbre/styles a servi à son contrôle. Les
+  exceptions pour données de fixture et espace disponible sous une liste courte
+  sont intentionnelles ; la palette existante est conservée. Le fallback de
+  police a été supprimé au profit de la police locale et de Consolas.
+- **Points corrigés durant le smoke :** première connexion CDP utilisée seulement
+  après initialisation, conservation du handle malgré les rafraîchissements du
+  registre ; boucle de rendu Lit lors de restauration éliminée ; annulation
+  répétée sans interrompre le nettoyage ; sortie du processus Chrome attendue
+  avant le nettoyage Zendriver. La double fermeture interne de Zendriver peut
+  encore journaliser un avertissement « browser already gone », sans processus
+  restant ni perte de la valeur synthétique lors des vérifications.
+- **Graphe :** reconstruit par le hook Git, présence des nouveaux modules
+  `app/runtime.py`, `app/profiles.py`, `query_syntax.py` et `main.py` vérifiée.
+  Les fichiers locaux Graphify, déjà modifiés avant le lot, restent hors commits.
+- **Documentation :** README principal et frontend, état du projet,
+  architecture et index des tâches actualisés ; T-058 terminée.
+- **Non exécuté / limites :** Google/Brave/DuckDuckGo en réseau réel, connexions
+  à des comptes réels, intégration ZNELFP, migration de l'ancien historique ou
+  des enquêtes, benchmark comparatif de vitesse/mémoire, exécution Python 3.10,
+  build Linux/macOS. Le paquet Windows local n'est pas signé. Les tests retirés
+  correspondent aux fonctions abandonnées, pas à des échecs masqués.
+- **Relais :** ouvrir le paquet Windows ou lancer `main.py` pour la prise en main.
+  L'ancienne application reste reconstituable depuis `0e58af1` dans une copie
+  séparée pour exporter les enquêtes existantes. Aucun verrou restant.

@@ -1,6 +1,6 @@
 # T-058 — Navigateur recentré sur les dorks et les profils
 
-**Statut :** review — implémenté, clôture après les vérifications finales.
+**Statut :** done — vérifié le 2026-10-30.
 **Branche :** `codex/browser-refocus`.
 **Origine :** recentrage demandé et autorisé par l'utilisateur le 2026-10-30.
 
@@ -57,3 +57,10 @@ Aucun accès aux comptes réels ou aux données d'enquête. Pas de migration des
 anciennes enquêtes, pas de liaison ZNELFP, pas de benchmark réseau. Chrome ou
 Brave doit être installé ; le paquet local est non signé. Les anciennes tâches
 liées au produit d'enquête restent historiques et ne doivent pas être relancées.
+
+## Résultat final
+
+222 tests unitaires réussis, typecheck et build réussis. Smoke Chrome réel de
+l'interface avec moteurs simulés, persistance sur trois réouvertures de profil,
+Bing réel et dernier exécutable Windows validés. Les données historiques restent
+intactes ; le paquet est disponible dans `dist/Synthesix-Windows.zip`.

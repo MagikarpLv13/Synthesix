@@ -26,7 +26,7 @@ autonome (contexte, fichiers, étapes, critères, tests, risques).
 
 | ID | Titre | Priorité | Outil | Statut |
 |---|---|---|---|---|
-| [T-058](T-058-navigateur-recentre.md) | Dorks multi-requêtes, résultats progressifs et profils persistants | P0 | Codex | review |
+| [T-058](T-058-navigateur-recentre.md) | Dorks multi-requêtes, résultats progressifs et profils persistants | P0 | Codex | done |
 
 Les phases ci-dessous décrivent l'ancien produit. Les tâches extension,
 enquêtes, preuves et monitoring ne sont plus à poursuivre ; les décisions
