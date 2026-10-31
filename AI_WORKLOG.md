@@ -5765,3 +5765,55 @@ Les checkpoints ordinaires peuvent rester dans la PR ou le commit. Les ajouter i
   navigateur natif conserve la gestion de la restauration et des authentifications.
 - **Relais :** l'utilisateur peut reprendre dans la fenêtre Brave ouverte ou
   utiliser le raccourci local. Sauvegarde conservée ; aucun verrou restant.
+
+### AI-20261031-001 — Passe design de l'écran navigateur
+
+- **Agent :** Claude.
+- **Période UTC :** 2026-10-31 10:14–11:10.
+- **Branche :** `codex/browser-refocus`, non committé.
+- **Méthode :** audit avec les skills design (taste « app screens », style
+  *framed sheet* déjà en place et conservé ; Web Interface Guidelines ;
+  frontend-design ; règles génériques d'états/contraste d'Impeccable). Les
+  chartes « awesome-design » n'ont pas été appliquées : elles imposent une
+  autre marque.
+- **Changements :**
+  - en-tête 52px, bascule de thème en icône SVG soleil/lune, langue discrète ;
+  - composeur : compteur de requêtes `n / 20`, moteurs en cases-boutons,
+    pastille du nombre de filtres de dork actifs (filtre caché auparavant
+    invisible), ligne « N requêtes moteur (requêtes × moteurs) » au-dessus du
+    bouton ;
+  - résultats : statut + progression sur une ligne, barre `<progress>` pendant
+    la collecte, outils masqués à vide, filtre moteur en puces avec effectifs
+    (remplace le select), couverture en tableau requête × moteur (comptes,
+    pastilles d'échec, `—`/`…`) avec résumé « n en échec » ;
+  - lignes de résultat : domaine + chemin sur une ligne, titre, score en
+    colonne gauche (accent si ≥ 8), description limitée à 3 lignes et 78ch,
+    moteurs en étiquettes, « Trouvé via » seulement si plusieurs requêtes ;
+  - profils : initiale teintée stable par profil, renommage en champ discret,
+    bouton d'ouverture avec icône ; historique : requêtes en code, date
+    `Intl`, moteurs, compte aligné à droite ;
+  - formats `Intl` (score, dates), `translate="no"` sur marque/requêtes,
+    `prefers-reduced-motion` ;
+  - tokens : cadre clair moins jaune (`#ECEAE4`), feuille `#FCFBF9`, filets
+    sombres neutres `#30323B` au lieu du bleu marine ;
+  - i18n : `failed`, `engine requests`, `Filter by engine` (5 langues).
+- **Contrats préservés :** `sx-browser-app`, propriété `model`, événement
+  `sx-browser-action` et ses actions/payloads, sélecteurs du smoke (`nav
+  button`, `.inline-form`, `aside button.primary`, `textarea`, `article`).
+- **Vérifications exécutées :** `npm run typecheck`, `npm run build` ;
+  `unittest tests.test_home_ui tests.test_i18n_coverage` (4 OK) ;
+  `unittest discover` (222 OK) ; `tests/manual/smoke_browser_app.py` OK
+  (clics réels, CDP, recherche simulée, clair/sombre, 1440/768/390 sans
+  débordement, persistance des profils) ; captures headless avec données
+  synthétiques : résultats, collecte en cours, vide, profils, historique,
+  couverture ouverte, clair/sombre, 1440/768/390 ; `git diff --check`.
+- **Non exécuté / limites :** pas de recherche réelle sur les moteurs ; smoke
+  de l'exécutable Windows non relancé (paquet non reconstruit). L'inspecteur
+  taste ne lit pas le shadow DOM : son passage sur l'export du smoke signale
+  des artefacts d'export (police/image en `file://`) et les données
+  synthétiques `example.com`.
+- **Relais :** `sx-chip`, `sx-score`, `sx-provenance` et `sx-result-card`
+  restent utilisés par le rapport HTML (`ui.py` via `utils.generate_html_report`)
+  et ne doivent pas être retirés sans traiter ce chemin. Les démos
+  `frontend/demo/*` des composants supprimés (entités, overlay, preuves) sont
+  orphelines. Aucun verrou restant.
