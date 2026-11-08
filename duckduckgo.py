@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 from lxml import html
 
+from browser import get_browser_service
 from exceptions import RobotChallengeError
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
@@ -38,6 +39,26 @@ DUCKDUCKGO_FORBIDDEN_PATTERNS = (
     ">forbidden<",
 )
 
+DUCKDUCKGO_NO_RESULTS_PATTERNS = (
+    "no results.",
+    "no results for",
+    "no web results",
+    "aucun résultat",
+)
+
+# DOM-side markers for the composite probe (T-012): the anomaly modal has
+# stable class names, and forbidden pages carry a bare 403 title.
+DUCKDUCKGO_CHALLENGE_SELECTORS = (
+    ".anomaly-modal",
+    "[class*='anomaly-modal']",
+    "script[src*='anomaly.js']",
+)
+
+DUCKDUCKGO_FORBIDDEN_TITLES = (
+    "403 forbidden",
+    "forbidden",
+)
+
 
 def _html_to_visible_text(raw_html: str) -> str:
     text = re.sub(
@@ -62,6 +83,18 @@ def looks_like_duckduckgo_robot_challenge(raw_html: str) -> bool:
 def looks_like_duckduckgo_forbidden(raw_html: str) -> bool:
     lowered_html = str(raw_html).lower()
     return any(pattern in lowered_html for pattern in DUCKDUCKGO_FORBIDDEN_PATTERNS)
+
+
+def looks_like_duckduckgo_no_results(raw_html: str) -> bool:
+    """True when DuckDuckGo explicitly reports an empty result set.
+
+    Used to stop waiting early instead of polling the full results timeout when
+    a query genuinely has no matches.
+    """
+    visible_text = _html_to_visible_text(raw_html).lower()
+    return any(
+        pattern in visible_text for pattern in DUCKDUCKGO_NO_RESULTS_PATTERNS
+    )
 
 
 class DuckDuckGoSearchEngine(SearchEngine):
@@ -170,9 +203,16 @@ class DuckDuckGoSearchEngine(SearchEngine):
         settings = get_settings()
         start = time.monotonic()
         existing_links = {result["link"] for result in self.results}
+        last_result_count = -1
 
         while time.monotonic() - start < settings.page_load_timeout:
             await asyncio.sleep(settings.page_load_interval)
+            state = await self.probe_page_state()
+            # Only fetch the page when the DOM actually grew; keeps the
+            # full-page retrieval out of steady-state iterations (T-012).
+            if state["result_count"] == last_result_count:
+                continue
+            last_result_count = state["result_count"]
             try:
                 raw_results = await self.read_page_content(f"pagination_{page_index}")
             except Exception:
@@ -265,6 +305,14 @@ class DuckDuckGoSearchEngine(SearchEngine):
     def set_selector(self):
         self.selector = "[data-testid='result'], .result__body, .web-result, .result-link, #links"
 
+    def get_probe_markers(self) -> dict:
+        return {
+            "challenge_selectors": DUCKDUCKGO_CHALLENGE_SELECTORS,
+            "challenge_text_patterns": DUCKDUCKGO_ROBOT_CHALLENGE_PATTERNS,
+            "forbidden_title_patterns": DUCKDUCKGO_FORBIDDEN_TITLES,
+            "no_results_text_patterns": DUCKDUCKGO_NO_RESULTS_PATTERNS,
+        }
+
     async def _wait_for_result_content(
         self,
         *,
@@ -272,41 +320,18 @@ class DuckDuckGoSearchEngine(SearchEngine):
         interval: float,
     ) -> bool:
         start = time.monotonic()
-        next_content_check = start
-        content_interval = max(0.5, interval)
         while time.monotonic() - start < max(0.0, timeout):
-            try:
-                if await self.tab.query_selector(self.selector):
-                    return True
-            except Exception:
-                logger.debug(
-                    "Unable to inspect DuckDuckGo result selectors",
-                    exc_info=True,
-                )
-
-            raw_content = ""
-            now = time.monotonic()
-            if now >= next_content_check:
-                next_content_check = now + content_interval
-                try:
-                    raw_content = await self.read_page_content("results_wait")
-                except Exception:
-                    raw_content = ""
-
-            if raw_content:
-                if (
-                    looks_like_duckduckgo_robot_challenge(raw_content)
-                    or looks_like_duckduckgo_forbidden(raw_content)
-                ):
-                    return False
-                try:
-                    if self.parse_results(raw_content):
-                        return True
-                except Exception:
-                    logger.debug(
-                        "Unable to parse DuckDuckGo while waiting for results",
-                        exc_info=True,
-                    )
+            state = await self.probe_page_state()
+            if state["found"]:
+                return True
+            if state["challenge"] or state["forbidden"]:
+                # robot_check() re-reads the page once and captures it; no
+                # need to ship the HTML from inside the wait loop (T-012).
+                return False
+            # Stop early if the page says it is empty rather than polling
+            # the full timeout.
+            if state["no_results"]:
+                return False
 
             await asyncio.sleep(max(0.01, interval))
         return False
@@ -424,23 +449,23 @@ class DuckDuckGoSearchEngine(SearchEngine):
         fallback_attempted = False
 
         while time.monotonic() - start < max(0.0, timeout):
-            try:
-                if await self.tab.query_selector(self.selector):
-                    return True
-            except Exception:
-                logger.debug("Unable to inspect DuckDuckGo after manual challenge", exc_info=True)
+            state = await self.probe_page_state()
+            if state["found"]:
+                return True
 
-            try:
-                raw_content = await self.read_page_content("manual_challenge_wait")
-            except Exception:
-                raw_content = ""
-
-            if looks_like_duckduckgo_robot_challenge(raw_content):
+            if state["challenge"]:
                 await asyncio.sleep(max(0.0, interval))
                 continue
 
-            if looks_like_duckduckgo_forbidden(raw_content):
-                await self._capture_follow_up_page(raw_content, "forbidden")
+            if state["forbidden"]:
+                # One full read at the moment the follow-up page shows up,
+                # for the existing capture; not a per-iteration fetch.
+                try:
+                    raw_content = await self.read_page_content("manual_challenge_wait")
+                except Exception:
+                    raw_content = ""
+                if raw_content:
+                    await self._capture_follow_up_page(raw_content, "forbidden")
 
             current_search_url = self.current_url or original_url
             if current_search_url not in reloaded_urls:
@@ -481,7 +506,9 @@ class DuckDuckGoSearchEngine(SearchEngine):
             return False
 
         try:
-            await self.tab.bring_to_front()
+            await get_browser_service(self.browser).show_tab_window_for_manual_interaction(
+                self.tab
+            )
         except Exception:
             logger.debug("Unable to focus the DuckDuckGo challenge tab", exc_info=True)
 

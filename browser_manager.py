@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ import zendriver as uc
 from zendriver import cdp
 from zendriver.core.config import Config
 
+from browser import BrowserService, get_browser_service
 from settings import AppSettings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -76,6 +78,38 @@ BROWSER_PROFILE_DATA_PATHS = (
     "Default/SharedStorage",
     "Default/Shared Dictionary",
     "Default/Sessions",
+)
+
+SEARCH_BROWSER_VISIBLE_ARGS = (
+    "--window-size=1280,900",
+    "--window-position=1600,80",
+)
+SEARCH_BROWSER_MINIMIZED_ARGS = (
+    *SEARCH_BROWSER_VISIBLE_ARGS,
+    "--start-minimized",
+)
+SEARCH_BROWSER_OFFSCREEN_ARGS = (
+    "--window-size=1280,900",
+    "--window-position=-32000,-32000",
+)
+
+
+def _search_browser_args(settings: AppSettings) -> tuple[str, ...]:
+    mode = getattr(settings, "search_window_mode", "offscreen")
+    if mode == "visible":
+        return SEARCH_BROWSER_VISIBLE_ARGS
+    if mode == "offscreen":
+        return SEARCH_BROWSER_OFFSCREEN_ARGS
+    if mode == "headless":
+        return ()
+    return SEARCH_BROWSER_MINIMIZED_ARGS
+
+# The background worker filename is revision-stamped by the frontend build
+# (dist/background-<revision>.js) and resolved from the manifest instead of
+# being listed here.
+SYNTHESIX_EXTENSION_REQUIRED_FILES = (
+    "manifest.json",
+    "dist/content.js",
 )
 
 
@@ -306,7 +340,13 @@ def _ensure_synthesix_bookmark(profile_dir: str, home_url: str) -> None:
         logger.debug("Unable to write Chrome bookmarks file: %s", bookmarks_path, exc_info=True)
 
 
-def _build_zendriver_config(settings: AppSettings) -> Config:
+def _build_zendriver_config(
+    settings: AppSettings,
+    *,
+    profile_dir: Path | None = None,
+    browser_args: tuple[str, ...] = (),
+    headless: bool = False,
+) -> Config:
     browser_executable_path = _resolve_browser_executable(settings)
     if browser_executable_path is not None:
         logger.info("Using browser executable: %s", browser_executable_path)
@@ -329,38 +369,79 @@ def _build_zendriver_config(settings: AppSettings) -> Config:
             "browser executable or an executable wrapper."
         ) from exc
 
-    config.user_data_dir = str(settings.browser_profile_dir)
+    config.user_data_dir = str(profile_dir or settings.browser_profile_dir)
+    config.headless = headless
+    for argument in browser_args:
+        config.add_argument(argument)
     return config
+
+
+def clear_browser_profile_data(profile_dir: str | Path, home_url: str | None = None) -> int:
+    profile_path = Path(profile_dir)
+    removed = _clear_profile_browsing_data(str(profile_path))
+    _mark_profile_exited_cleanly(str(profile_path))
+    if home_url:
+        _ensure_synthesix_bookmark(str(profile_path), home_url)
+    return removed
 
 
 class HeadlessBrowserManager:
     def __init__(self):
         self.browser : uc.Browser = None
+        self.service: BrowserService | None = None
         self.profile_dir: str | None = None
         self.home_url: str | None = None
         self.settings: AppSettings | None = None
+        self.ensure_bookmark: bool = True
+        self.browser_args: tuple[str, ...] = ()
+        self.headless: bool = False
 
     @classmethod
-    async def create(cls, home_url: str | None = None, settings: AppSettings | None = None):
+    async def create(
+        cls,
+        home_url: str | None = None,
+        settings: AppSettings | None = None,
+        *,
+        profile_dir: Path | None = None,
+        ensure_bookmark: bool = True,
+        browser_args: tuple[str, ...] = (),
+        headless: bool = False,
+    ):
         self = cls()
         settings = settings or get_settings()
         self.settings = settings
         self.home_url = home_url
-        custom_profile = settings.browser_profile_dir
+        self.ensure_bookmark = ensure_bookmark
+        self.browser_args = tuple(browser_args)
+        self.headless = headless
+        custom_profile = profile_dir or settings.browser_profile_dir
         os.makedirs(custom_profile, exist_ok=True)
         self.profile_dir = str(custom_profile)
         _mark_profile_exited_cleanly(str(custom_profile))
-        if home_url:
+        if home_url and ensure_bookmark:
             _ensure_synthesix_bookmark(str(custom_profile), home_url)
 
-        config = _build_zendriver_config(settings)
-
-        """⚠️ Headless mode is not working with Brave, instant flag as a robot 🤖.
-        """
-        # config.headless = True
+        config = _build_zendriver_config(
+            settings,
+            profile_dir=custom_profile,
+            browser_args=self.browser_args,
+            headless=headless,
+        )
 
         self.browser = await uc.start(config=config)
+        self.service = get_browser_service(self.browser)
         return self
+
+    @classmethod
+    async def create_search(cls, settings: AppSettings | None = None):
+        settings = settings or get_settings()
+        return await cls.create(
+            settings=settings,
+            profile_dir=settings.search_profile_dir,
+            ensure_bookmark=False,
+            browser_args=_search_browser_args(settings),
+            headless=getattr(settings, "search_window_mode", "offscreen") == "headless",
+        )
 
     async def get_driver(self):
         return self.browser
@@ -390,23 +471,36 @@ class HeadlessBrowserManager:
 
         await self._clear_live_browser_data()
         await self.stop()
-        removed = _clear_profile_browsing_data(self.profile_dir)
-        _mark_profile_exited_cleanly(self.profile_dir)
-        if self.home_url:
-            _ensure_synthesix_bookmark(self.profile_dir, self.home_url)
+        removed = clear_browser_profile_data(
+            self.profile_dir,
+            self.home_url if self.ensure_bookmark else None,
+        )
 
-        config = _build_zendriver_config(self.settings)
         self.browser = await uc.start(config=config)
+        self.service = get_browser_service(self.browser)
         logger.info("Browser profile data cleared (%s paths removed).", removed)
         return self.browser
 
     async def stop(self):
         try:
             if self.browser is not None:
-                await self.browser.stop()
+                process = getattr(self.browser, "_process", None)
+                if process is not None and process.poll() is None:
+                    service = self.service or get_browser_service(self.browser)
+                    await service.request_browser_close()
+                    try:
+                        await asyncio.to_thread(process.wait, timeout=5.0)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("Browser did not exit gracefully; falling back to bounded cleanup.")
+                # zendriver's stop() first sends `Browser.close` and awaits a
+                # reply; against an already-dead Chrome that reply never comes
+                # and the await hangs, keeping the process alive. Bound it so
+                # shutdown always completes.
+                await asyncio.wait_for(self.browser.stop(), timeout=10.0)
         except Exception:
             logger.warning("Unable to stop browser cleanly", exc_info=True)
         finally:
             self.browser = None
+            self.service = None
             if self.profile_dir:
                 _mark_profile_exited_cleanly(self.profile_dir)

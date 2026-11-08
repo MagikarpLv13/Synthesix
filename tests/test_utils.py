@@ -5,8 +5,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import pandas as pd
+from lxml import html
 
+from google import GoogleSearchEngine
+from search_orchestrator import SearchResults
 from utils import (
     add_to_history,
     clear_synthesix_history,
@@ -16,6 +18,12 @@ from utils import (
     load_search_history,
     smart_parse,
 )
+
+
+def result_rows(rows=(), columns=None):
+    """Build native result rows; ``columns`` keeps empty fixtures readable."""
+    del columns
+    return SearchResults(rows)
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -63,7 +71,7 @@ class UtilsTestCase(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             os.chdir(temp_dir)
             try:
-                df = pd.DataFrame(
+                df = result_rows(
                     [
                         {
                             "title": "<script>alert(1)</script>",
@@ -92,15 +100,25 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../theme.css", content)
                 self.assertIn("../theme.js", content)
                 self.assertIn("../i18n.js", content)
+                self.assertIn("../assets/synthesix-ui.js", content)
                 self.assertIn("../assets/favicon.svg", content)
                 self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertIn('class="brand-logo"', content)
                 self.assertNotIn("data-theme-toggle", content)
-                self.assertIn('class="data-table display"', content)
+                self.assertIn("<sx-result-card", content)
+                self.assertIn(' triage tabindex="0">', content)
+                self.assertIn('class="insight-grid"', content)
+                self.assertNotIn("datatables", content.lower())
+                self.assertNotIn("jquery", content.lower())
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
+                self.assertIn('data-results-filter', content)
+                self.assertIn('placeholder="Filter results"', content)
+                self.assertIn('applyResultFilter', content)
+                self.assertNotIn('search_from_results', content)
                 self.assertIn("&lt;Exact title&gt;", content)
-                self.assertIn("not factual accuracy", content)
+                self.assertIn('class="score__pts score__pts--strong"', content)
+                self.assertNotIn("not factual accuracy", content)
                 self.assertNotIn("<script>alert(1)</script>", content)
             finally:
                 os.chdir(current_dir)
@@ -110,7 +128,7 @@ class UtilsTestCase(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             os.chdir(temp_dir)
             try:
-                df = pd.DataFrame(
+                df = result_rows(
                     [
                         {
                             "title": "Low",
@@ -136,18 +154,51 @@ class UtilsTestCase(unittest.TestCase):
                 output_path = generate_html_report(df, '"query"', 0.1, 2)
                 content = Path(output_path).read_text(encoding="utf-8")
 
-                self.assertLess(content.index(">High</td>"), content.index(">Low</td>"))
-                self.assertIn('data-order="10.000000"', content)
-                self.assertIn("order: [[5, 'desc']]", content)
+                self.assertLess(content.index(">High</a>"), content.index(">Low</a>"))
+                self.assertIn(">10.00</span>", content)
+                self.assertIn('class="result-list"', content)
+                self.assertIn("navigate results", content)
             finally:
                 os.chdir(current_dir)
+
+    def test_google_redirect_remains_clickable_in_local_report(self):
+        rows = GoogleSearchEngine().parse_results("""
+            <div id="search">
+                <div jscontroller="result" data-ved="1" data-hveid="2">
+                    <a href="/goto?url=opaque_token-123&amp;source=web">
+                        <h3>Example article</h3>
+                    </a>
+                    <div class="VwiC3b">Example description</div>
+                </div>
+            </div>
+        """)
+        for row in rows:
+            row["relevance_score"] = 9.0
+        current_dir = os.getcwd()
+        with TemporaryDirectory() as temp_dir:
+            os.chdir(temp_dir)
+            try:
+                output_path = generate_html_report(result_rows(rows), "Example", 0.1, 1)
+                tree = html.fromstring(Path(output_path).read_text(encoding="utf-8"))
+            finally:
+                os.chdir(current_dir)
+
+        links = tree.xpath('//sx-result-card/a[@slot="title"][@data-triage-link]')
+        self.assertEqual(len(links), 1)
+        self.assertEqual(
+            links[0].get("href"),
+            "https://www.google.com/goto?url=opaque_token-123&source=web",
+        )
+        self.assertEqual(links[0].get("target"), "_blank")
+        self.assertEqual(links[0].get("rel"), "noopener noreferrer")
+        self.assertEqual(links[0].text_content(), "Example article")
 
     def test_coverage_errors_expose_targeted_retry_action(self):
         current_dir = os.getcwd()
         with TemporaryDirectory() as temp_dir:
             os.chdir(temp_dir)
             try:
-                df = pd.DataFrame(
+                df = result_rows(
                     columns=[
                         "title",
                         "description",
@@ -178,7 +229,6 @@ class UtilsTestCase(unittest.TestCase):
                     "original_query": "anna lindberg",
                     "filters": {"site": "example.com"},
                     "num_results": 7,
-                    "investigation_id": "case-1",
                 }
 
                 output_path = generate_html_report(
@@ -199,7 +249,7 @@ class UtilsTestCase(unittest.TestCase):
                     "\\&quot;&quot;",
                     content,
                 )
-                self.assertIn("&quot;investigationId&quot;:&quot;case-1&quot;", content)
+                self.assertNotIn("investigationId", content)
                 self.assertIn("data-page-status", content)
                 self.assertIn("This report action is invalid.", content)
             finally:
@@ -223,7 +273,9 @@ class UtilsTestCase(unittest.TestCase):
                 self.assertIn("../assets/favicon.svg", content)
                 self.assertIn("../assets/synthesix-mark.svg", content)
                 self.assertNotIn("data-theme-toggle", content)
-                self.assertIn('class="data-table display"', content)
+                self.assertIn("<sx-result-card", content)
+                self.assertNotIn("datatables", content.lower())
+                self.assertNotIn("jquery", content.lower())
                 self.assertIn("data-home-link", content)
                 self.assertIn("window.synthesixPage", content)
             finally:
@@ -278,24 +330,6 @@ class UtilsTestCase(unittest.TestCase):
             finally:
                 os.chdir(current_dir)
 
-    def test_load_search_history_preserves_investigation_id(self):
-        current_dir = os.getcwd()
-        with TemporaryDirectory() as temp_dir:
-            os.chdir(temp_dir)
-            try:
-                add_to_history(
-                    "company",
-                    '"company"',
-                    2,
-                    "result.html",
-                    investigation_id="case-123",
-                )
-
-                history = load_search_history(limit=10)
-
-                self.assertEqual(history[0]["investigation_id"], "case-123")
-            finally:
-                os.chdir(current_dir)
 
     def test_load_search_history_keeps_same_query_with_different_filters(self):
         current_dir = os.getcwd()
@@ -372,7 +406,7 @@ class UtilsTestCase(unittest.TestCase):
                     ["february query", "january query", "december query"],
                 )
                 self.assertLess(content.index("february query"), content.index("january query"))
-                self.assertIn('data-order="', content)
+                self.assertIn('class="result-list"', content)
             finally:
                 os.chdir(current_dir)
 
@@ -399,7 +433,7 @@ class UtilsTestCase(unittest.TestCase):
             os.chdir(temp_dir)
             try:
                 with patch.dict("os.environ", {"SYNTHESIX_HISTORY_DIR": "runtime/history"}):
-                    df = pd.DataFrame(
+                    df = result_rows(
                         [
                             {
                                 "title": "Title",

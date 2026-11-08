@@ -1,22 +1,28 @@
+import asyncio
 import json
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from browser_manager import (
     FLATPAK_BRAVE_APP_ID,
+    SEARCH_BROWSER_OFFSCREEN_ARGS,
     _build_zendriver_config,
     _clear_profile_browsing_data,
     _ensure_synthesix_bookmark,
     _find_native_browser_executable,
     _mark_profile_exited_cleanly,
     _resolve_browser_executable,
+    _search_browser_args,
+    HeadlessBrowserManager,
 )
 from settings import get_settings
 
 
 class BrowserManagerTestCase(unittest.TestCase):
+
     def test_clear_profile_browsing_data_preserves_bookmarks_and_login_data(self):
         with TemporaryDirectory() as temp_dir:
             profile_dir = Path(temp_dir)
@@ -134,6 +140,65 @@ class BrowserManagerTestCase(unittest.TestCase):
         self.assertEqual(config.browser_connection_timeout, 0.75)
         self.assertEqual(config.browser_connection_max_tries, 20)
 
+    def test_search_zendriver_config_uses_search_profile_without_extension(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_PROFILE_DIR": "search-profile",
+                "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "bin/chrome.exe",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            config = _build_zendriver_config(
+                settings,
+                profile_dir=settings.search_profile_dir,
+                browser_args=_search_browser_args(settings),
+            )
+
+        self.assertEqual(config.user_data_dir, str(settings.search_profile_dir))
+        self.assertFalse(any(arg.startswith("--load-extension=") for arg in config.browser_args))
+        self.assertFalse(config.headless)
+        for argument in SEARCH_BROWSER_OFFSCREEN_ARGS:
+            self.assertIn(argument, config.browser_args)
+
+    def test_search_zendriver_config_supports_headless_mode(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_WINDOW_MODE": "headless",
+                "SYNTHESIX_BROWSER_EXECUTABLE_PATH": "bin/chrome.exe",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+            config = _build_zendriver_config(
+                settings,
+                profile_dir=settings.search_profile_dir,
+                browser_args=_search_browser_args(settings),
+                headless=settings.search_window_mode == "headless",
+        )
+
+        self.assertTrue(config.headless)
+        self.assertFalse(
+            any(
+                argument.startswith("--window-") or argument == "--start-minimized"
+                for argument in config.browser_args
+            )
+        )
+
+    def test_search_browser_args_support_offscreen_mode(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "SYNTHESIX_BASE_DIR": temp_dir,
+                "SYNTHESIX_SEARCH_WINDOW_MODE": "offscreen",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                settings = get_settings()
+
+        self.assertIn("--window-position=-32000,-32000", _search_browser_args(settings))
+
+
     def test_native_browser_discovery_supports_brave_browser_stable(self):
         with TemporaryDirectory() as temp_dir:
             executable = Path(temp_dir) / "brave-browser-stable"
@@ -176,6 +241,33 @@ class BrowserManagerTestCase(unittest.TestCase):
 
         self.assertIn(f"run {FLATPAK_BRAVE_APP_ID}", content)
         self.assertIn('"$@"', content)
+
+
+class BrowserShutdownTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_waits_for_profile_flush_before_vendor_cleanup(self):
+        class Process:
+            returncode = None
+            persisted = False
+            forced = False
+            def poll(self):
+                return self.returncode
+            def wait(self, timeout):
+                self.persisted = True
+                self.returncode = 0
+                return 0
+
+        process = Process()
+        async def vendor_stop():
+            if not process.persisted:
+                process.forced = True
+        browser = SimpleNamespace(_process=process, stop=AsyncMock(side_effect=vendor_stop))
+        manager = HeadlessBrowserManager()
+        manager.browser = browser
+        manager.service = SimpleNamespace(request_browser_close=AsyncMock())
+        await manager.stop()
+        self.assertTrue(process.persisted)
+        self.assertFalse(process.forced)
+        self.assertIsNone(manager.browser)
 
 
 if __name__ == "__main__":

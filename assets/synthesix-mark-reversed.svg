@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="none" role="img" aria-label="Synthesix">
+  <line x1="6" y1="12" x2="33" y2="24" stroke="#F1EEE6" stroke-width="2.6" stroke-linecap="round"></line>
+  <line x1="6" y1="24" x2="33" y2="24" stroke="#F1EEE6" stroke-width="2.6" stroke-linecap="round"></line>
+  <line x1="6" y1="36" x2="33" y2="24" stroke="#F1EEE6" stroke-width="2.6" stroke-linecap="round"></line>
+  <line x1="16" y1="6" x2="33" y2="24" stroke="#F1EEE6" stroke-width="2.6" stroke-linecap="round"></line>
+  <line x1="16" y1="42" x2="33" y2="24" stroke="#F1EEE6" stroke-width="2.6" stroke-linecap="round"></line>
+  <circle cx="6" cy="12" r="2.5" fill="#5E79D6"></circle>
+  <circle cx="6" cy="24" r="2.5" fill="#5E79D6"></circle>
+  <circle cx="6" cy="36" r="2.5" fill="#5E79D6"></circle>
+  <circle cx="16" cy="6" r="2.5" fill="#5E79D6"></circle>
+  <circle cx="16" cy="42" r="2.5" fill="#5E79D6"></circle>
+  <circle cx="34" cy="24" r="5.5" fill="#5E79D6"></circle>
+</svg>

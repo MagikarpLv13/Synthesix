@@ -2,17 +2,23 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-import pandas as pd
-
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
 from query_operators import SearchFilters
-from search_orchestrator import SearchOrchestrator, aggregate_search_results
+from search_engine import ACTIVE_ENGINE_TAB_TARGETS, SearchEngine
+from search_orchestrator import SearchOrchestrator, SearchResults, aggregate_search_results
 from settings import get_settings
+from tests.fakes import FakeBrowser
+
+
+def result_rows(rows=(), columns=None):
+    """Build native result rows; ``columns`` keeps empty fixtures readable."""
+    del columns
+    return SearchResults(rows)
 
 
 class FakeEngine:
     def __init__(self, frame=None, exc=None):
-        self.frame = frame if frame is not None else pd.DataFrame()
+        self.frame = frame if frame is not None else result_rows()
         self.exc = exc
         self.calls = []
 
@@ -60,7 +66,64 @@ class SlowEngine:
     async def search(self, query, browser, max_results):
         self.calls.append((query, browser, max_results))
         await asyncio.sleep(self.delay)
-        return pd.DataFrame()
+        return result_rows()
+
+
+class HangingTabEngine(SearchEngine):
+    """Real SearchEngine subclass that opens a tab then hangs forever.
+
+    Exercises the T-010 cancellation path end to end: the budget cancels the
+    task and ``SearchEngine.search``'s ``finally`` must still close the tab.
+    """
+
+    def __init__(self):
+        super().__init__("Hanging")
+
+    def set_selector(self):
+        self.selector = "#results"
+
+    def construct_url(self):
+        return "https://hanging.example/search"
+
+    def parse_results(self, raw_results):
+        return []
+
+    async def execute_search(self):
+        self.tab = await self.browser.get(self.construct_url(), new_tab=True)
+        await asyncio.sleep(999)
+
+
+class PooledStubEngine(SearchEngine):
+    """Real SearchEngine subclass exercising the T-014 tab pool end to end."""
+
+    def __init__(self, name="Pooled"):
+        super().__init__(name)
+
+    def set_selector(self):
+        self.selector = "#results"
+
+    def construct_url(self):
+        return f"https://pooled.example/search?q={self.query}"
+
+    def parse_results(self, raw_results):
+        return []
+
+    async def wait_for_page_load(self, timeout=None, interval=None):
+        return True
+
+
+class FlakyParsePooledEngine(PooledStubEngine):
+    """First variant fails at parse time, later variants succeed."""
+
+    def __init__(self):
+        super().__init__("Flaky")
+        self.parse_attempts = 0
+
+    def parse_results(self, raw_results):
+        self.parse_attempts += 1
+        if self.parse_attempts == 1:
+            raise ValueError("bad markup")
+        return []
 
 
 class ConcurrencyTrackingEngine:
@@ -72,7 +135,7 @@ class ConcurrencyTrackingEngine:
         self.tracker["max_active"] = max(self.tracker["max_active"], self.tracker["active"])
         try:
             await asyncio.sleep(0.01)
-            return pd.DataFrame(
+            return result_rows(
                 [
                     {
                         "title": "Python async guide",
@@ -94,7 +157,7 @@ class QueryAwareEngine:
     async def search(self, query, browser, max_results):
         self.calls.append((query, browser, max_results))
         title = query.replace('"', "").title()
-        return pd.DataFrame(
+        return result_rows(
             [
                 {
                     "title": title,
@@ -108,7 +171,7 @@ class QueryAwareEngine:
 
 class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_search_passes_exact_query_to_enabled_engines(self):
-        frame = pd.DataFrame(
+        frame = result_rows(
             [
                 {
                     "title": "Python async guide",
@@ -146,54 +209,11 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history_report_calls, [True])
         self.assertEqual(result.results[0]["link"], "https://example.com/python-async")
 
-    async def test_search_links_history_entry_to_investigation(self):
-        frame = pd.DataFrame(
-            [
-                {
-                    "title": "Example company registry",
-                    "link": "https://example.com/company",
-                    "description": "Registry entry.",
-                    "source": "Google",
-                }
-            ]
-        )
-        history_calls = []
-        orchestrator = SearchOrchestrator(
-            engine_factories={"google": lambda: FakeEngine(frame=frame)},
-            report_generator=ReportCapture(),
-            history_adder=lambda *args, **kwargs: history_calls.append((args, kwargs)),
-            history_report_generator=lambda: None,
-        )
-
-        result = await orchestrator.search(
-            "example company",
-            '"example company"',
-            object(),
-            {"google": True},
-            5,
-            investigation_id="case-123",
-        )
-
-        self.assertEqual(result.nb_results, 1)
-        self.assertEqual(
-            history_calls,
-            [
-                (
-                    (
-                        "example company",
-                        '"example company"',
-                        1,
-                        "/tmp/synthesix-report.html",
-                    ),
-                    {"investigation_id": "case-123"},
-                )
-            ],
-        )
 
     async def test_engine_failure_does_not_drop_successful_results(self):
         failing_engine = FakeEngine(exc=RuntimeError("boom"))
         successful_engine = FakeEngine(
-            frame=pd.DataFrame(
+            frame=result_rows(
                 [
                     {
                         "title": "Python async guide",
@@ -227,7 +247,7 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("google", result.engine_errors)
         self.assertIsInstance(result.engine_errors["google"], SearchEngineError)
         self.assertEqual(result.nb_results, 1)
-        self.assertEqual(report_capture.calls[0]["df"].iloc[0]["source"], "Bing")
+        self.assertEqual(report_capture.calls[0]["df"][0]["source"], "Bing")
         self.assertTrue(any("google search failed" in entry for entry in logs.output))
 
     async def test_all_engine_failures_raise_search_engine_error(self):
@@ -257,7 +277,7 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report_capture.calls, [])
 
     async def test_retryable_browser_session_error_is_retried(self):
-        frame = pd.DataFrame(
+        frame = result_rows(
             [
                 {
                     "title": "Python async guide",
@@ -422,6 +442,246 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tracker["max_active"], 2)
 
+    async def test_search_budget_returns_partial_results_and_marks_timeouts(self):
+        frame = result_rows(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+        fast_engine = FakeEngine(frame=frame)
+        slow_engine = SlowEngine(delay=999)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "bing": lambda: fast_engine,
+                    "google": lambda: slow_engine,
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            started = asyncio.get_running_loop().time()
+            with self.assertLogs("search_orchestrator", level="WARNING") as logs:
+                result = await orchestrator.search(
+                    "python async",
+                    '"python async"',
+                    object(),
+                    {"bing": True, "google": True},
+                    5,
+                )
+            elapsed = asyncio.get_running_loop().time() - started
+
+        self.assertLess(elapsed, 5.0)
+        self.assertEqual(result.nb_results, 1)
+        self.assertIn("google", result.engine_errors)
+        self.assertIsInstance(result.engine_errors["google"], TimeoutError)
+        self.assertEqual(str(result.engine_errors["google"]), "search budget exceeded")
+        engines_coverage = result.coverage[0]["engines"]
+        self.assertEqual(engines_coverage["google"], {"status": "timeout", "count": 0})
+        self.assertEqual(engines_coverage["bing"]["status"], "ok")
+        self.assertTrue(any("Search budget" in entry for entry in logs.output))
+
+    async def test_search_budget_with_no_successful_engine_raises(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"google": lambda: SlowEngine(delay=999)},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="WARNING"):
+                with self.assertRaises(TimeoutError):
+                    await orchestrator.search(
+                        "python async",
+                        '"python async"',
+                        object(),
+                        {"google": True},
+                        5,
+                    )
+
+    async def test_search_budget_cancellation_closes_engine_tabs(self):
+        frame = result_rows(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+        hanging_engine = HangingTabEngine()
+        browser = FakeBrowser()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SYNTHESIX_SEARCH_TOTAL_BUDGET": "0.05",
+                "SYNTHESIX_ENGINE_RETRY_ATTEMPTS": "0",
+            },
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={
+                    "bing": lambda: FakeEngine(frame=frame),
+                    "google": lambda: hanging_engine,
+                },
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            with self.assertLogs("search_orchestrator", level="WARNING"):
+                result = await orchestrator.search(
+                    "python async",
+                    '"python async"',
+                    browser,
+                    {"bing": True, "google": True},
+                    5,
+                )
+
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(len(browser.tabs), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        self.assertIsNone(hanging_engine.tab)
+
+    async def test_search_budget_zero_disables_the_deadline(self):
+        frame = result_rows(
+            [
+                {
+                    "title": "Python async guide",
+                    "link": "https://example.com/python-async",
+                    "description": "A guide about Python async.",
+                    "source": "Bing",
+                }
+            ]
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"SYNTHESIX_SEARCH_TOTAL_BUDGET": "0"},
+        ):
+            orchestrator = SearchOrchestrator(
+                engine_factories={"bing": lambda: FakeEngine(frame=frame)},
+                report_generator=ReportCapture(),
+                history_adder=lambda *_args: None,
+                history_report_generator=lambda: None,
+                settings=get_settings(),
+            )
+            result = await orchestrator.search(
+                "python async",
+                '"python async"',
+                object(),
+                {"bing": True},
+                5,
+            )
+
+        self.assertEqual(result.nb_results, 1)
+        self.assertEqual(result.engine_errors, {})
+
+    async def test_query_variants_reuse_one_pooled_tab_per_engine(self):
+        engine = PooledStubEngine()
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={"pooled": lambda: engine},
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        await orchestrator.search(
+            "anna lindberg",
+            '"anna lindberg"',
+            browser,
+            {"pooled": True},
+            5,
+            base_query='"anna lindberg"',
+            query_variants=('"anna lindberg"', '"lindberg anna"'),
+        )
+
+        # One tab created for the engine; the second variant navigates it.
+        self.assertEqual(browser.journal.count("browser.get"), 1)
+        self.assertEqual(browser.journal.count("get"), 1)
+        self.assertEqual(len(browser.tabs), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        self.assertEqual(browser.journal.count("bring_to_front"), 0)
+        self.assertNotIn(browser.tabs[0].target_id, ACTIVE_ENGINE_TAB_TARGETS)
+        self.assertIsNone(engine.tab)
+
+    async def test_each_engine_gets_its_own_pooled_tab(self):
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={
+                "alpha": lambda: PooledStubEngine("Alpha"),
+                "beta": lambda: PooledStubEngine("Beta"),
+            },
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        await orchestrator.search(
+            "anna lindberg",
+            '"anna lindberg"',
+            browser,
+            {"alpha": True, "beta": True},
+            5,
+            base_query='"anna lindberg"',
+            query_variants=('"anna lindberg"', '"lindberg anna"'),
+        )
+
+        self.assertEqual(browser.journal.count("browser.get"), 2)
+        self.assertEqual(len(browser.tabs), 2)
+        self.assertTrue(all(tab.closed for tab in browser.tabs))
+        self.assertEqual(browser.journal.count("bring_to_front"), 0)
+
+    async def test_variant_failure_keeps_pooled_tab_for_next_variant(self):
+        engine = FlakyParsePooledEngine()
+        browser = FakeBrowser()
+        orchestrator = SearchOrchestrator(
+            engine_factories={"flaky": lambda: engine},
+            report_generator=ReportCapture(),
+            history_adder=lambda *_args: None,
+            history_report_generator=lambda: None,
+        )
+
+        with self.assertLogs("search_orchestrator", level="ERROR"):
+            result = await orchestrator.search(
+                "anna lindberg",
+                '"anna lindberg"',
+                browser,
+                {"flaky": True},
+                5,
+                base_query='"anna lindberg"',
+                query_variants=('"anna lindberg"', '"lindberg anna"'),
+            )
+
+        self.assertEqual(set(result.engine_errors), {"flaky [variant 1]"})
+        self.assertEqual(browser.journal.count("browser.get"), 1)
+        self.assertTrue(browser.tabs[0].closed)
+        engines_by_variant = [entry["engines"]["flaky"] for entry in result.coverage]
+        self.assertEqual(engines_by_variant[0]["status"], "error")
+        self.assertEqual(engines_by_variant[1]["status"], "ok")
+
     async def test_engine_specific_queries_are_used_for_filters(self):
         google_engine = FakeEngine()
         bing_engine = FakeEngine()
@@ -487,7 +747,13 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
             query_variants=('"anna lindberg"', '"lindberg anna"'),
         )
 
-        self.assertEqual(len(instances), 4)
+        # T-014: one engine instance per engine, reused across variants.
+        self.assertEqual(len(instances), 2)
+        for engine in instances:
+            self.assertEqual(
+                [call[0] for call in engine.calls],
+                ['"anna lindberg"', '"lindberg anna"'],
+            )
         self.assertEqual(result.nb_results, 1)
         self.assertEqual(len(result.coverage), 2)
         self.assertEqual(
@@ -509,7 +775,6 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
                 "original_query": "anna lindberg",
                 "filters": {},
                 "num_results": 5,
-                "investigation_id": "",
             },
         )
 
@@ -517,7 +782,7 @@ class SearchOrchestratorTestCase(unittest.IsolatedAsyncioTestCase):
 class AggregateSearchResultsTestCase(unittest.TestCase):
     def test_results_are_sorted_by_descending_relevance(self):
         engine_results = {
-            "google": pd.DataFrame(
+            "google": result_rows(
                 [
                     {
                         "title": "Low",
@@ -541,12 +806,39 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
             scorer=lambda row, _query: 10 if row["title"] == "High" else 1,
         )
 
-        self.assertEqual(combined["title"].tolist(), ["High", "Low"])
-        self.assertEqual(combined.index.tolist(), [0, 1])
+        self.assertEqual([row["title"] for row in combined], ["High", "Low"])
+        self.assertEqual(list(range(len(combined))), [0, 1])
+
+    def test_equal_scores_are_sorted_by_link_stably(self):
+        combined = aggregate_search_results(
+            {
+                "google": result_rows([
+                    {
+                        "title": "Z result",
+                        "link": "https://example.com/z",
+                        "description": "Reference.",
+                        "source": "Google",
+                    },
+                    {
+                        "title": "A result",
+                        "link": "https://example.com/a",
+                        "description": "Reference.",
+                        "source": "Google",
+                    },
+                ]),
+            },
+            "query",
+            scorer=lambda _row, _query: 1,
+        )
+
+        self.assertEqual(
+            [row["link"] for row in combined],
+            ["https://example.com/a", "https://example.com/z"],
+        )
 
     def test_deduplicates_links_and_merges_sources(self):
         engine_results = {
-            "google": pd.DataFrame(
+            "google": result_rows(
                 [
                     {
                         "title": "Python async guide",
@@ -562,7 +854,7 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
                     },
                 ]
             ),
-            "bing": pd.DataFrame(
+            "bing": result_rows(
                 [
                     {
                         "title": "Async Python reference",
@@ -576,7 +868,9 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
 
         combined = aggregate_search_results(engine_results, '"python async"')
 
-        duplicate_row = combined[combined["link"] == "https://example.com/python-async"].iloc[0]
+        duplicate_row = next(
+            row for row in combined if row["link"] == "https://example.com/python-async"
+        )
         self.assertEqual(duplicate_row["source"], "Bing, Google")
         self.assertEqual(duplicate_row["engine_count"], 2)
         self.assertIn(
@@ -584,11 +878,11 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
             [component["key"] for component in duplicate_row["score_breakdown"]],
         )
         self.assertEqual(len(combined), 2)
-        self.assertIn("relevance_score", combined.columns)
+        self.assertIn("relevance_score", combined[0])
 
     def test_filters_results_after_engine_search(self):
         engine_results = {
-            "bing": pd.DataFrame(
+            "bing": result_rows(
                 [
                     {
                         "title": "John Doe profile",
@@ -614,11 +908,11 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(combined), 1)
-        self.assertEqual(combined.iloc[0]["link"], "https://example.com/admin/profile.pdf")
+        self.assertEqual(combined[0]["link"], "https://example.com/admin/profile.pdf")
 
     def test_filter_only_search_keeps_matching_results_with_minimum_score(self):
         engine_results = {
-            "google": pd.DataFrame(
+            "google": result_rows(
                 [
                     {
                         "title": "Document",
@@ -638,9 +932,9 @@ class AggregateSearchResultsTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(combined), 1)
-        self.assertEqual(combined.iloc[0]["relevance_score"], 1.0)
+        self.assertEqual(combined[0]["relevance_score"], 1.0)
         self.assertEqual(
-            combined.iloc[0]["score_breakdown"][0]["key"],
+            combined[0]["score_breakdown"][0]["key"],
             "filter_match",
         )
 

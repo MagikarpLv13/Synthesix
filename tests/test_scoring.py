@@ -13,6 +13,69 @@ from scoring import (
 
 
 class ScoringTestCase(unittest.TestCase):
+    def test_natural_identity_query_matches_across_title_and_description(self):
+        row = {
+            "title": "Miguel Morón - Profil d’athlète",
+            "description": "Né en 1976, résultats et statistiques.",
+            "link": "https://example.test/athletes/miguel-moron",
+        }
+
+        breakdown = build_relevance_explainer("Miguel Moron 1976")(row)
+
+        self.assertGreater(breakdown.total, 8)
+        self.assertEqual(
+            [component.key for component in breakdown.components],
+            [
+                "natural_title_terms",
+                "natural_description_terms",
+                "natural_url_terms",
+                "natural_sequence",
+                "natural_full_coverage",
+            ],
+        )
+
+    def test_natural_identity_query_rejects_a_year_only_false_positive(self):
+        row = {
+            "title": "Jeux olympiques de 1976",
+            "description": "Liste générale des athlètes et des résultats.",
+            "link": "https://example.test/olympics/1976",
+        }
+
+        self.assertEqual(calculate_relevance(row, "Miguel Moron 1976"), 0)
+
+    def test_complete_natural_match_ranks_above_name_only_match(self):
+        complete_profile = {
+            "title": "Miguel Morón - Profil d’athlète",
+            "description": "Né en 1976, résultats et statistiques.",
+            "link": "https://example.test/athletes/miguel-moron",
+        }
+        name_only_profile = {
+            "title": "Miguel Morón - Répertoire",
+            "description": "Profil public.",
+            "link": "https://example.test/people/miguel-moron",
+        }
+
+        complete_score = calculate_relevance(
+            complete_profile,
+            "Miguel Moron 1976",
+        )
+        name_only_score = calculate_relevance(
+            name_only_profile,
+            "Miguel Moron 1976",
+        )
+
+        self.assertGreater(name_only_score, 0)
+        self.assertGreater(complete_score, name_only_score)
+
+    def test_natural_query_requires_both_terms_when_only_two_are_significant(self):
+        partial_row = {
+            "title": "Miguel - Résultats sportifs",
+            "description": "Profil public.",
+            "link": "https://example.test/miguel",
+        }
+
+        self.assertEqual(calculate_relevance(partial_row, "Miguel Moron"), 0)
+
     def test_quoted_phrase_is_scored_as_exact_phrase(self):
         row = {
             "title": "Gravelord Lych | Bloons Wiki | Fandom",
@@ -33,6 +96,36 @@ class ScoringTestCase(unittest.TestCase):
         }
 
         self.assertGreater(calculate_relevance(row, '"starvos and lych"'), 0)
+
+    def test_structured_query_keeps_terms_separate_across_result_fields(self):
+        row = {
+            "title": "Miguel Morón - Profil d’athlète",
+            "description": "Né en 1976, résultats et statistiques.",
+            "link": "https://example.test/athletes/miguel-moron",
+        }
+
+        breakdown = build_relevance_explainer(
+            '("miguel moron" AND "1976")'
+        )(row)
+
+        self.assertEqual(
+            [component.key for component in breakdown.components],
+            ["exact_title", "exact_description", "url_match"],
+        )
+
+    def test_structured_phrase_keeps_compact_url_matching(self):
+        row = {
+            "title": "Archive",
+            "description": "Reference page.",
+            "link": "https://example.test/people/miguelmoron",
+        }
+
+        breakdown = build_relevance_explainer('"miguel moron"')(row)
+
+        self.assertEqual(
+            [component.key for component in breakdown.components],
+            ["url_match"],
+        )
 
     def test_boolean_query_extracts_quoted_terms_individually(self):
         self.assertEqual(

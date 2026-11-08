@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 56" width="260" height="56" fill="none" role="img" aria-label="Synthesix">
+  <g transform="translate(4 4)" style="color:#191A1E">
+    <line x1="6" y1="12" x2="33" y2="24" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+    <line x1="6" y1="24" x2="33" y2="24" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+    <line x1="6" y1="36" x2="33" y2="24" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+    <line x1="16" y1="6" x2="33" y2="24" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+    <line x1="16" y1="42" x2="33" y2="24" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+    <circle cx="6" cy="12" r="2.5" fill="#2A46A6"></circle>
+    <circle cx="6" cy="24" r="2.5" fill="#2A46A6"></circle>
+    <circle cx="6" cy="36" r="2.5" fill="#2A46A6"></circle>
+    <circle cx="16" cy="6" r="2.5" fill="#2A46A6"></circle>
+    <circle cx="16" cy="42" r="2.5" fill="#2A46A6"></circle>
+    <circle cx="34" cy="24" r="5.5" fill="#2A46A6"></circle>
+  </g>
+  <text x="66" y="38" font-family="Spectral, Georgia, serif" font-weight="600" font-size="38" letter-spacing="-0.4" fill="#191A1E">Synthesix</text>
+</svg>

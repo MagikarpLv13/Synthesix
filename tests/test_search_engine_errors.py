@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,7 +7,7 @@ from unittest.mock import patch
 from brave import BraveSearchEngine
 from duckduckgo import DuckDuckGoSearchEngine
 from exceptions import BrowserSessionError, RobotChallengeError, SearchEngineError
-from search_engine import SearchEngine
+from search_engine import PROBE_MARKER, SearchEngine
 
 
 class DummySearchEngine(SearchEngine):
@@ -34,8 +35,8 @@ class DummySearchEngine(SearchEngine):
 
 
 class LoadedTab:
-    async def query_selector(self, _selector):
-        return object()
+    async def evaluate(self, _expression):
+        return '{"found": true}'
 
     async def get_content(self):
         return "<html><div id='results'></div></html>"
@@ -155,7 +156,7 @@ class BraveRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
             url = "https://search.brave.com/challenge"
 
             def __init__(self):
-                self.query_checks = 0
+                self.probe_checks = 0
                 self.focused = False
 
             async def bring_to_front(self):
@@ -167,12 +168,11 @@ class BraveRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
             async def find(self, *_args, **_kwargs):
                 return None
 
-            async def evaluate(self, _expression):
+            async def evaluate(self, expression):
+                if PROBE_MARKER in expression:
+                    self.probe_checks += 1
+                    return json.dumps({"found": self.probe_checks >= 2})
                 return None
-
-            async def query_selector(self, _selector):
-                self.query_checks += 1
-                return object() if self.query_checks >= 2 else None
 
             async def save_screenshot(self, filename, **_kwargs):
                 Path(filename).write_bytes(b"png")
@@ -196,31 +196,30 @@ class BraveRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
-    async def test_accepts_parseable_results_without_matching_selector(self):
-        class ParseableTab:
-            async def query_selector(self, _selector):
-                return None
+    async def test_probe_found_loads_without_full_page_read(self):
+        """T-012: a matching probe finishes the wait without shipping HTML."""
+
+        class ProbeFoundTab:
+            def __init__(self):
+                self.content_calls = 0
+
+            async def evaluate(self, _expression):
+                return '{"found": true}'
 
             async def get_content(self):
-                return """
-                    <article data-testid="result">
-                        <a
-                            data-testid="result-title-a"
-                            href="https://example.com/result"
-                        >Result</a>
-                        <div data-result="snippet">Description</div>
-                    </article>
-                """
+                self.content_calls += 1
+                return "<html></html>"
 
         engine = DuckDuckGoSearchEngine()
         engine.query = "dummy"
         engine.max_results = 10
         engine.current_url = engine.construct_url()
-        engine.tab = ParseableTab()
+        engine.tab = ProbeFoundTab()
 
         loaded = await engine.wait_for_page_load(timeout=0.1, interval=0)
 
         self.assertTrue(loaded)
+        self.assertEqual(engine.tab.content_calls, 0)
 
     async def test_uses_html_fallback_when_main_page_has_no_results(self):
         class FallbackTab:
@@ -228,8 +227,8 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
                 self.content = "<html><body>Loading</body></html>"
                 self.loaded_urls = []
 
-            async def query_selector(self, _selector):
-                return None
+            async def evaluate(self, _expression):
+                return json.dumps({"found": bool(self.loaded_urls)})
 
             async def get_content(self):
                 return self.content
@@ -265,6 +264,12 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
             content_calls = 0
             reloaded_url = None
 
+            async def evaluate(self, _expression):
+                # Challenge already cleared: the follow-up page is a 403.
+                if self.reloaded_url:
+                    return '{"found": true}'
+                return '{"forbidden": true}'
+
             async def get_content(self):
                 self.content_calls += 1
                 if self.content_calls == 1:
@@ -282,9 +287,6 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
             async def save_screenshot(self, filename, **_kwargs):
                 Path(filename).write_bytes(b"png")
-
-            async def query_selector(self, _selector):
-                return object() if self.reloaded_url else None
 
             async def get(self, url):
                 self.reloaded_url = url
@@ -313,7 +315,13 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_robot_challenge_resumes_after_manual_resolution(self):
         class ChallengeTab:
-            query_checks = 0
+            probe_checks = 0
+
+            async def evaluate(self, _expression):
+                self.probe_checks += 1
+                if self.probe_checks >= 2:
+                    return '{"found": true}'
+                return '{"challenge": true}'
 
             async def get_content(self):
                 return (
@@ -329,10 +337,6 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
             async def save_screenshot(self, filename, **_kwargs):
                 Path(filename).write_bytes(b"png")
-
-            async def query_selector(self, _selector):
-                self.query_checks += 1
-                return object() if self.query_checks >= 2 else None
 
         engine = DuckDuckGoSearchEngine()
         engine.query = "dummy"
@@ -354,6 +358,9 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_unresolved_robot_challenge_is_captured_and_raises(self):
         class ChallengeTab:
+            async def evaluate(self, _expression):
+                return '{"challenge": true}'
+
             async def get_content(self):
                 return (
                     '<section class="anomaly-modal">'
@@ -369,9 +376,6 @@ class DuckDuckGoRobotChallengeErrorTestCase(unittest.IsolatedAsyncioTestCase):
 
             async def save_screenshot(self, filename, **_kwargs):
                 Path(filename).write_bytes(b"png")
-
-            async def query_selector(self, _selector):
-                return None
 
         engine = DuckDuckGoSearchEngine()
         engine.query = "dummy"

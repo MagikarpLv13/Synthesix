@@ -1,7 +1,8 @@
+import re
+import json
 import logging
-
+from html import unescape
 from lxml import html
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,4 +53,40 @@ def parse_with_xpath(raw_results, result_xpath, title_xpath, link_xpath, desc_xp
             logger.debug("Error parsing %s result block.", source, exc_info=True)
             continue  
     return res
+
+
+
+def js_like_to_json(js_text):
+    """Convert a JS like text to a JSON object
+
+    Args:
+        js_text (str): The JS like text to convert
+
+    Returns:
+        dict: The JSON object
+    """
+
+    # Replace void 0 by null
+    js_text = js_text.replace("void 0", "null")
+
+    js_text = re.sub(r"(^|\{|\[|,)\s*([a-zA-Z0-9_]+)\s*:", r'\1"\2":', js_text)
+
+    # Remove the u003c strings
+    js_text = js_text.replace("\\u003C", "<")
+    js_text = js_text.replace("&quot;", "")
+    js_text = unescape(js_text)
+
+    # Remove the html tags
+    js_text = re.sub(r"<[^>]+>", "", js_text)
+
+    # Add [{ at the beginning and }] at the end
+    js_text = "[{" + js_text + "}]"
+
+    # Parse to JSON
+    try:
+        data = json.loads(js_text)
+        return data
+    except json.JSONDecodeError:
+        logger.debug("Unable to parse JavaScript-like JSON payload.", exc_info=True)
+        return None
 

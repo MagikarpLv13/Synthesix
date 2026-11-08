@@ -1,13 +1,16 @@
+from query_syntax import is_advanced_query, smart_parse
+from parsers import js_like_to_json
 import re
 import json
 import os
 import logging
 from html import escape, unescape
-import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Mapping, Optional, Sequence
 from settings import get_settings
+
+import ui
 
 
 logger = logging.getLogger(__name__)
@@ -16,15 +19,6 @@ HISTORY_DATE_FORMATS = ("%d/%m/%Y %H:%M",)
 
 def _html_escape(value) -> str:
     return escape(str(value), quote=True)
-
-
-def _theme_assets(asset_prefix: str = "") -> str:
-    return f"""
-    <link rel="icon" href="{asset_prefix}assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="{asset_prefix}theme.css">
-    <script src="{asset_prefix}theme.js"></script>
-    <script src="{asset_prefix}i18n.js"></script>
-"""
 
 
 def _brand_markup(subtitle: str, asset_prefix: str = "") -> str:
@@ -175,7 +169,6 @@ def load_search_history(limit: int | None = None) -> List[dict]:
                 "date": str(entry.get("date", "")).strip(),
                 "nb_results": entry.get("nb_results", ""),
                 "filters": filters,
-                "investigation_id": str(entry.get("investigation_id", "") or ""),
             }
         )
         if len(searches) >= limit:
@@ -190,7 +183,6 @@ def add_to_history(
     nb_results: int,
     link: str,
     filters: dict | None = None,
-    investigation_id: str | None = None,
 ):
     """Add a search to the history
     
@@ -214,8 +206,6 @@ def add_to_history(
     }
     if filters:
         data["filters"] = filters
-    if investigation_id:
-        data["investigation_id"] = investigation_id
 
     path.parent.mkdir(parents=True, exist_ok=True)
     history = _read_history_entries(path)
@@ -246,194 +236,109 @@ def clear_synthesix_history() -> int:
 
 
 def generate_history_html():
-    """Generate an HTML report of the history
-    
+    """Generate the search history page.
+
     Returns:
-        str: The path to the generated HTML report
+        str: The path to the generated HTML page.
     """
     settings = get_settings()
     path = settings.history_json_path
     output_path = settings.history_report_path
-    
     history = _read_history_entries(path)
-
-    # Début du HTML
-    search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
+    search_href = _relative_href(
+        settings.base_dir / "index.html", output_path.parent
+    )
     asset_prefix = _asset_prefix(output_path.parent, settings.base_dir)
+    entries = _sorted_history_entries(history)
 
-    html = f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Synthesix History</title>
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets(asset_prefix)}
-</head>
-<body>
-    <main class="app app--wide">
-        <header class="topbar">
-            {_brand_markup("Search history", asset_prefix)}
-            <div class="top-actions">
-                <a href="{search_href}" data-home-link class="nav-link">Search</a>
-            </div>
-        </header>
+    if entries:
+        cards = []
+        for entry in entries:
+            date = str(entry.get("date", ""))
+            display_query = str(entry.get("query") or entry.get("smart_query", ""))
+            smart_query = str(entry.get("smart_query", ""))
+            nb_results = entry.get("nb_results", "")
+            link = str(entry.get("link", "#"))
+            meta = ""
+            if date:
+                meta += ui.chip(date, icon_name="clock", tone="muted")
+            if nb_results != "":
+                meta += ui.chip(f"{nb_results} results")
+            view_button = (
+                f'<a class="btn btn--ghost btn--sm" href="{ui.esc(link)}" '
+                'target="_blank" rel="noopener noreferrer">'
+                f'{ui.icon("external")}<span>View results</span></a>'
+            )
+            snippet = (
+                smart_query
+                if smart_query and smart_query != display_query
+                else ""
+            )
+            cards.append(
+                ui.result_card(
+                    title=display_query,
+                    url=link,
+                    safe_url=link,
+                    snippet=snippet,
+                    meta_html=meta,
+                    actions_html=view_button,
+                )
+            )
+        results_html = (
+            '<div class="result-list" aria-label="Saved searches">'
+            + "".join(cards)
+            + "</div>"
+            + ui.keyboard_hint([("j / k", "navigate results"), ("o", "open")])
+        )
+    else:
+        results_html = ui.empty_state(
+            "No saved searches yet",
+            "Run a search from the home page to build your history.",
+        )
 
-        <section aria-label="Search history">
-            <div class="page-header">
-                <h2 class="page-title">Search history</h2>
-                <div class="page-meta">
-                    <span class="meta-pill">{len(history)} saved searches</span>
-                </div>
-            </div>
-            <div class="table-shell">
-                <table id="historyTable" class="data-table display">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Original Query</th>
-                            <th>Smart Query</th>
-                            <th>Number of results</th>
-                            <th>Link to results</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-'''
-    rows = []
-    for entry in _sorted_history_entries(history):
-        date = _html_escape(entry.get('date', ''))
-        sort_key = _html_escape(f"{_history_sort_key(entry):.6f}")
-        query = _html_escape(entry.get('query') or entry.get('smart_query', ''))
-        smart_query = _html_escape(entry.get('smart_query', ''))
-        nb_results = _html_escape(entry.get('nb_results', ''))
-        link = _html_escape(entry.get('link', '#'))
-        rows.append(f"""
-            <tr>
-                <td data-order="{sort_key}">{date}</td>
-                <td>{query}</td>
-                <td>{smart_query}</td>
-                <td>{nb_results}</td>
-                <td><a href="{link}" target="_blank" rel="noopener noreferrer">View results</a></td>
-            </tr>
-        """)
-    html += "".join(rows)
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-    <script>
-        $(document).ready(function() {
-            $('#historyTable').DataTable({
-                order: [[0, 'desc']],
-                pageLength: 50,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]]
-            });
-        });
-    </script>
-''' + _home_navigation_script() + '''
-</body>
-</html>
-'''
+    body = (
+        ui.topbar(
+            "Search history",
+            asset_prefix,
+            [{"href": search_href, "label": "Search", "attrs": "data-home-link"}],
+        )
+        + '<section class="page" aria-label="Search history">'
+        + '<div class="page-head">'
+        + '<p class="eyebrow">History</p>'
+        + '<h1 class="page-title">Search history</h1>'
+        + '<div class="context-bar"><span class="context-item">'
+        + f'<span class="context-item__value">{len(history)} saved searches</span>'
+        + "</span></div>"
+        + "</div>"
+        + results_html
+        + "</section>"
+    )
+
+    full_html = ui.render_page(
+        title="Synthesix History",
+        asset_prefix=asset_prefix,
+        body=body,
+    )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(full_html)
     return str(output_path)
 
-def js_like_to_json(js_text):
-    """Convert a JS like text to a JSON object
-
-    Args:
-        js_text (str): The JS like text to convert
-
-    Returns:
-        dict: The JSON object
-    """
-
-    # Replace void 0 by null
-    js_text = js_text.replace("void 0", "null")
-
-    js_text = re.sub(r"(^|\{|\[|,)\s*([a-zA-Z0-9_]+)\s*:", r'\1"\2":', js_text)
-
-    # Remove the u003c strings
-    js_text = js_text.replace("\\u003C", "<")
-    js_text = js_text.replace("&quot;", "")
-    js_text = unescape(js_text)
-
-    # Remove the html tags
-    js_text = re.sub(r"<[^>]+>", "", js_text)
-
-    # Add [{ at the beginning and }] at the end
-    js_text = "[{" + js_text + "}]"
-
-    # Parse to JSON
-    try:
-        data = json.loads(js_text)
-        return data
-    except json.JSONDecodeError:
-        logger.debug("Unable to parse JavaScript-like JSON payload.", exc_info=True)
-        return None
 
 
-def smart_parse(query: str)-> str:
-    """Parse a query to a smart query
-
-    Args:
-        query (str): The query to parse
-
-    Returns:
-        str: The smart query
-    
-    Example:
-        "apple, banana, orange" -> "("apple" AND "banana" AND "orange") OR ("apple" OR "banana" OR "orange")"
-        "apple, banana" -> "("apple" AND "banana") OR ("apple" OR "banana")"
-        "apple" -> "apple"
-        "" -> ""
-    """
-
-    terms = [t.strip() for t in query.split(",") if t.strip()]
-    if len(terms) == 0:
-        return ""
-    if len(terms) == 1:
-        return f'"{terms[0]}"'
-
-    all_and = " AND ".join(f'"{t}"' for t in terms)
-    #all_or = " OR ".join(f'"{t}"' for t in terms) # Searches are more relevant without OR
-    return f"({all_and})"
 
 
-def is_advanced_query(query: str) -> bool:
-    lowered = query.lower()
-    advanced_markers = (
-        "site:",
-        "-site:",
-        "inurl:",
-        "intitle:",
-        "intext:",
-        "inbody:",
-        "filetype:",
-        "ext:",
-        "after:",
-        "before:",
-        "\"",
-        "(",
-    )
-    if any(op in lowered for op in advanced_markers):
-        return True
-    if re.search(r'(?:^|\s)-(?:"[^"]+"|\S+)', query):
-        return True
-    return re.search(r"\b(AND|OR|NOT)\b", query) is not None
 
 
-def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, nb_results: int) -> Optional[str]:
+
+def generate_html_report(
+    results: Sequence[Mapping], search_term: str, total_time: float, nb_results: int
+) -> Optional[str]:
     """Generate an HTML report of the search results
     
     Args:
-        df (pd.DataFrame): The DataFrame containing the search results
+        results: The structured search results
         search_term (str): The search term
         total_time (float): The total time taken to perform the search
         nb_results (int): The number of results
@@ -442,15 +347,16 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
         str: The path to the generated HTML report
     """
 
-    coverage = tuple(df.attrs.get("query_coverage", ()))
-    search_context = df.attrs.get("search_context", {})
+    attrs = getattr(results, "attrs", {})
+    coverage = tuple(attrs.get("query_coverage", ()))
+    search_context = attrs.get("search_context", {})
     if not isinstance(search_context, dict):
         search_context = {}
-    if "relevance_score" in df.columns:
-        df = (
-            df.sort_values("relevance_score", ascending=False, kind="stable")
-            .reset_index(drop=True)
-        )
+    results = sorted(
+        results,
+        key=lambda row: float(row.get("relevance_score", 0) or 0),
+        reverse=True,
+    )
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     settings = get_settings()
     output_path = settings.search_results_path(date_str)
@@ -459,7 +365,18 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
     search_href = _relative_href(settings.base_dir / "index.html", output_path.parent)
     history_href = _relative_href(settings.history_report_path, output_path.parent)
     safe_search_term = _html_escape(search_term)
-    safe_output_path = _html_escape(output_path)
+    filter_bar_html = """
+        <div class="result-filter">
+            <label for="result-filter-field">Filter results</label>
+            <input
+                type="search"
+                id="result-filter-field"
+                data-results-filter
+                placeholder="Filter results"
+                autocomplete="off"
+            >
+        </div>
+    """
     coverage_engines = sorted({
         str(engine)
         for item in coverage
@@ -494,9 +411,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                         ),
                         "filters": search_context.get("filters", {}),
                         "numResults": search_context.get("num_results", 20),
-                        "investigationId": str(
-                            search_context.get("investigation_id", "") or ""
-                        ),
                     }
                     payload_json = _html_escape(
                         json.dumps(
@@ -523,7 +437,6 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
                 <summary>Query coverage ({len(coverage)} variants)</summary>
                 <p>Counts distinguish successful zero-result searches from timeouts,
                 challenges, and other errors.</p>
-                <p class="action-status" data-page-status aria-live="polite"></p>
                 <div class="table-shell">
                     <table class="data-table coverage-table">
                         <thead>
@@ -535,150 +448,142 @@ def generate_html_report(df: pd.DataFrame, search_term: str, total_time: float, 
             </details>
         """
 
-    html_head = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search Results for: {safe_search_term}</title>
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    {_theme_assets(asset_prefix)}
-</head>
-<body>
-    <main class="app app--wide">
-        <header class="topbar">
-            {_brand_markup("Search results", asset_prefix)}
-            <div class="top-actions">
-                <a href="{search_href}" data-home-link class="nav-link">Search</a>
-                <a href="{history_href}" class="nav-link">History</a>
-            </div>
-        </header>
+    scores = [float(row.get("relevance_score", 0) or 0) for row in results]
+    strong_count = sum(1 for value in scores if value >= 8.0)
+    top_score = max(scores) if scores else 0.0
+    source_names = sorted({
+        part.strip()
+        for row in results
+        for part in str(row.get("source", "")).split(",")
+        if part.strip()
+    })
 
-        <section aria-label="Search results">
-            <div class="page-header">
-                <h2 class="page-title">Search Results for: {safe_search_term}</h2>
-                <div class="page-meta">
-                    <span class="meta-pill">Total time: {total_time:.3f} seconds</span>
-                    <span class="meta-pill">Created: {date_str}</span>
-                    <span class="meta-pill">Relevant results: {nb_results}</span>
-                    <span class="meta-pill">Report: {safe_output_path}</span>
-                </div>
-            </div>
-            {coverage_html}
-            <div class="table-shell">
-                <table id="results" class="data-table display">
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Description</th>
-                            <th>Link</th>
-                            <th>Source</th>
-                            <th>Exact query</th>
-                            <th>Score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-"""
+    insights_html = ui.insight_grid([
+        {"value": str(nb_results), "label": "relevant results",
+         "hint": "Sorted by relevance score.", "tone": "info"},
+        {"value": str(strong_count), "label": "strong leads",
+         "hint": "Score 8.0 and above.", "tone": "strong"},
+        {"value": str(len(source_names)), "label": "sources",
+         "hint": "Search engines represented.", "tone": "score"},
+        {"value": f"{top_score:.2f}", "label": "best score",
+         "hint": "Highest deterministic relevance.", "tone": "warning"},
+    ])
+
+    meta_html = (
+        '<span class="context-item"><span class="context-item__value">'
+        f'Created: {date_str}</span></span>'
+        '<span class="context-item"><span class="context-item__value">'
+        f'Total time: {total_time:.3f} seconds</span></span>'
+    )
 
     if nb_results == 0:
-        rows_html = """
-        <tr>
-            <td colspan="6" class="empty-row">
-                No relevant results found
-            </td>
-        </tr>
-        """
-        html_footer = """
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-""" + _home_navigation_script() + """
-</body>
-</html>
-"""
-        full_html = html_head + rows_html + html_footer
-        
-        with output_path.open("w", encoding="utf-8") as f:
-            f.write(full_html)
-            
-        return str(output_path.resolve())
-        
-        
-    rows = []
-    for _, row in df.iterrows():
-        title = _html_escape(row["title"])
-        desc = _html_escape(row["description"])
-        link = _html_escape(row["link"])
-        source = _html_escape(row["source"])
-        numeric_score = float(row["relevance_score"])
-        score = f"{numeric_score:.2f}"
-        query_variants = row.get("query_variants", [])
-        if not isinstance(query_variants, (list, tuple)):
-            query_variants = []
-        variants_markup = "<br>".join(
-            f"<code>{_html_escape(query)}</code>"
-            for query in query_variants
+        results_html = ui.empty_state(
+            "No relevant results found",
+            "No results matched this search. Adjust the query, filters, "
+            "or engines and try again.",
         )
-        score_breakdown = row.get("score_breakdown", [])
-        breakdown_items = []
-        if isinstance(score_breakdown, list):
-            for component in score_breakdown:
-                if not isinstance(component, dict):
-                    continue
-                component_score = float(component.get("score", 0) or 0)
-                component_label = _html_escape(component.get("label", "Score component"))
-                breakdown_items.append(
-                    f"<li>+{component_score:.1f} {component_label}</li>"
-                )
-        if breakdown_items:
-            score_markup = (
-                f'<details class="score-breakdown"><summary>{score}</summary>'
-                f"<ul>{''.join(breakdown_items)}</ul>"
-                "<small>Multi-engine consensus confirms repeated retrieval, "
-                "not factual accuracy.</small></details>"
+        hint_html = ""
+    else:
+        cards = []
+        for row in results:
+            link = str(row["link"])
+            display_domain = ui.domain_of(link)
+            safe_link = link if display_domain else "#"
+            engines = [
+                part.strip()
+                for part in str(row["source"]).split(",")
+                if part.strip()
+            ]
+            engine_chips = "".join(
+                ui.chip(engine, tone="engine") for engine in engines
             )
-        else:
-            score_markup = score
-        link_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{link}</a>'
-        rows.append(f"""
-        <tr>
-            <td>{title}</td>
-            <td class="description">{desc}</td>
-            <td class="link">{link_html}</td>
-            <td>{source}</td>
-            <td>{variants_markup}</td>
-            <td data-order="{numeric_score:.6f}">{score_markup}</td>
-        </tr>
-        """)
-    rows_html = "".join(rows)
+            numeric_score = float(row["relevance_score"])
+            breakdown = row.get("score_breakdown", [])
+            breakdown_items = []
+            if isinstance(breakdown, list):
+                for component in breakdown:
+                    if not isinstance(component, dict):
+                        continue
+                    component_score = float(component.get("score", 0) or 0)
+                    component_label = ui.esc(
+                        component.get("label", "Score component")
+                    )
+                    pts_level = (
+                        "strong" if component_score >= 4.0
+                        else "good" if component_score >= 2.0
+                        else "low"
+                    )
+                    breakdown_items.append(
+                        f'<li><span class="score__pts score__pts--{pts_level}">'
+                        f"+{component_score:.1f}</span> {component_label}</li>"
+                    )
+            score_html = ui.score_badge(
+                f"{numeric_score:.2f}",
+                ui.score_level(numeric_score),
+                breakdown_html="".join(breakdown_items),
+            )
+            variants = row.get("query_variants", [])
+            if not isinstance(variants, (list, tuple)):
+                variants = []
+            provenance_html = ""
+            if len(variants) > 1:
+                provenance_html = ui.provenance(
+                    "Found via",
+                    ", ".join(str(variant) for variant in variants),
+                )
+            meta_card = engine_chips + score_html + provenance_html
+            cards.append(
+                ui.result_card(
+                    title=str(row["title"]),
+                    url=link,
+                    safe_url=safe_link,
+                    domain=display_domain,
+                    snippet=str(row["description"]),
+                    meta_html=meta_card,
+                    accent_level=ui.score_level(numeric_score),
+                    highlight=search_term,
+                )
+            )
+        results_html = (
+            '<div class="result-list" aria-label="Results">'
+            + "".join(cards)
+            + "</div>"
+        )
+        hint_html = ui.keyboard_hint(
+            [("j / k", "navigate results"), ("o", "open")]
+        )
 
-    html_footer = """
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-    <script>
-        $(document).ready(function() {
-            $('#results').DataTable({
-                pageLength: 50,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                order: [[5, 'desc']]
-            });
-        });
-    </script>
-""" + _home_navigation_script() + """
-</body>
-</html>
-"""
+    body = (
+        ui.topbar(
+            "Search results",
+            asset_prefix,
+            [
+                {"href": search_href, "label": "Search",
+                 "attrs": "data-home-link"},
+                {"href": history_href, "label": "History"},
+            ],
+        )
+        + '<section class="page" aria-label="Search results">'
+        + '<div class="page-head">'
+        + '<p class="eyebrow">Search results</p>'
+        + f'<h1 class="page-title">{safe_search_term}</h1>'
+        + filter_bar_html
+        + f'<div class="context-bar">{meta_html}</div>'
+        + "</div>"
+        + insights_html
+        + coverage_html
+        + results_html
+        + hint_html
+        + "</section>"
+    )
 
-    full_html = html_head + rows_html + html_footer
+    full_html = ui.render_page(
+        title=f"Search Results for: {search_term}",
+        asset_prefix=asset_prefix,
+        body=body,
+    )
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
         f.write(full_html)
 

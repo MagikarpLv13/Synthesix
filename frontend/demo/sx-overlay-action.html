@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix overlay action demo</title>
+    <script src="../../assets/synthesix-overlay.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f8fafc;
+        font-family: system-ui, Arial, sans-serif;
+      }
+
+      .demo {
+        max-width: 760px;
+        margin: 48px;
+        padding: 18px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+      }
+
+      .target {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        width: 280px;
+        height: 120px;
+        padding: 14px;
+        border: 1px dashed #64748b;
+        border-radius: 8px;
+        color: #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <h1>Synthesix overlay demo</h1>
+      <p>
+        Le panneau est fixé en bas à droite, au-dessus de la zone pointillée.
+        Le bouton rond permet de rétracter l'overlay.
+      </p>
+    </div>
+    <div class="target">Zone potentiellement masquée par l'overlay.</div>
+    <sx-overlay-root>
+      <sx-overlay-action
+        slot="toolbar"
+        icon="mark"
+        label="Save page"
+        title-text="Save this page to the active investigation"
+        aria-text="Save page to active Synthesix investigation"
+      ></sx-overlay-action>
+      <sx-overlay-action
+        slot="toolbar"
+        variant="archive"
+        icon="archive"
+        icon-only
+        label="Archive"
+        title-text="Save page with HTML archive"
+      ></sx-overlay-action>
+      <sx-overlay-action
+        slot="toolbar"
+        variant="capture"
+        icon="camera"
+        icon-only
+        state="captured"
+        label="Capture"
+        title-text="Capture screenshot"
+      ></sx-overlay-action>
+      <sx-overlay-selection-trigger
+        label="Ajouter à l'enquête"
+        style="display: inline-flex; position: static;"
+      ></sx-overlay-selection-trigger>
+      <sx-overlay-capture-menu open></sx-overlay-capture-menu>
+    </sx-overlay-root>
+  </body>
+</html>

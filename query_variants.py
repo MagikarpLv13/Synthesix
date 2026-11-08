@@ -2,7 +2,7 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-from utils import is_advanced_query
+from query_syntax import is_advanced_query
 
 
 MAX_QUERY_LENGTH = 500

@@ -1,0 +1,474 @@
+"""T-020: BrowserService unit tests + no-direct-CDP regression guard.
+
+The guard test greps the migrated modules for raw CDP idioms so a future
+edit cannot quietly reintroduce `tab.send(...)`/`browser._get_targets`
+outside `browser/service.py`.
+"""
+
+import asyncio
+import base64
+import json
+import re
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+from zendriver import cdp
+
+import observability
+from browser import service as browser_service
+from browser import (
+    BrowserService,
+    eval_js,
+    get_browser_service,
+    mhtml,
+    outer_html,
+    page_layout,
+    screenshot,
+    visual_viewport,
+)
+from tests.fakes import FakeBrowser, FakeTab
+
+
+class BrowserServiceTestCase(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        observability.reset()
+
+    def tearDown(self):
+        observability.reset()
+
+    async def test_tabs_returns_live_page_tabs_and_prunes_registry(self):
+        live = FakeTab("https://example.com", "live")
+        browser = FakeBrowser([live])
+        service = BrowserService(browser)
+        service.armed_script_targets.update({"live", "closed"})
+
+        tabs = await service.tabs()
+
+        self.assertEqual(tabs, [live])
+        self.assertEqual(service.armed_script_targets, {"live"})
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 1)
+
+    async def test_tabs_returns_none_when_browser_unreachable(self):
+        class DeadBrowser:
+            tabs = []
+
+            async def update_targets(self):
+                raise ConnectionError("chrome is gone")
+
+        self.assertIsNone(await BrowserService(DeadBrowser()).tabs())
+
+    async def test_tabs_reads_event_registry_between_resyncs(self):
+        # T-022: a tab that appears in the event-maintained registry after
+        # the first resync is returned without a fresh getTargets round-trip.
+        live = FakeTab("https://example.com", "live")
+        browser = FakeBrowser([live])
+        service = BrowserService(browser)
+
+        await service.tabs()  # first call: authoritative resync (last == 0)
+        appeared = FakeTab("https://new.example", "new")
+        appeared.journal = browser.journal
+        browser.tabs.append(appeared)  # zendriver's TargetCreated handler
+        tabs = await service.tabs()  # second call: reads registry, no resync
+
+        self.assertEqual({tab.target_id for tab in tabs}, {"live", "new"})
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 1)
+
+    async def test_tabs_resyncs_after_interval(self):
+        service = BrowserService(FakeBrowser([FakeTab(target_id="a")]))
+        service.target_resync_interval = 0.0  # every call is due
+
+        await service.tabs()
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 2)
+
+    async def test_tabs_forces_resync_when_registry_empty(self):
+        # An empty registry must never be trusted on its own (a transient
+        # event gap would look like "all tabs closed" => quit): resync even
+        # when the time-based interval is nowhere near due.
+        service = BrowserService(FakeBrowser([]))
+        service.target_resync_interval = 9999.0
+
+        await service.tabs()
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 2)
+
+    async def test_tabs_resyncs_when_browser_connection_dropped(self):
+        # T-022 regression guard: when Chrome dies the event registry can go
+        # stale (no TargetDestroyed), so a stopped browser-connection listener
+        # must force an authoritative resync even mid-interval — otherwise the
+        # "all tabs closed => quit" path never fires.
+        browser = FakeBrowser([FakeTab("https://example.com", "live")])
+        browser.connection = SimpleNamespace(
+            listener=SimpleNamespace(running=False)
+        )
+        service = BrowserService(browser)
+        service._last_target_resync = float("inf")  # time interval never due
+
+        await service.tabs()
+
+        self.assertEqual(observability.snapshot()["calls"]["targets_poll"], 1)
+
+    async def test_tabs_none_when_dropped_connection_resync_fails(self):
+        class DroppedBrowser:
+            stopped = False
+            # Stale registry entry a missed TargetDestroyed left behind.
+            tabs = [SimpleNamespace(target_id="stale")]
+            connection = SimpleNamespace(listener=SimpleNamespace(running=False))
+
+            async def update_targets(self):
+                raise ConnectionError("chrome is gone")
+
+            async def _get_targets(self):
+                raise ConnectionError("chrome is gone")
+
+        service = BrowserService(DroppedBrowser())
+        service._last_target_resync = float("inf")
+
+        self.assertIsNone(await service.tabs())
+
+    async def test_tabs_none_when_resync_hangs(self):
+        # A dead Chrome makes zendriver's CDP send await a reply that never
+        # arrives; the resync must time out to unreachable instead of freezing
+        # the whole action loop (so the browser.stopped quit check is reached).
+        class HangingBrowser:
+            stopped = False
+            tabs = [SimpleNamespace(target_id="stale")]
+            connection = SimpleNamespace(listener=SimpleNamespace(running=False))
+
+            async def update_targets(self):
+                await asyncio.sleep(3600)  # never returns
+
+            async def _get_targets(self):
+                return []
+
+        service = BrowserService(HangingBrowser())
+        service.target_resync_timeout = 0.05
+        service._last_target_resync = float("inf")
+
+        self.assertIsNone(await service.tabs())
+
+    async def test_eval_js_returns_value_and_counts_category(self):
+        tab = FakeTab()
+        tab.program("evaluate", {"ready": True})
+
+        result = await eval_js(tab, "1 + 1", category="eval_page")
+
+        self.assertEqual(result, {"ready": True})
+        self.assertEqual(observability.snapshot()["calls"]["eval_page"], 1)
+
+    async def test_eval_js_swallows_failures_as_none(self):
+        tab = FakeTab()
+        tab.program("evaluate", RuntimeError("detached"))
+
+        self.assertIsNone(await eval_js(tab, "1 + 1", category="eval_page"))
+
+    async def test_arm_new_document_script_is_idempotent_per_target(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+
+        await service.arm_new_document_script(tab, "guard();")
+        await service.arm_new_document_script(tab, "guard();")
+
+        # One arming = Page.enable + addScriptToEvaluateOnNewDocument.
+        self.assertEqual(tab.journal.count("send"), 2)
+        self.assertEqual(service.armed_script_targets, {"tab-1"})
+
+    async def test_arm_new_document_script_skips_tab_without_target(self):
+        tab = SimpleNamespace(url="https://example.com")
+        service = BrowserService(None)
+
+        await service.arm_new_document_script(tab, "guard();")
+
+        self.assertEqual(service.armed_script_targets, set())
+
+    async def test_arm_new_document_script_failure_leaves_target_unarmed(self):
+        tab = FakeTab(target_id="tab-1")
+        tab.program("send", RuntimeError("no Page domain"))
+        service = BrowserService(FakeBrowser([tab]))
+
+        await service.arm_new_document_script(tab, "guard();")
+
+        self.assertEqual(service.armed_script_targets, set())
+
+    async def test_arm_dispatch_binding_is_idempotent_per_target(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+
+        armed_first = await service.arm_dispatch_binding(tab)
+        armed_second = await service.arm_dispatch_binding(tab)
+
+        self.assertTrue(armed_first)
+        self.assertTrue(armed_second)
+        # One arming = Runtime.enable + Runtime.addBinding.
+        self.assertEqual(tab.journal.count("send"), 2)
+        self.assertEqual(service.armed_binding_targets, {"tab-1"})
+        self.assertEqual(observability.snapshot()["calls"]["arm_binding"], 1)
+
+    async def test_arm_dispatch_binding_skips_tab_without_target(self):
+        tab = SimpleNamespace(url="https://example.com")
+        service = BrowserService(None)
+
+        armed = await service.arm_dispatch_binding(tab)
+
+        self.assertFalse(armed)
+        self.assertEqual(service.armed_binding_targets, set())
+
+    async def test_arm_dispatch_binding_failure_leaves_target_unarmed(self):
+        tab = FakeTab(target_id="tab-1")
+        tab.program("send", RuntimeError("Runtime domain unavailable"))
+        service = BrowserService(FakeBrowser([tab]))
+
+        armed = await service.arm_dispatch_binding(tab)
+
+        self.assertFalse(armed)
+        self.assertEqual(service.armed_binding_targets, set())
+
+    async def test_dispatch_binding_handler_enqueues_valid_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        event = SimpleNamespace(
+            name="synthesixDispatch",
+            payload=json.dumps({"action": "cancel_search"}),
+        )
+        await tab.fire(cdp.runtime.BindingCalled, event)
+
+        action = service.dispatch_queue.get_nowait()
+        self.assertEqual(action["action"], "cancel_search")
+        self.assertIs(action["_source_tab"], tab)
+        self.assertEqual(observability.snapshot()["calls"]["push_action"], 1)
+
+    async def test_dispatch_binding_handler_ignores_other_bindings(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        event = SimpleNamespace(
+            name="someOtherBinding",
+            payload=json.dumps({"action": "cancel_search"}),
+        )
+        await tab.fire(cdp.runtime.BindingCalled, event)
+
+        self.assertTrue(service.dispatch_queue.empty())
+
+    async def test_dispatch_binding_handler_discards_malformed_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        for payload in ("not json", "42", json.dumps({"no_action": True})):
+            await tab.fire(
+                cdp.runtime.BindingCalled,
+                SimpleNamespace(name="synthesixDispatch", payload=payload),
+            )
+
+        self.assertTrue(service.dispatch_queue.empty())
+
+    async def test_dispatch_binding_handler_discards_oversized_payload(self):
+        tab = FakeTab(target_id="tab-1")
+        service = BrowserService(FakeBrowser([tab]))
+        await service.arm_dispatch_binding(tab)
+
+        await tab.fire(
+            cdp.runtime.BindingCalled,
+            SimpleNamespace(
+                name="synthesixDispatch",
+                payload=json.dumps({"action": "cancel_search", "blob": "x" * 300000}),
+            ),
+        )
+
+        self.assertTrue(service.dispatch_queue.empty())
+
+
+    def test_inspector_worker_script_loaded_event_is_registered(self):
+        event = cdp.util.parse_json_event(
+            {
+                "method": "Inspector.workerScriptLoaded",
+                "params": {},
+            }
+        )
+
+        self.assertEqual(type(event).__name__, "_InspectorWorkerScriptLoaded")
+
+    async def test_open_tab_delegates_and_counts(self):
+        browser = FakeBrowser()
+        service = BrowserService(browser)
+
+        tab = await service.open_tab("file:///index.html", new_tab=True)
+
+        self.assertEqual(tab.url, "file:///index.html")
+        self.assertEqual(observability.snapshot()["calls"]["open_tab"], 1)
+
+
+    async def test_close_tab_is_bounded_and_best_effort(self):
+        tab = FakeTab("https://example.org")
+        service = BrowserService(FakeBrowser([tab]))
+
+        self.assertTrue(await service.close_tab(tab))
+        self.assertTrue(tab.closed)
+        self.assertEqual(observability.snapshot()["calls"]["close_tab"], 1)
+
+    async def test_close_blank_tabs_leaves_content_tabs_open(self):
+        blank = FakeTab("about:blank", "blank")
+        empty = FakeTab("", "empty")
+        content = FakeTab("https://example.com", "content")
+        browser = FakeBrowser([blank, empty, content])
+        service = BrowserService(browser)
+
+        closed = await service.close_blank_tabs()
+
+        self.assertEqual(closed, 2)
+        self.assertTrue(blank.closed)
+        self.assertTrue(empty.closed)
+        self.assertFalse(content.closed)
+
+    async def test_close_blank_tabs_ignores_websocket_closed_flag(self):
+        # zendriver's Tab.closed means "no websocket attached", which is
+        # true for the untouched initial about:blank tab — it must still
+        # be closed, not skipped as already-closed.
+        blank = FakeTab("about:blank", "blank")
+        blank.closed = True
+        browser = FakeBrowser([blank])
+        service = BrowserService(browser)
+
+        closed = await service.close_blank_tabs()
+
+        self.assertEqual(closed, 1)
+        self.assertEqual(blank.journal.count("close"), 1)
+
+    async def test_show_tab_window_for_manual_interaction_moves_window(self):
+        calls = []
+
+        class Connection:
+            async def send(self, command):
+                request = next(command)
+                calls.append(request)
+                if request["method"] == "Browser.getWindowForTarget":
+                    return cdp.browser.WindowID(7), {}
+                return None
+
+        tab = FakeTab("https://www.google.com/sorry/", "target-1")
+        tab.connection = Connection()
+        browser = FakeBrowser([tab])
+        service = BrowserService(browser)
+
+        await service.show_tab_window_for_manual_interaction(tab)
+
+        self.assertEqual(calls[0]["method"], "Browser.getWindowForTarget")
+        self.assertEqual(calls[0]["params"]["targetId"], "target-1")
+        self.assertEqual(calls[1]["method"], "Browser.setWindowBounds")
+        self.assertEqual(calls[1]["params"]["windowId"], 7)
+        self.assertEqual(calls[1]["params"]["bounds"]["left"], 80)
+        self.assertEqual(calls[1]["params"]["bounds"]["top"], 80)
+        self.assertEqual(
+            tab.journal.count("bring_to_front"),
+            1,
+        )
+
+    async def test_screenshot_decodes_base64_png(self):
+        tab = FakeTab()
+        tab.program("send", base64.b64encode(b"png-bytes").decode("ascii"))
+
+        content = await screenshot(
+            tab,
+            {"x": 0.0, "y": 0.0, "width": 8.0, "height": 8.0, "scale": 1.0},
+        )
+
+        self.assertEqual(content, b"png-bytes")
+        self.assertEqual(observability.snapshot()["calls"]["screenshot"], 1)
+
+    async def test_mhtml_and_outer_html_return_documents(self):
+        tab = FakeTab()
+        tab.program("send", "mhtml-content")
+        self.assertEqual(await mhtml(tab), "mhtml-content")
+
+        tab.program("send", SimpleNamespace(node_id=1), "<html></html>")
+        self.assertEqual(await outer_html(tab), "<html></html>")
+
+        calls = observability.snapshot()["calls"]
+        self.assertEqual(calls["capture_mhtml"], 1)
+        self.assertEqual(calls["capture_html"], 1)
+
+    async def test_page_layout_and_visual_viewport_support_visual_archives(self):
+        tab = FakeTab()
+        tab.program(
+            "send",
+            (
+                SimpleNamespace(),
+                SimpleNamespace(),
+                SimpleNamespace(width=799, height=599),
+                SimpleNamespace(),
+                SimpleNamespace(),
+                SimpleNamespace(width=1200, height=6400),
+            ),
+        )
+        tab.program(
+            "evaluate",
+            {"x": 10, "y": 20, "width": 1200, "height": 800},
+        )
+
+        self.assertEqual(await page_layout(tab), {"width": 1200.0, "height": 6400.0})
+        self.assertEqual(
+            await visual_viewport(tab),
+            {"x": 10.0, "y": 20.0, "width": 1200.0, "height": 800.0},
+        )
+        calls = observability.snapshot()["calls"]
+        self.assertEqual(calls["page_layout"], 1)
+        self.assertEqual(calls["visual_viewport"], 1)
+
+    async def test_visual_capture_hides_overlay_with_display_before_scroll(self):
+        tab = FakeTab()
+
+        await browser_service.scroll_for_visual_capture(tab, 12, 34)
+        await browser_service.finish_visual_capture(tab, 12, 34)
+
+        scripts = [call.args[0] for call in tab.journal.calls("evaluate")]
+        self.assertIn("__synthesix-save-overlay", scripts[0])
+        self.assertIn("setProperty('display', 'none', 'important')", scripts[0])
+        self.assertIn("synthesixVisualCaptureStyle", scripts[1])
+
+    def test_get_browser_service_caches_per_browser(self):
+        browser = FakeBrowser()
+        self.assertIs(
+            get_browser_service(browser), get_browser_service(browser)
+        )
+
+    def test_get_browser_service_tolerates_non_weakref_doubles(self):
+        browser = SimpleNamespace(tabs=[])
+        service = get_browser_service(browser)
+        self.assertIs(service.browser, browser)
+
+
+class NoDirectCdpRegressionTestCase(unittest.TestCase):
+    """T-020 step 4: raw CDP idioms must stay inside browser/service.py."""
+
+    FORBIDDEN = (
+        re.compile(r"\.send\("),
+        re.compile(r"_get_targets"),
+        re.compile(r"\buc\.cdp\."),
+        re.compile(r"\bcdp\.(?!com)"),
+        re.compile(r"await\s+\w+\.evaluate\("),
+    )
+
+    def assert_no_direct_cdp(self, module_path: Path) -> None:
+        source = module_path.read_text(encoding="utf-8")
+        for pattern in self.FORBIDDEN:
+            self.assertIsNone(
+                pattern.search(source),
+                f"{module_path.name} contains direct CDP call "
+                f"({pattern.pattern!r}); route it through browser/service.py",
+            )
+
+    def test_main_has_no_direct_cdp_calls(self):
+        import main
+
+        self.assert_no_direct_cdp(Path(main.__file__))
+
+
+if __name__ == "__main__":
+    unittest.main()

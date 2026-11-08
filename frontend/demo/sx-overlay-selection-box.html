@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix overlay selection box demo</title>
+    <script src="../../assets/synthesix-overlay.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #ffffff;
+        font-family: system-ui, Arial, sans-serif;
+      }
+      .page {
+        padding: 40px;
+        font-size: 14px;
+        color: #334155;
+      }
+      .page h1 { color: #0f172a; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Page tierce (simulée)</h1>
+      <p>Le contenu de la page reste visible sous le voile de sélection.</p>
+      <p>La box cyan ci-dessous est figée pour la capture ; le drag réel est
+         validé en live.</p>
+    </div>
+    <sx-overlay-selection-box></sx-overlay-selection-box>
+    <script type="module">
+      customElements.whenDefined("sx-overlay-selection-box").then(() => {
+        const el = document.querySelector("sx-overlay-selection-box");
+        // Open shadow root: show a representative selection rectangle.
+        const box = el.shadowRoot.querySelector(".box");
+        box.classList.add("is-active");
+        Object.assign(box.style, {
+          left: "180px",
+          top: "150px",
+          width: "360px",
+          height: "200px",
+        });
+      });
+    </script>
+  </body>
+</html>

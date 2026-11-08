@@ -1,0 +1,110 @@
+"""T-050: example tests for the shared FakeTab/FakeBrowser harness.
+
+One test per documented use case (engine wait, home action loop, capture),
+plus the fake-clock guarantee: timeouts are simulated without real time.
+"""
+
+import base64
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import observability
+import search_engine as search_engine_module
+from search_engine import SearchEngine
+from settings import get_settings
+from tests.fakes import FakeBrowser, FakeTab, fake_clock
+
+INDEX_URL = "file:///synthesix/index.html"
+
+
+class ProbeEngine(SearchEngine):
+    def __init__(self):
+        super().__init__("Probe")
+
+    def set_selector(self):
+        self.selector = "#results"
+
+    def construct_url(self):
+        return "https://probe.example/search"
+
+    def parse_results(self, raw_results):
+        return []
+
+
+class EngineWaitExampleTestCase(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        observability.reset()
+
+    def tearDown(self):
+        observability.reset()
+
+    async def test_wait_for_page_load_success_without_real_time(self):
+        engine = ProbeEngine()
+        engine.set_selector()
+        tab = FakeTab(url="https://probe.example/search")
+        # T-012: wait loops issue one composite probe (evaluate) per
+        # iteration and never fetch the page HTML while waiting.
+        tab.program(
+            "evaluate",
+            '{"found": false}',
+            '{"found": false}',
+            '{"found": true}',
+        )
+        engine.tab = tab
+
+        with fake_clock(search_engine_module) as clock:
+            loaded = await engine.wait_for_page_load(timeout=30, interval=0.5)
+
+        self.assertTrue(loaded)
+        self.assertEqual(tab.journal.count("evaluate"), 3)
+        self.assertEqual(tab.journal.count("get_content"), 0)
+        self.assertEqual(clock.sleeps, [0.5, 0.5])
+
+    async def test_wait_for_page_load_timeout_without_real_time(self):
+        engine = ProbeEngine()
+        engine.set_selector()
+        engine.tab = FakeTab(url="https://probe.example/search")
+
+        started = time.monotonic()
+        with fake_clock(search_engine_module) as clock:
+            loaded = await engine.wait_for_page_load(timeout=30, interval=0.5)
+        real_elapsed = time.monotonic() - started
+
+        self.assertFalse(loaded)
+        self.assertGreaterEqual(clock.now, 30.0)
+        # Acceptance: a 30 s timeout is simulated in well under 100 ms of
+        # real time (generous bound to stay flake-free on slow machines).
+        self.assertLess(real_elapsed, 1.0)
+        self.assertEqual(engine.tab.journal.count("get_content"), 1)
+
+
+class FakeTabBehaviourTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_programmed_exception_is_raised_then_defaults_resume(self):
+        tab = FakeTab()
+        tab.program("evaluate", RuntimeError("boom"), "value")
+
+        with self.assertRaises(RuntimeError):
+            await tab.evaluate("first()")
+        self.assertEqual(await tab.evaluate("second()"), "value")
+        self.assertIsNone(await tab.evaluate("third()"))
+
+    async def test_navigation_and_close_update_state(self):
+        browser = FakeBrowser()
+        tab = await browser.get("https://example.com/a", new_tab=True)
+        self.assertIs(browser.tabs[-1], tab)
+        self.assertEqual(tab.url, "https://example.com/a")
+
+        same_tab = await tab.get("https://example.com/b")
+        self.assertIs(same_tab, tab)
+        self.assertEqual(tab.url, "https://example.com/b")
+
+        await tab.close()
+        self.assertTrue(tab.closed)
+        self.assertEqual(browser.journal.count("close"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

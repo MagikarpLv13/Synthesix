@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthesix URL analysis demo</title>
+    <link rel="stylesheet" href="../../theme.css">
+    <script type="module" src="../../assets/synthesix-ui.js"></script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .demo { width: min(480px, calc(100vw - 32px)); }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <sx-url-analysis class="result-url-analysis">
+        <div class="entity-heading">
+          <span class="provenance-label">Technical URL analysis (1)</span>
+          <button type="button" class="icon-action icon-action--frame" title="Analyze URL" aria-label="Analyze URL">↻</button>
+        </div>
+        <div class="url-analysis-summary">
+          <strong>HTTP 200</strong>
+          <span>0 redirect(s)</span>
+          <span>text/html</span>
+        </div>
+        <div class="result-url" title="https://example.com/page">example.com/page</div>
+      </sx-url-analysis>
+    </div>
+  </body>
+</html>

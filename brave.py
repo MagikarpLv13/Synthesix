@@ -8,13 +8,14 @@ from datetime import datetime
 from html import unescape
 from urllib.parse import quote_plus, urlencode, urlparse
 
+from browser import get_browser_service
 from exceptions import RobotChallengeError
 from parsers import parse_with_xpath
 from query_operators import build_engine_date_params
 from search_engine import SearchEngine
 from search_regions import build_engine_region_params
 from settings import get_settings
-from utils import js_like_to_json
+from parsers import js_like_to_json
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,20 @@ BRAVE_ROBOT_FIND_PATTERNS = (
     "verifiez que vous etes humain",
 )
 
+# Probe-side challenge markers (T-012): the captcha interstitial path and the
+# blockRobots flag, matched on a bounded innerHTML slice in-page. The looser
+# text patterns above stay reserved for robot_check() on the full HTML.
+BRAVE_CHALLENGE_URL_PATH_SUBSTRINGS = (
+    "/captcha",
+    "/challenge",
+    "/verify",
+)
+
+BRAVE_CHALLENGE_HTML_MARKERS = (
+    "blockRobots:true",
+    '"blockRobots":true',
+)
+
 
 def _normalize_challenge_text(text: str) -> str:
     text = unescape(str(text))
@@ -122,6 +137,7 @@ class BraveSearchEngine(SearchEngine):
         self.offset = 1
         self.query = None
         self.nb_results_per_page = 0
+        self._empty_results_dumped = False
 
     def construct_url(self):
         url = f"{self.base_url}/search?q={quote_plus(self.construct_query(self.query))}&spellcheck=0"
@@ -131,8 +147,8 @@ class BraveSearchEngine(SearchEngine):
             url += "&" + urlencode(extra_params)
         return url
 
-    # There is some cases where Brave does not display the Title in the HTML
-    def parse_results_old(self, raw_results):
+    # Some Brave pages expose only hydrated result rows in the HTML.
+    def _parse_results_dom(self, raw_results):
         xpaths = self.get_xpaths()
         return parse_with_xpath(
             raw_results,
@@ -148,20 +164,22 @@ class BraveSearchEngine(SearchEngine):
             "result": "//div[contains(@class, 'snippet') and @data-pos]",
             "title": ".//div[contains(@class, 'title')]",
             "link": ".//a[@href]",
-            "desc": ".//div[contains(@class, 'snippet-description')]",
+            # Brave moved the description from `.snippet-description` to a
+            # `.content` node inside `.generic-snippet`; accept both so older
+            # captures and the current SERP markup both parse.
+            "desc": ".//div[contains(@class, 'snippet-description') or contains(@class, 'generic-snippet')]",
         }
 
-    def parse_results(self, raw_results):
-        pattern = r"results:\s*\[\{(.*?)\}\],bo"
+    def _parse_results_embedded_json(self, raw_results):
+        pattern = r"['\"]?results['\"]?\s*:\s*\[\{(.*?)\}\],\s*[a-zA-Z_$]{1,3}\b"
         match = re.search(pattern, raw_results, re.DOTALL)
         results = []
-        self.nb_results_per_page = 0
 
         if match:
             res = js_like_to_json(match.group(1))
             if res is not None:
                 for item in res:
-                    if self.num_results < self.max_results:
+                    if self.max_results is None or self.num_results < self.max_results:
                         title = item.get("title", None)
                         url = item.get("url", None)
                         description = item.get("description", None)
@@ -180,6 +198,57 @@ class BraveSearchEngine(SearchEngine):
             logger.debug("Brave results block not found in page source.")
 
         return results
+
+    def parse_results(self, raw_results):
+        self.nb_results_per_page = 0
+
+        results = self._parse_results_dom(raw_results)
+        if results:
+            if self.max_results is not None:
+                remaining = max(0, self.max_results - self.num_results)
+                results = results[:remaining]
+            self.num_results += len(results)
+            self.nb_results_per_page = len(results)
+            return results
+
+        logger.debug("Brave DOM parsing returned no results; trying embedded JSON.")
+        results = self._parse_results_embedded_json(raw_results)
+        if results:
+            logger.debug("Brave embedded JSON fallback parsed %d results.", len(results))
+            return results
+
+        logger.warning("Brave parsing failed: DOM and embedded JSON returned no results.")
+        self._dump_empty_results_html(raw_results)
+        return []
+
+    def _dump_empty_results_html(self, raw_results) -> None:
+        """Save the raw page once when Brave yields zero results, so its
+        current markup can be inspected and the parser updated.
+
+        Always dumps (guarded to one per search, independent of the
+        ``SYNTHESIX_DEBUG_HTML`` flag): a silently empty Brave means the site
+        layout drifted from both the embedded-JSON regex and the XPath
+        fallback, and the raw page is the only way to diagnose it. It is NOT
+        gated on ``looks_like_brave_robot_challenge`` — a fully rendered SERP
+        routinely contains the bare words "bot"/"robot", which would false-
+        positive and silently skip the capture we need most."""
+        if self._empty_results_dumped:
+            return
+        raw_results = str(raw_results)
+        self._empty_results_dumped = True
+        try:
+            capture_dir = get_settings().debug_html_dir
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            stem = f"brave_empty_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_path = capture_dir / f"{stem}.html"
+            output_path.write_text(raw_results, encoding="utf-8")
+        except OSError:
+            logger.debug("Unable to save the empty Brave results page", exc_info=True)
+            return
+        logger.warning(
+            "Brave returned 0 results; saved the raw page for diagnosis: %s",
+            output_path.resolve(),
+        )
 
     async def post_execute_search(self):
         if self.num_results >= self.max_results:
@@ -201,7 +270,16 @@ class BraveSearchEngine(SearchEngine):
             self.results.extend(results)
 
     def set_selector(self):
-        self.selector = "#results"
+        # Wait on the result rows themselves, not the `#results` container:
+        # Brave mounts the container empty and hydrates the snippets after, so
+        # the container appearing does not mean the results are ready yet.
+        self.selector = "#results .snippet[data-pos]"
+
+    def get_probe_markers(self) -> dict:
+        return {
+            "challenge_url_path_substrings": BRAVE_CHALLENGE_URL_PATH_SUBSTRINGS,
+            "challenge_html_markers": BRAVE_CHALLENGE_HTML_MARKERS,
+        }
 
     def construct_query(self, query: str) -> str:
         """Construct the query for the search.
@@ -248,13 +326,37 @@ class BraveSearchEngine(SearchEngine):
         interval = settings.brave_results_interval if interval is None else interval
         start = time.monotonic()
         while (time.monotonic() - start) < timeout:
-            try:
-                if await self.tab.query_selector(self.selector):
-                    return True
-            except Exception:
-                pass
+            state = await self.probe_page_state()
+            if state["found"]:
+                return True
+            if state["challenge"]:
+                # Stop waiting for results; let robot_check take over now
+                # instead of burning the full results timeout on a captcha.
+                return False
             await asyncio.sleep(interval)
         return False
+
+    async def wait_for_page_load(self, timeout=None, interval=None) -> bool:
+        """Wait for Brave's client-rendered results, then read — same strategy
+        as the other engines (wait for the result selector, scrape on found).
+
+        The selector targets the result rows (``#results .snippet[data-pos]``),
+        not the ``#results`` container: Brave (SvelteKit) mounts an empty
+        container first and injects the snippets client-side, so waiting on the
+        container read the shell (0 results). Waiting on the rows returns as
+        soon as the results are actually present (~1s), with Brave's own
+        results timeout for slow pages and an early bail on a captcha."""
+        if await self._wait_for_results_container(timeout, interval):
+            return True
+
+        try:
+            await self.read_page_content("load_timeout")
+        except Exception:
+            logger.debug(
+                "Unable to capture Brave content after load timeout",
+                exc_info=True,
+            )
+        return bool(await self.robot_check())
 
     async def _click_robot_button_with_find(self):
         for text in BRAVE_ROBOT_FIND_PATTERNS:
@@ -384,7 +486,9 @@ class BraveSearchEngine(SearchEngine):
             return False
 
         try:
-            await self.tab.bring_to_front()
+            await get_browser_service(self.browser).show_tab_window_for_manual_interaction(
+                self.tab
+            )
         except Exception:
             logger.debug(
                 "Unable to focus the Brave challenge tab",
